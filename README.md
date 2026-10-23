@@ -10,7 +10,7 @@ test benches, two ready-to-run schematics and a scripted regression that checks
 > **Disclaimer.** This is an independent, **unofficial** model. STMicroelectronics
 > did not provide, review or endorse it. It was built from the public datasheet.
 > Where the datasheet gives no number, an engineering estimate is used and
-> marked **[EST]** (see [Assumptions and estimates](#9-assumptions-estimates-and-limitations)).
+> marked **[EST]** (see [Assumptions and estimates](#10-assumptions-estimates-and-limitations)).
 > Use it for architecture studies, protection coordination and harness/load
 > interaction. Do not use it in place of ST's own models, the latest datasheet or
 > hardware validation.
@@ -19,22 +19,253 @@ test benches, two ready-to-run schematics and a scripted regression that checks
 
 ## Contents
 
-1. [What is modeled](#1-what-is-modeled)
-2. [Repository layout](#2-repository-layout)
-3. [Quick start](#3-quick-start)
-4. [The reference device in one page](#4-the-reference-device-in-one-page)
-5. [Model architecture and pins](#5-model-architecture-and-pins)
-6. [Block-by-block description (with equations)](#6-block-by-block-description)
-7. [EFUSE48_MOD: the complete channel and the external-component design](#7-efuse48_mod-complete-channel-and-external-component-design)
-8. [Test benches and results](#8-test-benches-and-results)
-9. [Assumptions, estimates and limitations](#9-assumptions-estimates-and-limitations)
-10. [Numerical notes and troubleshooting](#10-numerical-notes-and-troubleshooting)
-11. [Designing with the model: worked example](#11-designing-with-the-model-worked-example)
-12. [References](#12-references)
+1. [How an eFuse works: an intuitive guide](#1-how-an-efuse-works-an-intuitive-guide)
+2. [What is modeled](#2-what-is-modeled)
+3. [Repository layout](#3-repository-layout)
+4. [Quick start](#4-quick-start)
+5. [The reference device in one page](#5-the-reference-device-in-one-page)
+6. [Model architecture and pins](#6-model-architecture-and-pins)
+7. [Block-by-block description (with equations)](#7-block-by-block-description)
+8. [EFUSE48_MOD: the complete channel and the external-component design](#8-efuse48_mod-complete-channel-and-external-component-design)
+9. [Test benches and results](#9-test-benches-and-results)
+10. [Assumptions, estimates and limitations](#10-assumptions-estimates-and-limitations)
+11. [Numerical notes and troubleshooting](#11-numerical-notes-and-troubleshooting)
+12. [Designing with the model: worked example](#12-designing-with-the-model-worked-example)
+13. [References](#13-references)
 
 ---
 
-## 1. What is modeled
+## 1. How an eFuse works: an intuitive guide
+
+This section is for electronic engineers who know power MOSFETs and op-amps but
+have not worked with electronic fuses. It explains what the circuit does and why,
+and points to the model parameter that controls each behaviour. The equations
+are in [section 7](#7-block-by-block-description).
+
+### 1.1 The job: protect the wire, not the load
+
+A conventional fuse protects the **wire harness and the PCB copper**, not the
+load. Any conductor heats up with I²·R and cools to its surroundings. If the
+current stays too high for too long, the insulation degrades, carbonizes and can
+start a fire. A melting fuse is a thermal replica of the wire: it heats with I²
+and opens before the wire is damaged. The characteristic number is its
+**I²t** (A²s), the "melting energy".
+
+Melting fuses have well-known weaknesses:
+
+* they are one-shot, and you have to physically replace them;
+* their tolerance is wide, so the wire must be oversized;
+* they cannot tell a harmless inrush (charging a capacitor) from a real overload;
+* at 48 V they have to break arcs, which is far harder than at 12 V.
+
+An **eFuse** replaces the melting element with a **MOSFET switch + a current
+measurement + logic** that *computes* the wire heating in real time and opens the
+switch electronically. It is resettable and programmable, reports what happened
+(DIAG pin, current readback), and adds protections a melting fuse cannot have:
+microsecond short-circuit response and switch self-monitoring.
+
+### 1.2 The power path: shunt, MOSFET and charge pump
+
+```
+ Battery 48 V ──[ RSENSE 1 mΩ ]──┬──── D ┌─────────┐ S ──── OUT ──harness──► load
+                                 │       │ N-MOSFET│
+               ISNS_P   ISNS_N ──┘       └────┬────┘
+                  │        │                  G
+                  └──┬─────┘                  │
+                 ┌───┴──────── VNF1048F ──────┴───────────┐
+                 │ current sense   gate driver (VGS 14 V) │
+                 │ fuse logic      charge pump (VS+14.5 V)│
+                 └────────────────────────────────────────┘
+```
+
+* **The switch** is an N-channel MOSFET in the positive line (*high side*), so the
+  load stays referenced to chassis ground. In the model it is `M1`
+  (`FET100V_2M`: 100 V, ~2 mΩ). An N-channel device has lower resistance and is
+  cheaper than a P-channel one. To turn it on, though, the gate must be about
+  10–15 V **above the source**, and with the switch on the source sits at battery
+  voltage. The gate therefore has to be driven *above the battery*.
+* **The charge pump** generates that voltage: VCP = VS + 14.5 V ≈ 62.5 V at 48 V
+  (`VCP_REG`). The gate driver takes charge from it and regulates
+  VGS ≈ 14 V (`VGS_ON`). It sources ~0.2 A to turn on (`IG_SRC`) and sinks ~0.5 A
+  to turn off (`IG_SNK`). Switching off simply means shorting gate to source.
+* **The current measurement** uses a 1 mΩ shunt (`RSENSE`) before the MOSFET.
+  The controller reads the small differential voltage
+  **VSENSE = I × RSENSE**, which is 10 mV at 10 A, on top of a 48 V common mode.
+  All current thresholds in the device are therefore specified in **millivolts
+  of VSENSE**, and you choose amperes through RSENSE:
+
+  ```
+  INOM (max continuous current) = VOC_THRS / RSENSE   e.g. OVC_CODE 13 → 21.8 mV / 1 mΩ = 21.8 A
+  IHSC (hard-short threshold)   = VHSC_THRS / RSENSE  e.g. HSC_CODE 12 → 105.6 mV / 1 mΩ = 105.6 A
+  ```
+
+  A larger RSENSE gives better resolution at low current but more loss: at 20 A,
+  1 mΩ dissipates 0.4 W. The measured value is also reported back (`CS` pin =
+  VSENSE, 13 bit), so the MCU can read the load current.
+
+### 1.3 Three layers of protection, three time scales
+
+Think of the protections as three nested safety nets, each fast enough for its
+own kind of fault:
+
+| Layer | Fault it handles | Reaction time | Model parameter | Test bench |
+|---|---|---|---|---|
+| **Fuse emulation (I²t)** | overload: too much current for too long | ms … minutes | `OVC_CODE`, `TNOM_CODE`, node `fd` | tb03, tb04 |
+| **Hard short** | short circuit: current shooting up | ~5 µs | `HSC_CODE`, `HSC_DLY` | tb02, tb10 |
+| **Switch self-monitoring** | the MOSFET itself is in trouble | µs … ms | `VDS_CODE`, `NTC_CODE`, VGS UVLO | tb05, tb07 |
+
+#### Layer 1: the fuse emulation as a bucket of heat
+
+Picture a **bucket** that represents the heat stored in the wire. In the model
+the bucket level is the node **`fd`**: 0 = cold, 1 = full = trip.
+
+* Current **above INOM** pours water in, faster the higher the current
+  (∝ I² − INOM², the excess heating).
+* Current **below INOM** lets water drain out, because the wire cools.
+* When the bucket is full, the MOSFET is switched off and the fault is latched
+  (`fusel`).
+
+The size of the bucket is set by **tNOM** (`TNOM_CODE`, tNOM = 2·code + 1 s),
+which is the trip time at a current just above INOM. Larger tNOM means a bigger
+bucket and a more tolerant fuse, matched to a thicker wire with more thermal mass.
+The ST silicon rounds the fill rate to powers of two, so the curve looks like a
+staircase (DS13084 Fig. 4, reproduced in tb03). For INOM = 21.8 A and tNOM = 1 s:
+
+| Load current | I/INOM | Trip time (tNOM = 1 s) | Trip time scales with |
+|---|---|---|---|
+| 21.8 A | ≤ 1.00 | never | – |
+| 22.9 A | 1.05 | 0.5 s | × tNOM |
+| 26.2 A | 1.2 | 125 ms | × tNOM |
+| 32.7 A | 1.5 | 31 ms | × tNOM |
+| 43.6 A | 2 | 15.6 ms | × tNOM |
+| 65.4 A | 3 | 3.9 ms | × tNOM |
+| 104.6 A | 4.8 | 2 ms | × tNOM |
+| > 105.6 A | > IHSC/INOM | **~5 µs: hard short (layer 2)** | – |
+
+With TNOM_CODE = 15 (tNOM = 31 s) every time in the table is 31 times longer.
+The bucket picture explains three behaviours that confuse newcomers:
+
+* **Inrush is ignored.** Charging a 220 µF input capacitor at 30 A for 0.5 ms
+  pours in only a spoonful (tb01: `fd` peaks at 0.005), so no trip occurs, even
+  though the current is above INOM.
+* **PWM loads are judged by their RMS current.** A load chopped at 40 A peak
+  fills the bucket during the on-time and drains it during the off-time. The net
+  level rises only if the *RMS* current exceeds INOM. tb04 shows that 25 % and
+  30 % duty never trip, while 35 % and 50 % do.
+* **The fuse remembers.** Right after a trip the bucket is still full and needs
+  about tNOM/32 to empty. If the MCU re-enables too early, the next trip comes
+  much sooner. This is intentional: the wire is still hot.
+
+#### Layer 2: hard short circuit
+
+In a real short the current is limited only by the battery and wiring
+inductance. With 2 µH of harness at 48 V it rises at 48 V / 2 µH = **24 A/µs**, so
+within 10 µs it can reach several hundred amperes. The bucket logic, which
+averages over 61 µs (`T_SAMP`), is too slow for that. A separate comparator
+watches VSENSE directly. If it exceeds VHSC (`HSC_CODE`) for 5 µs (`HSC_DLY`),
+the MOSFET is switched off at once and `hsht` is latched. tb02 shows a 105.6 A
+threshold being crossed and the switch opening 8 µs after the short. The peak
+reaches ~340 A because the current keeps rising during the delay and the
+turn-off. Size the MOSFET's pulse rating and the input TVS/capacitors for that
+peak, not for the threshold.
+
+#### Layer 3: watching the switch itself
+
+The MOSFET is only safe when it is either **fully on** (tiny VDS, little power)
+or **fully off**. Any state in between dissipates P = VDS × I, which is
+48 V × 50 A = 2.4 kW, and destroys it in milliseconds. The controller therefore
+checks the switch continuously:
+
+* **VDS desaturation** (`VDS_CODE`, 0.3–1.8 V). When the switch is on, VDS must be
+  small (2 mΩ × 20 A = 40 mV). If VDS exceeds the threshold, the MOSFET is not
+  fully on (weak gate, overload, damaged die), and it is switched off (`vdsmax`).
+  During turn-on VDS is necessarily large, so the check is **blanked for 960 µs**
+  (`VDS_BLK`) after every turn-on. That is why the output must finish ramping up
+  within ~1 ms (tb05).
+* **Gate under-voltage** (`vgslow`): if VGS drops below ~8.5 V the MOSFET is no
+  longer fully enhanced. This can come from charge-pump problems, a gate leak or
+  low battery.
+* **MOSFET temperature** (`NTC_CODE`, 100–150 °C): a 10 kΩ NTC on the drain pad,
+  read through a 1.2 V bridge. A slow overload just below INOM in a hot
+  environment can still overheat a poorly cooled MOSFET, and the NTC catches it
+  (tb07: trip at 119.8 °C for a 120 °C setting).
+* **Controller temperature** (`TTSD`, 175 °C) and **battery under-voltage**
+  (`VS_USD`, 4.5 V). Below that voltage the gate cannot be driven reliably, so the
+  device turns everything off and restarts on its own when the battery recovers
+  (tb06).
+
+### 1.4 Latch-off, not current limiting
+
+The VNF1048F **never limits the current linearly**: it does not hold the MOSFET
+half-on at a fixed current. At 48 V that would mean kilowatts in the MOSFET. Every
+protection simply **turns the switch off and latches the fault**, so the channel
+stays off. The decision to retry belongs to the MCU, which reads the fault
+over SPI and clears it. In the model, SPI is replaced by three logic pins:
+
+* `OUTCTL`: "switch on / off" (the normal command);
+* `CLR`: "clear the latched faults". If the fault is still there, the device
+  trips again immediately, as in tb02 where a retry into a short trips in 5 µs;
+* `DIAG`: an open-drain flag that goes low on any fault, a quick hardware
+  interrupt for the MCU. `CS` reports the measured current.
+
+### 1.5 Turning on gently: inrush and the slew network
+
+Most 48 V loads (DC/DC converters, inverters, ECUs) have large input
+capacitors. If the MOSFET turns on in microseconds, the capacitor charges almost
+instantly, the inrush current is enormous, and the hard-short protection trips.
+The fix is to **ramp the output voltage slowly**. In `EFUSE48_MOD` a resistor
+(`RG_ON`, 2.2 kΩ) and a capacitor from gate to ground (`C_SLEW`, 47 nF) limit how
+fast the gate, and therefore OUT, can rise: about 85 V/ms, so 48 V takes ~0.6 ms.
+The inrush current is then I = C_LOAD × dV/dt, e.g. 220 µF × 85 V/ms ≈ 19 A
+on top of the load current (tb01: 30 A peak with the 10 A load). Two limits pull in opposite directions:
+
+* **too fast** → inrush above IHSC → hard-short trip;
+* **too slow** → the ramp is still running when the 960 µs VDS blanking ends →
+  desaturation trip (tb05 with C_SLEW = 470 nF).
+
+A diode around `RG_ON` (`RG_OFF` path) makes the **turn-off** fast even though
+the turn-on is slow. A short has to be interrupted in microseconds.
+
+### 1.6 Turning off hard: where the energy goes
+
+Every wire has inductance, and a current in an inductance stores energy, ½·L·I².
+When the eFuse interrupts a current, that energy has to go somewhere:
+
+* **Battery side**: the harness inductance pushes VBAT *up*. Bulk capacitance
+  and a TVS keep it below the 70 V rating (tb02: 64 V with 100 µF; 88 V with
+  only 10 µF).
+* **Load side**: the load or harness inductance pulls OUT *below ground*. A
+  freewheel Schottky from GND to OUT gives the current a path. Without it, OUT goes
+  to −52 V and the MOSFET avalanches (tb09).
+
+### 1.7 Sleeping: the low-current bypass
+
+When the vehicle is parked, the charge pump alone would drain the battery
+(~8 mA, `IQ_ON`). In stand-by the pump is off (`CPON` = 0) and a small internal
+switch (~7 Ω, ~0.1 A max, `RBYP`/`IBYP_SAT`) keeps always-on loads supplied, at
+about 150 µA (`IQ_STBY`) of controller consumption. If the load suddenly wakes up and
+draws more than the bypass can deliver, the voltage across the bypass rises
+above ~1.3 V (`VBYP_SAT`). The controller then turns the main MOSFET on **by
+itself** (AUTO-ON, node `autoon`) and pulls DIAG low to wake the MCU (tb08).
+
+### 1.8 Putting it together: a channel's life in the test benches
+
+| Situation | What the eFuse does | Key parameters | Bench |
+|---|---|---|---|
+| Key-on, load with 220 µF input | slow ramp, inrush tolerated | `RG_ON`, `C_SLEW`, `VDS_BLK` | tb01 |
+| Normal operation at 10 A | switch fully on, current reported on CS | `RSENSE`, `VGS_ON` | tb01 |
+| Motor stalls at 1.5 × INOM | bucket fills, trip after 31 ms × tNOM | `OVC_CODE`, `TNOM_CODE` | tb03 |
+| PWM heater | trips only if I_RMS > INOM | `OVC_CODE`, `TNOM_CODE` | tb04 |
+| Harness chafes through, short to chassis | off in ~8 µs, faulty branch only | `HSC_CODE` | tb02, tb10 |
+| Load too capacitive / ramp too slow | VDS trip after 960 µs | `VDS_CODE`, `C_SLEW` | tb05 |
+| Battery sags or over-voltage | follows down to ~6 V, UV off at 4.5 V, auto-restart | `VS_USD` | tb06 |
+| Hot under-hood, poor cooling | NTC trip at the set temperature | `NTC_CODE` | tb07 |
+| Parked car, ECU wakes up | bypass → AUTO-ON | `CPON`, `VBYP_SAT` | tb08 |
+| Solenoid switched off | energy into the freewheel diode | (external Schottky) | tb09 |
+
+---
+
+## 2. What is modeled
 
 | Function (datasheet section) | Modeled behaviour |
 |---|---|
@@ -43,7 +274,7 @@ test benches, two ready-to-run schematics and a scripted regression that checks
 | HS gate driver (Tab. 12) | VGS regulated to ~14 V, ~0.2 A source / 0.5 A sink (from tON 4 µs and tOFF 2.6 µs at 80 nF), 20 V clamp |
 | Current-sense amplifier and ADC (Tab. 13) | unidirectional high-side shunt sense, 13-bit / 160 mV readback (`CS` pin), input bias currents |
 | **Hard short-circuit latch-off** (5.5, Tab. 15) | 16 SPI thresholds, 20 to 160 mV, 5 µs delay, latched, sets FUSE_LATCH too |
-| **Current-vs-time latch-off: eFuse I²t** (3, 5.6, Tab. 16, Fig. 4/5) | the **exact stepwise ST curve**, recovered from Fig. 4/5 (see [6.6](#66-the-efuse-i²t-curve)): 32 INOM thresholds, tNOM 1 to 511 s, RMS behaviour with PWM, thermal memory after a trip |
+| **Current-vs-time latch-off: eFuse I²t** (3, 5.6, Tab. 16, Fig. 4/5) | the **exact stepwise ST curve**, recovered from Fig. 4/5 (see [7.6](#76-the-efuse-i²t-curve)): 32 INOM thresholds, tNOM 1 to 511 s, RMS behaviour with PWM, thermal memory after a trip |
 | External FET desaturation (5.4, Tab. 14) | VDS = V(ISNS_N) − V(OUT), 31 thresholds 0.3 to 1.8 V, **960 µs blanking at turn-on**, 5 µs deglitch + 5 µs delay, latched |
 | Gate under-voltage VGS_LOW (Tab. 12, SR#1) | 8.5 V (VS > 10 V) / 5 V (VS = 6 V), 8 µs deglitch, latched |
 | External FET over-temperature via NTC (5.3, Tab. 17) | 1.2 V reference bridge, 16 threshold codes (100 to 150 °C), deglitch, latched, NTC model fitted to the thresholds |
@@ -53,11 +284,11 @@ test benches, two ready-to-run schematics and a scripted regression that checks
 | Fault clearing (SPI "read & clear") | `CLR` logic pin. Faults are re-armed, and if the fault persists the channel re-trips. |
 
 Not modeled: the SPI protocol itself, watchdog, Locked/Unlocked state machine,
-self-tests, HWLO, ADC sample timing (filters are used instead). See [9](#9-assumptions-estimates-and-limitations).
+self-tests, HWLO, ADC sample timing (filters are used instead). See [10](#10-assumptions-estimates-and-limitations).
 
 ---
 
-## 2. Repository layout
+## 3. Repository layout
 
 ```
 efuse/
@@ -71,7 +302,7 @@ efuse/
 ├── schematics/                   ready-to-run schematics (symbols copied alongside)
 │   ├── demo_efuse48_module.asc   module in a 48 V harness: start-up, short, retry
 │   └── app_vnf1048f_discrete.asc full discrete application (DS13084 Fig. 16 + slew network)
-├── testbenches/                  tb01..tb10 netlists (.cir), see section 8
+├── testbenches/                  tb01..tb10 netlists (.cir), see section 9
 ├── docs/
 │   ├── img/                      result plots (generated)
 │   └── VALIDATION.md             pass/fail report vs datasheet (generated)
@@ -86,7 +317,7 @@ efuse/
 
 ---
 
-## 3. Quick start
+## 4. Quick start
 
 ### In the LTspice GUI
 
@@ -129,7 +360,7 @@ XU vs cp vs drn hsg out ntc ntcm 0 diag en byp clr cs VNF1048F OVC_CODE=13 HSC_C
 
 ---
 
-## 4. The reference device in one page
+## 5. The reference device in one page
 
 The VNF1048F is **not a switch with an integrated power stage**. It is a
 **controller for an external N-channel MOSFET** in high-side configuration.
@@ -157,7 +388,7 @@ latched bit.
 
 ---
 
-## 5. Model architecture and pins
+## 6. Model architecture and pins
 
 ```mermaid
 flowchart LR
@@ -182,7 +413,7 @@ flowchart LR
   CLR --> FLT
 ```
 
-### 5.1 `VNF1048F` (controller), 14 pins
+### 6.1 `VNF1048F` (controller), 14 pins
 
 | # | Pin | Type | Function |
 |---|---|---|---|
@@ -203,7 +434,7 @@ flowchart LR
 
 Logic inputs switch at 1.5 V (3.3 V / 5 V CMOS) and have 1 MΩ to GND.
 
-### 5.2 Parameters
+### 6.2 Parameters
 
 Thresholds are set with the **same register codes as the SPI fields**, so a value
 that works in simulation maps 1:1 onto the firmware configuration.
@@ -230,7 +461,7 @@ that works in simulation maps 1:1 onto the firmware configuration.
 | `IQ_ON`, `IQ_STBY`, `IOUT_B`, `ISNSP_B`, `ISNSN_B` | 8m, 150u, 1.3m, 300u, 420u | supply and pin bias currents |
 | `CS_GERR` | 0 | gain error of the CS readback (e.g. 0.03 = +3 %) |
 
-### 5.3 Internal nodes you can probe
+### 6.3 Internal nodes you can probe
 
 All logic nodes are 0/1 V. Path syntax: netlist instance `X1` of the controller
 → `V(x1:fd)`. Inside the module (`X1 … EFUSE48_MOD`) the IC is `XU`, so use
@@ -263,9 +494,9 @@ Module-level nodes (`EFUSE48_MOD`): `drn` (FET drain = ISNS_N), `g` (FET gate),
 
 ---
 
-## 6. Block-by-block description
+## 7. Block-by-block description
 
-### 6.1 Supply, POR and under-voltage
+### 7.1 Supply, POR and under-voltage
 
 * POR: the device is in reset below 2.3 V and leaves it above 2.5 V. POR clears
   every latch and the fuse memory `fd`, which matches "registers loaded with
@@ -276,7 +507,7 @@ Module-level nodes (`EFUSE48_MOD`): `drn` (FET drain = ISNS_N), `g` (FET gate),
 * Supply current: `IQ_STBY` + `IQ_ON` when the charge pump runs, plus the pump's
   input current.
 
-### 6.2 Charge pump
+### 7.2 Charge pump
 
 ```
 VCP_target = VS + min(VCP_REG, 9 V + 1.375·(VS − 6 V))      (14.5 V for VS ≥ 10 V, 9 V at 6 V)
@@ -290,7 +521,7 @@ driver (DIAG low). At VS ≈ 5 V the pump can no longer hold VS + 5.6 V, so CP_L
 switches the FET off **before** the 4.5 V UV threshold (visible in tb06). The
 datasheet only guarantees operation down to 6 V.
 
-### 6.3 Gate driver
+### 7.3 Gate driver
 
 ```
 I_src = IG_SRC · clip((VGS_ON − V(HS_GATE,OUT))/0.5 V) · clip(V(CP,HS_GATE)/0.5 V)   from CP
@@ -302,7 +533,7 @@ This gives a current-limited, VGS-regulated push-pull referred to OUT, with a
 IG_SRC/IG_SNK come from tON = 4 µs (0.5→10 V) and tOFF = 2.6 µs with 80 nF:
 80 nF·9.5 V/4 µs ≈ 0.19 A and 80 nF·14 V/2.6 µs ≈ 0.43 A **[EST]**.
 
-### 6.4 Current-sense front end and CS readback
+### 7.4 Current-sense front end and CS readback
 
 `VSENSE = max(V(ISNS_P) − V(ISNS_N), 0)` (unidirectional). Three paths:
 
@@ -311,14 +542,14 @@ IG_SRC/IG_SNK come from tON = 4 µs (0.5→10 V) and tOFF = 2.6 µs with 80 nF:
 * **CS readback**: 200 µs low-pass (2.4 kS/s refresh), quantized to
   160 mV/8192 = 19.5 µV, optional gain error `CS_GERR`.
 
-### 6.5 Hard short-circuit latch-off
+### 7.5 Hard short-circuit latch-off
 
 `VSENSE > VHSC` while the FET is commanded on, sustained for `HSC_DLY` = 5 µs,
-latches `hsht`. Per section 5.6 it also sets `fusel`. Note that the current keeps
+latches `hsht`. Per datasheet section 5.6 it also sets `fusel`. Note that the current keeps
 rising during the 5 µs, limited only by the loop inductance. tb02 shows 105.6 A
 threshold → 340 A peak with 2 µH of harness.
 
-### 6.6 The eFuse I²t curve
+### 7.6 The eFuse I²t curve
 
 The datasheet text says the curve is "an optimized stepwise function", that
 `tNOM` is the trip time at INOM ("the first step"), and that the number of steps
@@ -364,20 +595,20 @@ Consequences, all visible in the test benches:
 
 ![I2t curve](docs/img/tb03_i2t_curve.png)
 
-### 6.7 VDS desaturation
+### 7.7 VDS desaturation
 
 `VDS = V(ISNS_N) − V(OUT)` (FET only; the shunt is upstream). The condition is
 armed `VDS_BLK` = 960 µs after each HS turn-on and must persist for 5 + 5 µs.
 The result is latched. **Design consequence: the output must finish ramping
-within ~0.96 ms** (see [7.2](#72-gate-slew-network-and-the-960-µs-rule)).
+within ~0.96 ms** (see [8.2](#82-gate-slew-network-and-the-960-µs-rule)).
 
-### 6.8 Gate under-voltage (VGS_LOW)
+### 7.8 Gate under-voltage (VGS_LOW)
 
 The threshold is 8.5 V for VS > 10 V and 5 V at VS = 6 V (interpolated). The
 monitor arms once VGS has exceeded the threshold after turn-on (the "falls below"
 wording) and trips if VGS stays below it for 8 µs. The result is latched.
 
-### 6.9 External FET over-temperature (NTC)
+### 7.9 External FET over-temperature (NTC)
 
 The bridge works as on the silicon: `NTC_M` = V(ISNS_N) − 1.2 V and
 `VNTC = V(ISNS_N) − V(NTC) = 1.2 V · RNTC/(RT_REF + RNTC)`. Trip when VNTC < VNTC_THRS
@@ -389,7 +620,7 @@ RT_REF = 10 kΩ. It reproduces 100…150 °C to within ±0.06 °C, so a threshol
 in the model means the same temperature as on the bench with the recommended NTC
 (B57232V5103F360 class). It is implemented as a ln R(T) table for robust convergence.
 
-### 6.10 Low-current bypass and AUTO-ON
+### 7.10 Low-current bypass and AUTO-ON
 
 A P-switch VS→OUT, modeled as `I = IBYP_SAT·tanh(V/(RBYP·IBYP_SAT))`, i.e. 7 Ω
 saturating at ~0.12 A, with a body diode OUT→VS. It keeps sleeping loads alive
@@ -399,7 +630,7 @@ starts and the **FET is switched on by hardware** regardless of OUTCTL. In
 stand-by (`CPON` = 0) DIAG is pulled low to signal the wake-up. CLR clears it.
 The bypass must not be used to charge loads.
 
-### 6.11 Latches, clear and DIAG
+### 7.11 Latches, clear and DIAG
 
 `EF_LATCH` is a set-dominant SR latch that holds its state on a capacitor and
 regenerates to 0/1. It starts deterministically at 0. `CLR` (or POR) resets all
@@ -409,7 +640,7 @@ again 5 µs later, which is how a firmware retry behaves (tb02).
 
 ---
 
-## 7. EFUSE48_MOD: complete channel and external-component design
+## 8. EFUSE48_MOD: complete channel and external-component design
 
 `EFUSE48_MOD VBAT OUT GND EN BYP CLR DIAG CS TFET` packages one channel as in
 DS13084 Fig. 16, plus a gate slew network:
@@ -428,7 +659,7 @@ Extra parameters: `RSENSE`, `RG_ON`, `C_SLEW`, `RG_OFF`, `NPAR` (FETs in paralle
 and the FET thermal network `TAMB`, `RTHJC`, `RTHCA`, `CTHJ`, `CTHC`. FET power is
 P = VDS·ID into a 2-stage RC network. The NTC sees the pad temperature.
 
-### 7.1 Choosing the thresholds
+### 8.1 Choosing the thresholds
 
 ```
 INOM = VOC_THRS(OVC_CODE) / RSENSE          IHSC = VHSC_THRS(HSC_CODE) / RSENSE
@@ -438,7 +669,7 @@ t_trip(I) = tNOM / 2^floor(log2(32((I/INOM)² − 1)))      for INOM < I < IHSC
 The usable fuse window is IHSC/INOM ≤ 26.7 (6 mV vs 160 mV). Keep VSENSE at
 nominal load above ~10 mV, where the sense accuracy is ±5 % or better.
 
-### 7.2 Gate slew network and the 960 µs rule
+### 8.2 Gate slew network and the 960 µs rule
 
 Without slew control the driver switches the FET in ~µs. Into a capacitive load
 the inrush is then limited only by the loop resistance, so the HSC trips. The
@@ -468,7 +699,7 @@ Two more parts in the module are design lessons from the test benches:
   holds the gate at ~62 V. Without the clamp the FET would see VGS ≫ 20 V
   (tb02: 15.9 V with the clamp).
 
-### 7.3 Board-level protection seen in the benches
+### 8.3 Board-level protection seen in the benches
 
 * **Input bulk capacitance and TVS.** Interrupting ~230 A from 1 µH of supply
   harness gives an inductive kick. With 10 µF of bus capacitance VBAT reached 88 V,
@@ -479,7 +710,7 @@ Two more parts in the module are design lessons from the test benches:
 
 ---
 
-## 8. Test benches and results
+## 9. Test benches and results
 
 All values below come from `docs/VALIDATION.md` (generated, **47/47 checks pass**).
 Base configuration unless noted: 48 V battery (10 mΩ, 1 µH), 100 µF bus,
@@ -509,7 +740,7 @@ VOC 6 mV, VHSC 160 mV, tNOM 1 s (= DS13084 Fig. 4). 19 constant overload
 currents × 2 FUSE_MODEs. Stepwise mode matches tNOM/2ᵐ within **1.4 %** (t ≥ 2 ms).
 The ideal mode matches (tNOM/32)/(x²−1) within 1.5 %. Below ~1 ms the ADC-like
 latency of one 61 µs window adds ~40 µs, as on the silicon (fastest step: 108 µs
-vs 61 µs nominal). See the figure in [6.6](#66-the-efuse-i²t-curve).
+vs 61 µs nominal). See the figure in [7.6](#76-the-efuse-i²t-curve).
 
 ### tb04: PWM load and RMS behaviour (`tb04_pwm_rms.cir`)
 The eFuse stays on while a downstream switch chops a ~40 A load at 200 Hz.
@@ -522,7 +753,7 @@ against 62.5 ms predicted from the heat balance 0.5·64 − 0.5·32 = 16/tNOM.
 ### tb05: VDS desaturation and blanking (`tb05_vds_desat.cir`)
 680 µF load with C_SLEW = 47 nF ramps in 0.6 ms (83 A inrush) and stays on.
 With C_SLEW = 470 nF the ramp would take ~6 ms, and VDS_MAX latches **970 µs**
-after turn-on (960 µs blanking + 10 µs). This is the design rule from [7.2](#72-gate-slew-network-and-the-960-µs-rule).
+after turn-on (960 µs blanking + 10 µs). This is the design rule from [8.2](#82-gate-slew-network-and-the-960-µs-rule).
 
 ![tb05](docs/img/tb05_vds_desat.png)
 
@@ -583,7 +814,7 @@ includes a 4.7 kΩ input bleeder.
 
 ---
 
-## 9. Assumptions, estimates and limitations
+## 10. Assumptions, estimates and limitations
 
 **[EST] values, not in the datasheet:**
 
@@ -618,7 +849,7 @@ includes a 4.7 kΩ input bleeder.
 
 ---
 
-## 10. Numerical notes and troubleshooting
+## 11. Numerical notes and troubleshooting
 
 * The DC operating point solves directly or with LTspice's normal Gmin stepping.
   Two deliberate choices keep it well-conditioned: the charge-pump current limit
@@ -630,14 +861,14 @@ includes a 4.7 kΩ input bleeder.
 * Use a maximum time step of ≤ 1 µs around fast events (shorts) and ≤ 20–50 µs
   for long fuse simulations. The test benches show working values.
 * "Voltage not found" in a `.meas` on an internal node means it is missing from
-  `.save`, or the hierarchy prefix is wrong (`x1:` / `x1:xu:` / `u1:`; see 5.3).
+  `.save`, or the hierarchy prefix is wrong (`x1:` / `x1:xu:` / `u1:`; see 6.3).
 * A floating output with a constant-power load can have **no DC solution**,
   because of the 1.3 mA OUT bias current (tb10). Add the load's real bleeder or
   UVLO behaviour.
 
 ---
 
-## 11. Designing with the model: worked example
+## 12. Designing with the model: worked example
 
 **Goal:** protect a 2.5 mm² 48 V feed to a 15 A (continuous) pump, with an
 800 µF input capacitance and a firmware retry.
@@ -656,7 +887,7 @@ includes a 4.7 kΩ input bleeder.
 
 ---
 
-## 12. References
+## 13. References
 
 * STMicroelectronics, *VNF1048F – High-side switch controller with intelligent
   fuse protection for 12 V, 24 V and 48 V automotive applications*, datasheet
