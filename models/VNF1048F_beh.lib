@@ -1,0 +1,372 @@
+* ============================================================================
+*  VNF1048F_beh.lib  --  Behavioral LTspice model of an ST VNF1048F-style
+*                        48 V automotive eFuse (high-side switch controller
+*                        with I2t "STi2Fuse" protection, external N-MOSFET)
+*
+*  Reference : STMicroelectronics VNF1048F datasheet DS13084 Rev 6 (May 2022)
+*  Status    : UNOFFICIAL behavioral model, NOT provided or endorsed by ST.
+*              Built from the public datasheet tables; where the datasheet
+*              gives no number, an engineering estimate is used and flagged
+*              "[EST]" (see README.md, section "Assumptions").
+*  Simulator : LTspice (validated with LTspice 26.0.2; uses B-sources with
+*              idt(), if(), table(), boolean operators)
+*
+*  Contents
+*    VNF1048F        controller (the IC itself)                      14 pins
+*    EFUSE48_MOD     complete eFuse channel: IC + shunt + MOSFET + NTC +
+*                    charge-pump/decoupling caps + gate slew network   9 pins
+*    NTC10K_ST       10k NTC (fit to the IC NTC thresholds), thermal input
+*    FET_TH          2-stage RC thermal network for the external FET
+*    EF_LATCH / EF_DGL  helper primitives (SR latch, deglitch timer)
+*    Device models   FET100V_2M (100 V / ~2 mOhm VDMOS), TVS/Schottky/etc.
+*
+*  SPI is NOT modeled bit-by-bit. The SPI register fields are mapped to
+*  instance PARAMETERS (codes, exactly as in CR#2/CR#3) and the control bits
+*  are mapped to LOGIC PINS:
+*      OUTCTL  = CR#1.OUTCTL     (HS gate driver command, 1 = on)
+*      BYPCTL  = CR#1.BYPASSCTL  (low-current bypass command, 1 = on)
+*      CLR     = "read & clear" of SR#1 latched faults (level, active high)
+*      CS      = SR#2 CURR_SENSE readback, as a voltage [V] equal to the
+*                13-bit quantized shunt voltage (I = V(CS)/Rsense)
+*  Internal status bits can be probed as V(<inst>:<node>), see README.
+* ============================================================================
+
+
+* ----------------------------------------------------------------------------
+*  VNF1048F  -- controller
+*
+*  Pins: VS CP ISNS_P ISNS_N HS_GATE OUT NTC NTC_M GND DIAG OUTCTL BYPCTL CLR CS
+*
+*  Register-code parameters (datasheet tables in brackets):
+*    OVC_CODE  0..31  CR#2.OVC_THR  -> VOC_THRS  6..89.3 mV     [Table 16]
+*    HSC_CODE  0..15  CR#2.HSHT_THR -> VHSC_THRS 20..160 mV     [Table 15]
+*    VDS_CODE  0..30  CR#2.VDS_THR  -> VDS_THRS  0.30..1.80 V   [Table 14]
+*    NTC_CODE  0..15  CR#3.NTC_THR  -> VNTC_THRS 110.9..37.5 mV [Table 17]
+*    TNOM_CODE 0..255 CR#2.T_NOM    -> tNOM = 2*code+1  (1..511 s)
+*  Direct overrides (used when > 0): VOC_MV, HSC_MV, VDS_MV, VNTC_MV, TNOM_S
+* ----------------------------------------------------------------------------
+.subckt VNF1048F VS CP ISNS_P ISNS_N HS_GATE OUT NTC NTC_M GND DIAG OUTCTL BYPCTL CLR CS
++ OVC_CODE=10 HSC_CODE=10 VDS_CODE=10 NTC_CODE=4 TNOM_CODE=0
++ VOC_MV=0 HSC_MV=0 VDS_MV=0 VNTC_MV=0 TNOM_S=0
++ FUSE_MODE=0 TOL_T=1 KCOOL=1 T_SAMP=61u
++ CPON=1
++ VCP_REG=14.5 ICP_MAX=30m RCP=10
++ VGS_ON=14 IG_SRC=0.2 IG_SNK=0.5
++ HSC_DLY=5u VDS_DGL=5u VDS_DLY=5u VDS_BLK=960u VGU_DGL=8u
++ UV_FLT=33u NTC_DGL=100u CP_FLT=60u BYP_DGL=5u
++ VS_USD=4.5 VS_USD_HYS=0.1 VBYP_SAT=1.3 RBYP=7 IBYP_SAT=0.12
++ TTSD=175 TTSD_HYS=15 TAMB=25 RTHJA=26 P_EXT=0
++ IQ_ON=8m IQ_STBY=150u IOUT_B=1.3m ISNSP_B=300u ISNSN_B=420u CS_GERR=0
++ VTH_LOGIC=1.5
+
+* ---------------- threshold tables (DS13084 Tables 14..17) -------------------
+.param VOC_T  = {1m*table(OVC_CODE, 0,6, 1,7.2, 2,8.7, 3,10.4, 4,11.8, 5,13, 6,13.8,
++  7,14.8, 8,15.8, 9,16.8, 10,17.9, 11,19.1, 12,20.4, 13,21.8, 14,23.3, 15,24.8,
++  16,26.5, 17,28.2, 18,30.1, 19,32.2, 20,34.3, 21,36.6, 22,39.1, 23,41.7, 24,44.5,
++  25,47.5, 26,50.6, 27,54, 28,61.3, 29,69.5, 30,78.8, 31,89.3)}
+.param HSC_T  = {1m*table(HSC_CODE, 0,20, 1,23, 2,26.4, 3,30.3, 4,34.8, 5,40, 6,45.9,
++  7,52.8, 8,60.6, 9,69.6, 10,80, 11,91.9, 12,105.6, 13,121.3, 14,139.3, 15,160)}
+.param VDS_T  = {0.3 + 0.05*limit(VDS_CODE,0,30)}
+.param VNTC_T = {1m*table(NTC_CODE, 0,110.92, 1,98.76, 2,88.07, 3,78.66, 4,70.38,
++  5,63.08, 6,56.64, 7,50.95, 8,45.92, 9,41.46, 10,37.5, 15,37.5)}
+.param VOC   = {if(VOC_MV>0,  VOC_MV*1m,  VOC_T)}
+.param VHSC  = {if(HSC_MV>0,  HSC_MV*1m,  HSC_T)}
+.param VDSTH = {if(VDS_MV>0,  VDS_MV*1m,  VDS_T)}
+.param VNTCT = {if(VNTC_MV>0, VNTC_MV*1m, VNTC_T)}
+.param TNOM  = {if(TNOM_S>0,  TNOM_S,     2*TNOM_CODE+1)}
+.param LSB_CS = {160m/8192}
+
+* ---------------- logic inputs (CMOS, 3.3/5 V compatible) --------------------
+Rin1 OUTCTL GND 1Meg
+Rin2 BYPCTL GND 1Meg
+Rin3 CLR    GND 1Meg
+Bi1 ioc GND V=V(OUTCTL,GND)>{VTH_LOGIC}
+Bi2 ibc GND V=V(BYPCTL,GND)>{VTH_LOGIC}
+Bi3 iclr GND V=V(CLR,GND)>{VTH_LOGIC}
+
+* ---------------- power-on reset, battery under-voltage ----------------------
+*  POR: device in reset below 2.3 V, leaves reset above 2.5 V   [1.13, 1.14]
+Bpr1 pr_s GND V=V(VS,GND)<2.3
+Bpr2 pr_r GND V=V(VS,GND)>2.5
+Xpor pr_s pr_r porlow GND EF_LATCH
+Bpor porok GND V=!(V(porlow,GND)>0.5)
+*  any latched fault is cleared by CLR or by POR
+Brst rst GND V=(V(iclr,GND)>0.5) | (V(porlow,GND)>0.5)
+*  UV shutdown: VS < 4.5 V (filtered 33 us), release at 4.5+0.1 V  [1.3..1.6]
+Buv1 uv_s GND V=V(VS,GND)<{VS_USD}
+Buv2 uv_r GND V=V(VS,GND)>{VS_USD+VS_USD_HYS}
+Xuvh uv_s uv_r uvraw GND EF_LATCH
+Xuvd uvraw uv GND EF_DGL T={UV_FLT}
+
+* ---------------- device junction temperature / thermal shutdown ------------
+*  TJ = TAMB + RthJA*(P_IC + P_EXT), 1 s thermal time constant [EST]
+Btj tj_i GND V={TAMB} + {RTHJA}*(V(VS,GND)*({IQ_STBY}+V(cpen,GND)*{IQ_ON}) + {P_EXT})
+Rtj tj_i tj 1Meg
+Ctj tj GND 1u
+Bot1 ot_s GND V=V(tj,GND)>{TTSD}
+Bot2 ot_r GND V=V(tj,GND)<{TTSD-TTSD_HYS}
+Xot ot_s ot_r devovt GND EF_LATCH
+
+* ---------------- enable chain -------------------------------------------------
+*  ok = powered, not in UV, not in device over-temperature
+Bok ok GND V=(V(porok,GND)>0.5) & !(V(uv,GND)>0.5) & !(V(devovt,GND)>0.5)
+*  latched faults that switch the external FET (and the bypass) off
+Bflt flt GND V=(V(hsht,GND)>0.5) | (V(fusel,GND)>0.5) | (V(vdsmax,GND)>0.5)
++  | (V(ntcovt,GND)>0.5) | (V(vgslow,GND)>0.5)
+*  charge pump enable: on in Unlocked/Locked/WakeUp, off in Stand-by (CPON=0)
+Bcpen cpen GND V=(V(ok,GND)>0.5) & ( {CPON}>0.5 | (V(ioc,GND)>0.5) | (V(autoon,GND)>0.5) )
+*  HS gate command (= SR#1.OUTST)
+Bgcmd gcmd GND V=(V(ok,GND)>0.5) & !(V(cplow,GND)>0.5) & !(V(flt,GND)>0.5)
++  & ( (V(ioc,GND)>0.5) | (V(autoon,GND)>0.5) )
+*  Low-current bypass command (= SR#1.BYPASSST)
+Bbyc bycmd GND V=(V(ok,GND)>0.5) & (V(ibc,GND)>0.5) & !(V(autoon,GND)>0.5) & !(V(flt,GND)>0.5)
+*  smoothed (10 ns) copies used to drive analog stages
+Bgs1 gon_i GND V=V(gcmd,GND)
+Rgs1 gon_i gon 100
+Cgs1 gon GND 100p
+Bcs1 cpe_i GND V=V(cpen,GND)
+Rcs1 cpe_i cpe 100
+Ccs1 cpe GND 100p
+Bbs1 byp_i GND V=V(bycmd,GND)
+Rbs1 byp_i byp 10k
+Cbs1 byp GND 1n
+
+* ---------------- charge pump  (Table 11) -------------------------------------
+*  VCP = VS + 14.5 V for VS > 10 V; VS + 9 V at VS = 6 V (spec 7..11 V);
+*  finite drive ICP_MAX [EST]
+*  (the current limit is only applied for time>0: the DC operating point sees
+*   a plain RCP Thevenin source, which keeps Newton well conditioned)
+Bilm ilm GND V=if(time>0, {ICP_MAX}, 10)
+Bicp icp GND V=V(cpe,GND)*V(ilm,GND)*tanh( (V(VS,GND) + limit(9+(V(VS,GND)-6)*1.375, 0, {VCP_REG})
++  - V(CP,GND)) / (V(ilm,GND)*{RCP}) )
+Bcp VS CP I=V(icp,GND)
+Rcpd CP VS 1Meg
+Dcp VS CP EF_DSW
+*  CP under-voltage: high threshold VS+6.0 V, low VS+5.6 V; CP_LOW after 60 us
+Bcq1 cq_s GND V=V(CP,VS)>6.0
+Bcq2 cq_r GND V=V(CP,VS)<5.6
+Xcpq cq_s cq_r cpok GND EF_LATCH
+Bcl cl_c GND V=(V(cpen,GND)>0.5) & !(V(cpok,GND)>0.5)
+Xcld cl_c cplow GND EF_DGL T={CP_FLT}
+
+* ---------------- supply / pin bias currents (Tables 4, 13) -------------------
+Biq VS GND I=limit(V(VS,GND)/3,0,1)*({IQ_STBY} + V(cpe,GND)*({IQ_ON}-{IQ_STBY})) + abs(V(icp,GND))
+Bout VS OUT I={IOUT_B}*V(cpe,GND)*(1-V(gon,GND))*limit(V(VS,OUT)/2,0,1)
+Bisp ISNS_P GND I={ISNSP_B}*V(cpe,GND)*limit(V(ISNS_P,GND)/3,0,1)
+Bisn ISNS_N GND I={ISNSN_B}*V(cpe,GND)*limit(V(ISNS_N,GND)/3,0,1)
+
+* ---------------- HS gate driver (Table 12) -----------------------------------
+*  source from CP, VGS regulated to VGS_ON; sink to OUT  [tON 4us, tOFF 2.6us @80nF]
+Bgsrc CP HS_GATE I=V(gon,GND)*{IG_SRC}*limit(({VGS_ON}-V(HS_GATE,OUT))/0.5,0,1)
++  *limit(V(CP,HS_GATE)/0.5,0,1)
+Bgsnk HS_GATE OUT I=(1-V(gon,GND))*V(porok,GND)*{IG_SNK}*limit(V(HS_GATE,OUT)/1.0,0,1)
+Rgpd HS_GATE OUT 200k
+Dgz OUT HS_GATE EF_DZ20
+Dgc HS_GATE CP EF_DSW
+
+* ---------------- low-current bypass P-switch VS->OUT (Table 18) --------------
+Bbyp VS OUT I=V(byp,GND)*{IBYP_SAT}*tanh(V(VS,OUT)/({RBYP}*{IBYP_SAT}))
+Dbyp OUT VS EF_DSW
+
+* ---------------- current-sense front end (Table 13) --------------------------
+*  vsf : fast path for hard-short comparator (0.9 MS/s ADC -> ~0.5 us)
+*  xa  : x = VSENSE/VOC = I/INOM, averaged over the 61 us fuse sampling time
+Bvs vs_i GND V=max(V(ISNS_P,ISNS_N),0)
+Rvsf vs_i vsf 500
+Cvsf vsf GND 1n
+Bxa xa_i GND V=V(vs_i,GND)/{VOC}
+Rxa xa_i xa {T_SAMP/2/1n}
+Cxa xa GND 1n
+*  SR#2 current-sense readback: 13-bit, 160 mV FS, 2.4 kS/s (~200 us LPF)
+Rcsf vs_i vcs 200k
+Ccsf vcs GND 1n
+Bcs CS GND V={LSB_CS}*floor(min(V(vcs,GND),160m)*(1+{CS_GERR})/{LSB_CS})
+
+* ---------------- hard short-circuit latch-off (Table 15, sec. 5.5) -----------
+Bhc hsc_c GND V=(V(vsf,GND)>{VHSC}) & (V(gcmd,GND)>0.5)
+Xhcd hsc_c hsc_t GND EF_DGL T={HSC_DLY}
+Xhs hsc_t rst hsht GND EF_LATCH
+
+* ---------------- current-vs-time latch-off = eFuse I2t (sec. 3, 5.6) --------
+*  Curve reverse-engineered from DS13084 Fig.4/Fig.5 (exact fit of all steps):
+*     ideal:     t(x) = (TNOM/32) / (x^2 - 1)      x = I/INOM, capped at TNOM
+*     stepwise:  t(x) = TNOM / 2^m ,  m = floor(log2(32*(x^2-1))) >= 0
+*  i.e. a heat-balance integral dE/dt ~ I^2 - INOM^2 with E_trip ~ INOM^2*TNOM/32
+*  quantized in powers of two (last step = 61 us = tI_SAMPLING @ TNOM = 1 s).
+*  fd = E/E_trip (0..1), trip at fd >= 1:
+*     x > 1 : dfd/dt = k(x)/(TNOM*TOL_T)
+*             FUSE_MODE 0 (ST stepwise):  k = 2^m
+*             FUSE_MODE 1 (ideal)      :  k = max(1, 32*(x^2-1))
+*     x < 1 : dfd/dt = -KCOOL*32*(1-x^2)/TNOM    (cooling / memory, KCOOL=1
+*             makes the balance symmetric -> trips only if I_RMS > INOM)
+Bkx kx GND V=if({FUSE_MODE}>0.5, max(1, 32*(V(xa,GND)*V(xa,GND)-1)),
++  pow(2, max(0, floor(log(max(32*(V(xa,GND)*V(xa,GND)-1), 1n))/log(2) + 1u))))
+Bfd GND fd I=if(V(xa,GND)>1, V(kx,GND)*(V(fd,GND)<1)/({TNOM}*{TOL_T}),
++  -{KCOOL}*32*(1-V(xa,GND)*V(xa,GND))*limit(V(fd,GND)/1m,0,1)/{TNOM} )
++  - if(V(porlow,GND)>0.5, V(fd,GND)*1k, 0)
+Cfd fd GND 1
+Rfd fd GND 1T
+Bfu fu_s GND V=((V(fd,GND)>=1) & (V(gcmd,GND)>0.5)) | (V(hsc_t,GND)>0.5)
+Xfu fu_s rst fusel GND EF_LATCH
+*  OVC real-time warning (GSB.OVC): I>INOM or fuse counter running
+Bovc ovc GND V=(V(xa,GND)>1) | (V(fd,GND)>1m)
+
+* ---------------- external FET desaturation (Table 14, sec. 5.4) -------------
+*  VDS = V(ISNS_N) - V(OUT) ; blanked 960 us after HS turn-on
+Bton ton GND V=idt(1, 0, !(V(gcmd,GND)>0.5))
+Bvc vds_c GND V=(V(gcmd,GND)>0.5) & (V(ton,GND)>{VDS_BLK}) & (V(ISNS_N,OUT)>{VDSTH})
+Xvdd vds_c vds_t GND EF_DGL T={VDS_DGL+VDS_DLY}
+Xvds vds_t rst vdsmax GND EF_LATCH
+
+* ---------------- gate under-voltage lockout (Table 12, VGS_LOW) -------------
+Bvgt vgth GND V=limit(5+(V(VS,GND)-6)*0.875, 5, 8.5)
+Bga1 ga_s GND V=(V(gcmd,GND)>0.5) & (V(HS_GATE,OUT)>V(vgth,GND)+0.5)
+Bga2 ga_r GND V=!(V(gcmd,GND)>0.5)
+Xgarm ga_s ga_r garm GND EF_LATCH
+Bgu gu_c GND V=(V(garm,GND)>0.5) & (V(gcmd,GND)>0.5) & (V(HS_GATE,OUT)<V(vgth,GND))
+Xgud gu_c gu_t GND EF_DGL T={VGU_DGL}
+Xgul gu_t rst vgslow GND EF_LATCH
+
+* ---------------- external FET over-temperature via NTC (Table 17) -----------
+*  VNTC = V(ISNS_N) - V(NTC) = 1.2 V * RNTC/(RT_REF+RNTC); NTC_M = ISNS_N - 1.2 V
+Bntm ntm_i GND V=V(ISNS_N,GND) - 1.2*V(porok,GND)
+Rntm ntm_i NTC_M 50
+Rntc_in NTC ISNS_N 10Meg
+Bnc ntc_c GND V=(V(gcmd,GND)>0.5) & (V(ISNS_N,NTC)<{VNTCT})
+Xntd ntc_c ntc_t GND EF_DGL T={NTC_DGL}
+Xntl ntc_t rst ntcovt GND EF_LATCH
+
+* ---------------- low-current bypass desaturation -> AUTO-ON (sec. 5.7) ------
+Bbsc bs_c GND V=(V(bycmd,GND)>0.5) & !(V(gcmd,GND)>0.5) & (V(VS,OUT)>{VBYP_SAT})
+Xbsd bs_c bs_t GND EF_DGL T={BYP_DGL}
+Xbsl bs_t rst autoon GND EF_LATCH
+
+* ---------------- DIAG open-drain (Table 8) -----------------------------------
+*  DIAG = 0 if WAKEUPM or DIAGS or DE  (DE = CP_LOW)
+Bdg dlo GND V=(V(flt,GND)>0.5) | (V(uv,GND)>0.5) | (V(devovt,GND)>0.5)
++  | (V(cplow,GND)>0.5) | ((V(autoon,GND)>0.5) & ({CPON}<0.5))
+Bdiag DIAG GND I=V(dlo,GND)*V(DIAG,GND)/200 + 1n*V(DIAG,GND)
+.ends VNF1048F
+
+
+* ----------------------------------------------------------------------------
+*  EFUSE48_MOD -- one complete 48 V eFuse channel (datasheet Fig. 16 + slew)
+*
+*  Pins: VBAT OUT GND EN BYP CLR DIAG CS TFET
+*        EN/BYP/CLR logic (0/3.3 V), DIAG open drain (pull-up inside, 3.3 V),
+*        CS current-sense readback [V], TFET = FET junction temperature [degC]
+*
+*    VBAT--RSENSE--+--D[FET]S--OUT      ISNS_P at VBAT, ISNS_N at drain
+*                  |  NTC on drain pad, RT_REF=10k to NTC_M
+*    HS_GATE --RG_ON--+-- FET gate ;  D_off||RG_OFF (fast turn-off path)
+*                     +-- C_SLEW -- GND  (dV/dt / inrush control)
+* ----------------------------------------------------------------------------
+.subckt EFUSE48_MOD VBAT OUT GND EN BYP CLR DIAG CS TFET
++ RSENSE=1m OVC_CODE=13 HSC_CODE=12 VDS_CODE=14 NTC_CODE=4 TNOM_CODE=0
++ VOC_MV=0 HSC_MV=0 VDS_MV=0 TNOM_S=0 FUSE_MODE=0 KCOOL=1 CPON=1
++ RG_ON=2.2k C_SLEW=47n RG_OFF=10 TAMB=25 RTHJC=0.6 RTHCA=20 CTHJ=0.02 CTHC=0.5
++ NPAR=1 TAMB_IC=25
+Rsh VBAT drn {RSENSE}
+XU VBAT cp VBAT drn hsg OUT ntc ntcm GND DIAG EN BYP CLR CS VNF1048F
++ OVC_CODE={OVC_CODE} HSC_CODE={HSC_CODE} VDS_CODE={VDS_CODE} NTC_CODE={NTC_CODE}
++ TNOM_CODE={TNOM_CODE} VOC_MV={VOC_MV} HSC_MV={HSC_MV} VDS_MV={VDS_MV} TNOM_S={TNOM_S}
++ FUSE_MODE={FUSE_MODE} KCOOL={KCOOL} CPON={CPON} TAMB={TAMB_IC}
+*  supply decoupling / charge pump reservoir (Fig.16: CVS2=100n, CP=470n)
+Cvs VBAT GND 100n
+Ccp cp VBAT 470n
+*  external power MOSFET (NPAR in parallel)
+M1 drn g OUT OUT FET100V_2M m={NPAR}
+Rgb g OUT 47k
+Rgon hsg g {RG_ON}
+Rgoff hsg goff {RG_OFF}
+Dgoff g goff EF_DSW
+Cslw g GND {C_SLEW}
+*  gate-source clamp: protects the FET gate when OUT collapses (short) while
+*  C_SLEW still holds the gate high
+Dzgs OUT g EF_DZ15
+*  external FET thermal model: P = VDS * ID. Heating starts at time>0, i.e.
+*  the thermal network starts at ambient (also keeps the DC solve easy)
+Bpf GND tjf I=if(time>0, max(V(drn,OUT)*Id(M1),0), 0)
+Xth tjf tcf GND FET_TH TAMB={TAMB} RTHJC={RTHJC} RTHCA={RTHCA} CTHJ={CTHJ} CTHC={CTHC}
+Btf TFET GND V=V(tjf,GND)
+*  NTC (10k) on the drain pad sees the case/pad temperature
+Xntc drn ntc tcf GND NTC10K_ST
+Rtref ntc ntcm 10k
+*  DIAG pull-up (RPU 4.7k to 3.3 V)
+Vlog v33 GND 3.3
+Rpu v33 DIAG 4.7k
+.ends EFUSE48_MOD
+
+
+* ----------------------------------------------------------------------------
+*  NTC10K_ST -- 10 kOhm NTC thermistor, temperature given by node T [degC]
+*  Steinhart-Hart fit through R25 = 10k and the R/T points implied by the
+*  VNF1048F NTC thresholds (100..150 degC, RT_REF = 10k): error < 0.1 degC.
+* ----------------------------------------------------------------------------
+.subckt NTC10K_ST A B T GND
+*  ln(R/Ohm) vs T[degC], -40..200 degC, generated from the Steinhart-Hart fit
+*  A=9.03076299e-04 B=2.44234864e-04 C=2.57838629e-07 (1/T = A + B lnR + C lnR^3)
+Blr lr GND V=table(V(T,GND),
++  -40,12.02710, -35,11.77256, -30,11.52529, -25,11.28500, -20,11.05139, -15,10.82421,
++  -10,10.60320, -5,10.38811, 0,10.17874, 5,9.97486, 10,9.77626, 15,9.58277, 20,9.39418,
++  25,9.21034, 30,9.03107, 35,8.85622, 40,8.68563, 45,8.51916, 50,8.35668, 55,8.19804,
++  60,8.04314, 65,7.89183, 70,7.74402, 75,7.59958, 80,7.45842, 85,7.32042, 90,7.18550,
++  95,7.05355, 100,6.92450, 105,6.79824, 110,6.67470, 115,6.55380, 120,6.43545,
++  125,6.31959, 130,6.20614, 135,6.09504, 140,5.98621, 145,5.87960, 150,5.77513,
++  155,5.67276, 160,5.57241, 165,5.47405, 170,5.37761, 175,5.28303, 180,5.19028,
++  185,5.09930, 190,5.01004, 195,4.92247, 200,4.83652)
+Bntc A B I=V(A,B)/exp(V(lr,GND))
+.ends NTC10K_ST
+
+
+* ----------------------------------------------------------------------------
+*  FET_TH -- external MOSFET thermal network (2-stage RC ladder)
+*  Node voltages are temperatures in degC. Current into TJ = power [W].
+* ----------------------------------------------------------------------------
+.subckt FET_TH TJ TC GND TAMB=25 RTHJC=0.6 RTHCA=20 CTHJ=0.02 CTHC=0.5
+Cj TJ GND {CTHJ}
+Rjc TJ TC {RTHJC}
+Cc TC GND {CTHC}
+Rca TC ta {RTHCA}
+Vta ta GND {TAMB}
+.ends FET_TH
+
+
+* ----------------------------------------------------------------------------
+*  Helper primitives (logic levels 0/1 V referred to local GND)
+* ----------------------------------------------------------------------------
+*  Set-dominant SR latch. State on a capacitor, regenerative hold (Q snaps to
+*  0 or 1 in ~10 ns). Starts at Q=0 (all node voltages start from 0).
+.subckt EF_LATCH S R Q GND
+Bl GND Q I=if(V(S,GND)>0.5, 1-V(Q,GND), if(V(R,GND)>0.5, -V(Q,GND),
++  if(V(Q,GND)>0.5, 1-V(Q,GND), -V(Q,GND))))
+Cl Q GND 10n
+Rl Q GND 1T
+.ends EF_LATCH
+
+*  Deglitch filter: OUT goes high once IN has been continuously high for T
+.subckt EF_DGL IN OUT GND T=1u
+Bt t GND V=idt(1, 0, !(V(IN,GND)>0.5))
+Bo OUT GND V=V(t,GND)>{T}
+.ends EF_DGL
+
+
+* ----------------------------------------------------------------------------
+*  Device models
+* ----------------------------------------------------------------------------
+*  Generic 100 V automotive N-MOSFET, RDS(on) ~ 2 mOhm @ VGS=10..14 V [EST]
+*  (stand-in for an ST STripFET F8 100 V class device - replace with the
+*   vendor model of the FET you actually use)
+.model FET100V_2M VDMOS(Rg=1.2 Vto=3.2 Rd=0.9m Rs=0.4m Rb=1.5m Kp=180 lambda=0.01
++  Cgdmax=3.5n Cgdmin=80p a=0.6 Cgs=9n Cjo=3n m=0.55 Is=5p N=1.05 BV=100 Ibv=10u
++  tt=50n mfg=Generic Vds=100 Ron=2m Qg=150n)
+*  internal IC diodes
+.model EF_DSW  D(Is=1n Rs=1 N=1.5 Cjo=5p)
+.model EF_DZ20 D(Is=1n Rs=5 N=1.5 BV=20 Ibv=100u)
+*  external 15 V gate-source zener (board part)
+.model EF_DZ15 D(Is=1n Rs=2 N=1.5 BV=15.5 Ibv=1m)
+*  board-level protection parts used in the test benches
+*  TVS: 58 V stand-off, ~64 V breakdown, low dynamic R (high power class) [EST]
+.model TVS_58V D(Is=1e-12 Rs=0.15 N=1.5 BV=64 Ibv=1m Cjo=4n tt=10n)
+*  100 V power Schottky (freewheeling / output clamp)
+.model SCH_100V D(Is=2u Rs=8m N=1.15 Cjo=800p BV=100 Ibv=100u)

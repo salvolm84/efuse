@@ -1,0 +1,41 @@
+* tb07_ntc_overtemp.cir
+* ---------------------------------------------------------------------------
+* External MOSFET over-temperature protection through the 10k NTC on the
+* drain pad. Hot environment (TAMB = 105 degC), poor PCB cooling
+* (RthCA = 40 K/W, CthC = 0.15 J/K -> tau ~ 6 s) and a continuous 23 A load
+* (below INOM = 24.8 A, so the I2t fuse never acts). FET RDS(on) ~ 2 mOhm
+* -> ~1.1 W -> the pad heats to > 120 degC.
+* NTC_CODE = 4  -> VNTC_THRS = 70.38 mV  <->  120 degC.
+* Expected: NTC_OVT latches when the pad crosses ~120 degC (after the NTC
+* deglitch), FET off, DIAG low; FET cools; a CLR at t = 14 s re-arms the
+* channel once the pad is below the threshold.
+* ---------------------------------------------------------------------------
+.include ../models/VNF1048F_beh.lib
+
+Vbat bat 0 48
+Rbat bat vbat 10m
+Cbus vbat 0 100u Rser=30m
+
+X1 vbat out 0 en byp clr diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=15 HSC_CODE=12
++ VDS_CODE=14 TNOM_CODE=0 NTC_CODE=4 TAMB=105 RTHCA=40 CTHC=0.15
+
+Rload out 0 2.087
+Cload out 0 100u Rser=20m
+Dfw 0 out SCH_100V
+
+Ven en 0 PWL(0 0 1m 0 1.001m 3.3)
+Vbyp byp 0 0
+Vclr clr 0 PWL(0 0 14 0 14.001 3.3 14.01 3.3 14.011 0)
+
+.save V(out) V(diag) V(cs) V(tfet) V(x1:tcf) V(x1:ntc) V(x1:drn) I(Rload)
+.save V(x1:xu:ntcovt) V(x1:xu:gcmd) V(x1:xu:fd)
+.meas tran t_ot   find time when V(x1:xu:ntcovt)=0.5 rise=1
+.meas tran tc_ot  find V(x1:tcf) when V(x1:xu:ntcovt)=0.5 rise=1
+.meas tran vntc_ot find V(x1:drn,x1:ntc) when V(x1:xu:ntcovt)=0.5 rise=1
+.meas tran tjmax  max V(tfet)
+.meas tran tc_clr find V(x1:tcf) at 14
+.meas tran vout_end avg V(out) from 19 to 20
+.meas tran fdmax  max V(x1:xu:fd)
+.tran 0 20 0 1m
+.options plotwinsize=0
+.end

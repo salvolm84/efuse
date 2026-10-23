@@ -1,0 +1,67 @@
+* tb10_zonal_system.cir
+* ---------------------------------------------------------------------------
+* System context: a 48 V zonal power distribution unit with two eFuse
+* channels fed from the same 48 V battery through the main harness.
+*   CH1 (INOM 39.1 A, IHSC 139 A): 48->12 V DC/DC (1 kW constant-power load,
+*        470 uF input capacitance, UVLO 30/26 V)
+*   CH2 (INOM 21.8 A, IHSC 106 A): fan / pump motor (R 3.8 Ohm + L 200 uH,
+*        12 A) with 100 uF local capacitance
+*   t =  1 ms CH1 on, t = 4 ms CH2 on (staggered inrush)
+*   t = 15 ms short circuit at the end of the CH2 harness (5 mOhm)
+* Expected: CH2 trips in < 10 us (HSC). The 48 V bus dips for a few us;
+* CH1 and the DC/DC ride through (bus capacitance + fast isolation)
+* -> fault selectivity: only the faulty branch is disconnected.
+* ---------------------------------------------------------------------------
+.include ../models/VNF1048F_beh.lib
+
+* 48 V battery (internal R 20 mOhm) + main harness to the PDU
+Vbat bat 0 48
+Rbat bat b1 20m
+Lmain b1 bus 2u Rser=5m
+Dtvs 0 bus TVS_58V
+Cbus bus 0 220u Rser=20m
+
+* ---- channel 1: DC/DC converter
+X1 bus o1 0 en1 0 0 diag1 cs1 tfet1 EFUSE48_MOD RSENSE=1m OVC_CODE=22 HSC_CODE=14
++ VDS_CODE=14 TNOM_CODE=2
+Lh1 o1 d1 1u Rser=10m
+Cdc d1 0 470u Rser=15m
+* input bleeder / discharge resistor of the DC/DC (keeps the off-state OUT
+* bias current of the eFuse, 1.3 mA, from charging the input above UVLO)
+Rbl d1 0 4.7k
+Bdcdc d1 0 I=if(V(dcen)>0.5, 1000/max(V(d1),20), 0)
+Bdcen dcen_i 0 V=if(V(d1)>30, 1, if(V(d1)<26, 0, V(dcen)))
+Rdcen dcen_i dcen 1k
+Cdcen dcen 0 1n
+
+* ---- channel 2: motor
+X2 bus o2 0 en2 0 clr2 diag2 cs2 tfet2 EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12
++ VDS_CODE=14 TNOM_CODE=0
+Lh2 o2 m2 1.5u Rser=15m
+Cm2 m2 0 100u Rser=20m
+Lm2 m2 mm 200u
+Rm2 mm 0 3.8
+Dfw2 0 o2 SCH_100V
+Dfw1 0 o1 SCH_100V
+Ssc m2 0 scg 0 SSC
+Vscg scg 0 PWL(0 0 15m 0 15.0001m 1)
+.model SSC SW(Ron=5m Roff=1Meg Vt=0.5 Vh=-0.2)
+
+Ven1 en1 0 PWL(0 0 1m 0 1.001m 3.3)
+Ven2 en2 0 PWL(0 0 4m 0 4.001m 3.3)
+Vclr2 clr2 0 0
+
+.save V(bus) V(o1) V(d1) V(o2) V(m2) V(dcen) V(diag1) V(diag2) I(Lh1) I(Lh2) I(Lmain)
+.save V(x2:xu:hsht) V(x1:xu:flt) V(x1:xu:fd) V(x2:xu:fd)
+.meas tran t_trip2 find time when V(x2:xu:hsht)=0.5 rise=1
+.meas tran dt_trip2 param t_trip2-15m
+.meas tran ipk2   max I(Lh2) from 15m to 15.1m
+.meas tran vbus_min min V(bus) from 15m to 15.2m
+.meas tran vbus_max max V(bus) from 15m to 15.2m
+.meas tran vdc_min  min V(d1) from 15m to 16m
+.meas tran ch1_flt  max V(x1:xu:flt)
+.meas tran dcen_min min V(dcen) from 10m to 20m
+.meas tran idc_avg  avg I(Lh1) from 18m to 20m
+.tran 0 20m 0 0.5u
+.options plotwinsize=0
+.end

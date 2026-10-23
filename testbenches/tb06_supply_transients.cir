@@ -1,0 +1,43 @@
+* tb06_supply_transients.cir
+* ---------------------------------------------------------------------------
+* 48 V board-net supply profile (ISO 21780 / LV148-style levels, illustrative)
+* applied to an ON channel with a 10 A resistive load:
+*   48 V nominal -> 54 V (upper limited) -> 60 V overvoltage (40 ms)
+*   -> 70 V extended range (VS_EXT, < 100 ms; here 5 ms)
+*   -> back to 48 V -> slow dip to 24 V (lower limited) -> 6 V (min. operating,
+*      charge pump VS+7 V) -> 4 V (below VS_USD = 4.5 V: UV shutdown)
+*   -> recovery to 48 V (auto re-start, no latch: UV is a real-time fault)
+* Expected: OUT follows VBAT, VGS stays > VGS_UVLO, UV shutdown below 4.5 V
+*           (33 us filter), DIAG low only during UV, automatic restart.
+* ---------------------------------------------------------------------------
+.include ../models/VNF1048F_beh.lib
+
+Vbat bat 0 PWL(0 48  5m 48  6m 54  15m 54  16m 60  56m 60  57m 70  62m 70
++  63m 48  75m 48  85m 24  95m 24  110m 6  125m 6  127m 4  135m 4  137m 48  160m 48)
+Rbat bat vbat 10m
+Cbus vbat 0 100u Rser=30m
+
+X1 vbat out 0 en byp clr diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12
++ VDS_CODE=14 TNOM_CODE=0
+
+Cload out 0 100u Rser=20m
+Rload out 0 4.8
+Dfw 0 out SCH_100V
+
+Ven en 0 PWL(0 0 1m 0 1.001m 3.3)
+Vbyp byp 0 0
+Vclr clr 0 0
+
+.save V(vbat) V(out) V(diag) V(cs) I(Rload) V(x1:hsg) V(x1:g) V(x1:cp)
+.save V(x1:xu:uv) V(x1:xu:gcmd) V(x1:xu:cplow) V(x1:xu:vgslow) V(x1:xu:flt)
+.meas tran vgs_6v  avg V(x1:g,out) from 120m to 125m
+.meas tran vcp_6v  avg V(x1:cp,vbat) from 120m to 125m
+.meas tran vgs_70v avg V(x1:g,out) from 60m to 62m
+.meas tran t_uv    find time when V(x1:xu:uv)=0.5 rise=1
+.meas tran vbat_uv find V(vbat) when V(x1:xu:uv)=0.5 rise=1
+.meas tran t_rec   find time when V(out)=40 rise=last
+.meas tran fltmax  max V(x1:xu:flt)
+.meas tran vout_end avg V(out) from 155m to 160m
+.tran 0 160m 0 10u
+.options plotwinsize=0
+.end

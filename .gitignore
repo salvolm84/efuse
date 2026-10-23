@@ -1,0 +1,8 @@
+# LTspice outputs (regenerate with tools/run_ltspice.sh)
+*.raw
+*.db
+*.net
+*.log
+*.fail
+__pycache__/
+.DS_Store

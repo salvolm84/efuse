@@ -1,0 +1,51 @@
+* tb01_startup_inrush.cir
+* ---------------------------------------------------------------------------
+* Turn-on of a 48 V eFuse channel into a capacitive + resistive load.
+*  - charge-pump start-up, gate driver, slew-controlled output ramp
+*  - inrush current flows through the I2t region without tripping
+*  - VDS desaturation monitor blanked during the first 960 us
+* Expected: OUT ramps 0 -> ~48 V in ~0.6 ms, peak inrush ~20 A, no fault,
+*           DIAG stays high, V(CS) settles to ~10 mV (10 A * 1 mOhm).
+* ---------------------------------------------------------------------------
+.include ../models/VNF1048F_beh.lib
+
+* 48 V battery + supply harness
+Vbat bat 0 48
+Rbat bat b1 10m
+Lbat b1 vbat 1u
+Dtvs 0 vbat TVS_58V
+Cbus vbat 0 100u Rser=30m
+
+* eFuse channel: INOM = 21.8 A (OVC 13), IHSC = 105.6 A (HSC 12), VDS 1.0 V
+X1 vbat out 0 en byp clr diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12
++ VDS_CODE=14 TNOM_CODE=0
+
+* load harness + load (220 uF input capacitance of a load + 4.8 Ohm = 10 A)
+Lh out o1 1u
+Rh o1 load 10m
+Cload load 0 220u Rser=20m
+Rload load 0 4.8
+Dfw 0 out SCH_100V
+
+* control (MCU): OUTCTL on at 0.5 ms
+Ven en 0 PWL(0 0 0.5m 0 0.501m 3.3)
+Vbyp byp 0 0
+Vclr clr 0 0
+
+.save V(vbat) V(out) V(load) V(diag) V(cs) V(tfet) I(Lh) I(Lbat)
+.save V(x1:hsg) V(x1:g) V(x1:cp) V(x1:drn)
+.save V(x1:xu:fd) V(x1:xu:gcmd) V(x1:xu:flt) V(x1:xu:cplow) V(x1:xu:ovc) V(x1:xu:xa)
+
+.meas tran t_on   find time when V(out)=24 rise=1
+.meas tran t_full find time when V(out)=45 rise=1
+.meas tran ipk    max I(Lh) from 0.5m to 3m
+.meas tran vcs_ss avg V(cs) from 4m to 5m
+.meas tran fdmax  max V(x1:xu:fd)
+.meas tran fltmax max V(x1:xu:flt)
+.meas tran diagmin min V(diag) from 2m to 5m
+.meas tran vgs_ss avg V(x1:g,out) from 4m to 5m
+.meas tran vcp_ss avg V(x1:cp,vbat) from 4m to 5m
+
+.tran 0 5m 0 0.5u
+.options plotwinsize=0
+.end

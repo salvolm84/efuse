@@ -1,0 +1,43 @@
+* tb09_inductive_turnoff.cir
+* ---------------------------------------------------------------------------
+* Switch-off of an inductive load (solenoid / motor winding: 2 mH, 4.8 Ohm,
+* 10 A) by the MCU (OUTCTL 1 -> 0).
+*   FW = 1 : 100 V Schottky freewheel diode OUT->GND: OUT clamped ~ -0.7 V,
+*            the load current decays through the diode (L/R = 0.4 ms)
+*   FW = 0 : no freewheel path: OUT is driven negative until the external FET
+*            avalanches (VDS ~ BV = 100 V) -> OUT ~ -50 V, violating the
+*            VNF1048F OUT rating (-2 V DC, -10 V for 10 us) and dumping
+*            E = L*I^2/2 = 100 mJ into the FET.
+* ---------------------------------------------------------------------------
+.include ../models/VNF1048F_beh.lib
+.param FW=1
+
+Vbat bat 0 48
+Rbat bat b1 10m
+Lbat b1 vbat 1u
+Dtvs 0 vbat TVS_58V
+Cbus vbat 0 100u Rser=30m
+
+X1 vbat out 0 en byp clr diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12
++ VDS_CODE=14 TNOM_CODE=0
+
+Lload out l1 2m Rser=10m
+Rload l1 0 4.8
+Csn out 0 100n
+Dfw 0 fw SCH_100V
+Rfw fw out {if(FW>0.5, 1m, 1G)}
+
+Ven en 0 PWL(0 0 0.5m 0 0.501m 3.3 10m 3.3 10.001m 0)
+Vbyp byp 0 0
+Vclr clr 0 0
+
+.save V(vbat) V(out) V(x1:drn) V(x1:g) V(x1:hsg) I(Lload) I(Dfw) V(tfet) V(diag)
+.meas tran iload_on avg I(Lload) from 9m to 10m
+.meas tran vout_min min V(out) from 10m to 12m
+.meas tran vds_max  max V(x1:drn,out) from 10m to 12m
+.meas tran t_decay  find time when I(Lload)=1 fall=last
+.meas tran e_fet    integ V(x1:drn,out)*V(vbat,x1:drn)/1m from 10m to 12m
+.step param FW list 1 0
+.tran 0 12m 0 0.5u
+.options plotwinsize=0
+.end

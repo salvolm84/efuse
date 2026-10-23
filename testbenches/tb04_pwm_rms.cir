@@ -1,0 +1,48 @@
+* tb04_pwm_rms.cir
+* ---------------------------------------------------------------------------
+* eFuse behaviour with a PWM-controlled load (e.g. a downstream PWM motor /
+* heater / lamp driver). The eFuse stays ON, the load current is chopped at
+* 200 Hz with a peak of ~40 A (x_on = 40/21.8 = 1.83 > 1).
+* Datasheet: "When the current in the load is PWM, the eFuse calculates the
+* mean square of the current" -> the fuse must trip only if I_RMS > INOM.
+*   D = 0.25 : I_RMS = 0.92*INOM -> never trips
+*   D = 0.30 : I_RMS ~ INOM      -> stepwise: no trip  (quantized 2^m <= ideal)
+*   D = 0.35 : I_RMS = 1.08*INOM -> trips after ~ tNOM/1.6
+*   D = 0.50 : I_RMS = 1.30*INOM -> trips after ~ tNOM/16
+* tNOM = 1 s (TNOM_CODE = 0), INOM = 21.8 A (OVC_CODE 13), RSENSE = 1 mOhm.
+* ---------------------------------------------------------------------------
+.include ../models/VNF1048F_beh.lib
+.param D=0.5 FPWM=200
+
+Vbat bat 0 48
+Rbat bat b1 10m
+Lbat b1 vbat 1u
+Cbus vbat 0 100u Rser=30m
+
+X1 vbat out 0 en byp clr diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12
++ VDS_CODE=14 TNOM_CODE=0 RTHCA=2
+
+Lh out o1 1u
+Rh o1 load 10m
+Cload load 0 47u Rser=20m
+Dfw 0 out SCH_100V
+* PWM load: 1.2 Ohm (~40 A) switched by a low-side switch
+Rpwm load lsw 1.2
+Spwm lsw 0 gpwm 0 SPWM
+Vpwm gpwm 0 PULSE(0 1 20m 1u 1u {D/FPWM} {1/FPWM})
+.model SPWM SW(Ron=2m Roff=100k Vt=0.5 Vh=-0.2)
+
+Ven en 0 PWL(0 0 0.5m 0 0.501m 3.3)
+Vbyp byp 0 0
+Vclr clr 0 0
+
+.save V(out) V(diag) V(cs) I(Lh) V(x1:xu:fd) V(x1:xu:fusel) V(x1:xu:xa)
+.meas tran t_fl  find time when V(x1:xu:fusel)=0.5 rise=1
+.meas tran ttrip param t_fl-20m
+.meas tran irms  rms I(Lh) from 100m to 200m
+.meas tran fdmax max V(x1:xu:fd)
+
+.step param D list 0.25 0.30 0.35 0.50
+.tran 0 2.5 0 20u
+.options plotwinsize=0
+.end

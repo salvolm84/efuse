@@ -1,0 +1,48 @@
+* tb08_standby_autoon.cir
+* ---------------------------------------------------------------------------
+* Stand-by with the Low-Current Bypass (LCB) and hardware AUTO-ON wake-up.
+*   CPON = 0 (Stand-by: charge pump off), OUTCTL = 0, BYPASSCTL = 1.
+*   A sleeping ECU draws 20 mA through the internal bypass P-switch (~7 Ohm).
+*   t = 5 ms : the ECU wakes up and draws 5 A -> bypass saturates
+*              (VS-VOUT > ~1.3 V for 5 us) -> BYPASS_SAT / AUTO-ON:
+*              bypass off, charge pump starts, external FET switched on by
+*              hardware, DIAG pulled low (wake-up event signalled to the MCU)
+*   t = 15 ms: MCU confirms: OUTCTL = 1
+*   t = 20 ms: MCU clears BYPASS_SAT (CLR) -> DIAG released
+* The 470 uF hold-up capacitance bridges the CP start-up time.
+* ---------------------------------------------------------------------------
+.include ../models/VNF1048F_beh.lib
+
+Vbat bat 0 48
+Rbat bat vbat 10m
+Cbus vbat 0 100u Rser=30m
+
+X1 vbat out 0 en byp clr diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12
++ VDS_CODE=14 TNOM_CODE=0 CPON=0
+
+Chold out 0 470u Rser=20m
+Rsleep out 0 2.4k
+Rwake out wk 9.6
+Swk wk 0 wks 0 SWAKE
+Vwks wks 0 PWL(0 0 5m 0 5.001m 1)
+.model SWAKE SW(Ron=1m Roff=10Meg Vt=0.5 Vh=-0.2)
+Dfw 0 out SCH_100V
+
+Ven en 0 PWL(0 0 15m 0 15.001m 3.3)
+Vbyp byp 0 3.3
+Vclr clr 0 PWL(0 0 20m 0 20.001m 3.3 20.05m 3.3 20.051m 0)
+
+.save V(vbat) V(out) V(diag) V(cs) V(x1:hsg) V(x1:g) V(x1:cp) I(Rsleep) I(Rwake)
+.save V(x1:xu:autoon) V(x1:xu:byp) V(x1:xu:gcmd) V(x1:xu:cpen)
+.save I(x1:xu:bbyp)
+.meas tran vout_sleep avg V(out) from 4m to 5m
+.meas tran t_auto find time when V(x1:xu:autoon)=0.5 rise=1
+.meas tran dt_auto param t_auto-5m
+.meas tran vout_min min V(out) from 5m to 10m
+.meas tran t_rec   find time when V(out)=47 rise=1 td=5.1m
+.meas tran diag_wk avg V(diag) from 10m to 14m
+.meas tran diag_end avg V(diag) from 24m to 25m
+.meas tran vout_end avg V(out) from 24m to 25m
+.tran 0 25m 0 1u
+.options plotwinsize=0
+.end
