@@ -215,8 +215,9 @@ capacitors. If the MOSFET turns on in microseconds, the capacitor charges almost
 instantly, the inrush current is enormous, and the hard-short protection trips.
 The fix is to **ramp the output voltage slowly**. In `EFUSE48_MOD` a resistor
 (`RG_ON`, 2.2 kΩ) and a capacitor from gate to ground (`C_SLEW`, 47 nF) limit how
-fast the gate, and therefore OUT, can rise: about 85 V/ms, so 48 V takes ~0.6 ms.
-The inrush current is then I = C_LOAD × dV/dt, e.g. 220 µF × 85 V/ms ≈ 19 A
+fast the gate, and therefore OUT, can rise: about 80–100 V/ms (97 V/ms in tb01), so
+48 V takes ~0.5 ms.
+The inrush current is then I = C_LOAD × dV/dt, e.g. 220 µF × 97 V/ms ≈ 21 A
 on top of the load current (tb01: 30 A peak with the 10 A load). Two limits pull in opposite directions:
 
 * **too fast** → inrush above IHSC → hard-short trip;
@@ -517,9 +518,11 @@ I_CP       = ICP_MAX · tanh((VCP_target − V(CP)) / (ICP_MAX·RCP))
 The model is a regulated source with output resistance `RCP` and current limit
 `ICP_MAX`, charging the external CP capacitor (470 nF CP–VS). CP_LOW is set when
 CP < VS + 5.6 V for 60 µs (released above VS + 6.0 V) and disables the gate
-driver (DIAG low). At VS ≈ 5 V the pump can no longer hold VS + 5.6 V, so CP_LOW
-switches the FET off **before** the 4.5 V UV threshold (visible in tb06). The
-datasheet only guarantees operation down to 6 V.
+driver (DIAG low). With the mid-spec curve used here (VS + 9 V at 6 V), the pump
+still provides ~VS + 7 V at 4.6 V. In tb06, therefore, the FET is switched off by the
+4.5 V UV shutdown and not by CP_LOW. A weaker pump (`ICP_MAX`, `VCP_REG`) or a heavy
+gate load can make CP_LOW act first. The datasheet only guarantees operation
+down to 6 V.
 
 ### 7.3 Gate driver
 
@@ -712,105 +715,663 @@ Two more parts in the module are design lessons from the test benches:
 
 ## 9. Test benches and results
 
-All values below come from `docs/VALIDATION.md` (generated, **47/47 checks pass**).
-Base configuration unless noted: 48 V battery (10 mΩ, 1 µH), 100 µF bus,
-RSENSE 1 mΩ, OVC_CODE 13 (**INOM 21.8 A**), HSC_CODE 12 (**IHSC 105.6 A**),
-VDS_CODE 14 (1.0 V), TNOM_CODE 0 (tNOM 1 s), 1 µH / 10 mΩ load harness.
+Each bench is a plain netlist in `testbenches/` and can be opened directly in
+LTspice. The write-ups below have the same structure:
 
-### tb01: start-up and inrush (`tb01_startup_inrush.cir`)
-220 µF + 4.8 Ω (10 A). OUT ramps in ~0.5 ms with a 29.7 A inrush peak. The
-inrush passes through the I²t window (fd peaks at only 0.005) and nothing
-trips. VCP − VS = 14.50 V, VGS(FET) = 13.4 V. CS reads 9.94 mV (10 A·1 mΩ, −0.6 %).
+* **What we simulate**: the real-world situation and why it matters.
+* **Setup**: the circuit and the stimulus timeline.
+* **Signals in the plot**: what each trace is.
+* **Expected behaviour**: a hand calculation from the datasheet and circuit values.
+* **Results**: simulated vs expected.
+* **Things to try**: parameters worth changing to explore the behaviour.
+
+All numbers are simulated values from the `.meas` statements
+(`docs/VALIDATION.md`: **47/47 checks pass**).
+
+**Common setup** unless noted: 48 V battery with 10 mΩ internal resistance and
+1 µH supply harness, 100 µF bus capacitance (+ 58 V TVS), RSENSE = 1 mΩ,
+OVC_CODE 13 (**INOM = 21.8 A**), HSC_CODE 12 (**IHSC = 105.6 A**), VDS_CODE 14
+(VDS threshold 1.0 V), TNOM_CODE 0 (**tNOM = 1 s**), load harness 1 µH / 10 mΩ,
+100 V freewheel Schottky from GND to OUT.
+
+**Reading the plots.** Logic signals are 0/1. DIAG is shown normalized (V/3.3 V,
+so 1 = high = no fault). Where logic traces would overlap, some are scaled by
+×0.95 or ×0.9 (noted in the legend) so every line stays visible. Internal node
+names (`gcmd`, `fd`, `hsht`, …) are listed in [6.3](#63-internal-nodes-you-can-probe).
+
+---
+
+### tb01: start-up into a capacitive load (`tb01_startup_inrush.cir`)
+
+**What we simulate.** The most common event in a channel's life is switching on
+a load that has a large input capacitor, as DC/DC converters, inverters and ECUs
+do. This is also the most common source of false trips. The bench checks that
+the channel ramps the output in a controlled way, that the inrush current does
+**not** trip the fuse, and that the steady state (gate drive, charge pump,
+current readback) matches the datasheet.
+
+**Setup.** Load = 220 µF (20 mΩ ESR) in parallel with 4.8 Ω (10 A at 48 V),
+behind the 1 µH load harness. The channel uses the module's default slew network
+(RG_ON = 2.2 kΩ, C_SLEW = 47 nF).
+
+| Time | Event |
+|---|---|
+| 0 | battery on, charge pump already running (`CPON` = 1, Unlocked mode), FET off |
+| 0.5 ms | OUTCTL (`en`) → 1 |
+| 5 ms | end |
+
+**Signals in the plot.**
+1. VBAT, OUT, CP (charge-pump output) and HS_GATE (driver pin).
+2. Load current through the harness, with the INOM line.
+3. `x = I/INOM` (61 µs average) and the fuse state `fd` (the "heat bucket").
+4. The gate command and DIAG.
+
+**Expected behaviour.**
+* The HS_GATE pin jumps to OUT + 14 V (`VGS_ON`) at once. The real FET gate
+  follows more slowly through RG_ON·C_SLEW, so OUT starts to rise after the gate
+  reaches the threshold, a few tens of µs later.
+* While OUT ramps, the FET is a source follower. The ramp rate is set by the
+  current through RG_ON charging C_SLEW: (14 V − ~5 V)/2.2 kΩ ≈ 4 mA into ~50 nF,
+  which gives **≈ 80–100 V/ms**.
+* Inrush = C·dV/dt + load current ≈ 220 µF × 97 V/ms + up to 10 A ≈ **30 A**.
+  That is above INOM (x ≈ 1.35) but lasts only ~0.5 ms. The bucket fills by
+  ≈ (0.5 ms × 2^m)/tNOM, about 0.5 %, so no trip is expected.
+* The FET dissipates about ½·C·V² ≈ 0.25 J during the ramp. Charging a
+  capacitor through a linear element always costs as much energy as it stores.
+* Steady state: VCP = VS + 14.5 V (spec 13.5…15.5 V). VGS at the FET = 14 V
+  minus the RG_ON/RGB divider ≈ 13.4 V (spec 12…15 V). CS = 10 A × 1 mΩ = 10 mV.
+
+**Results.**
+
+| Quantity | Expected | Simulated |
+|---|---|---|
+| delay EN → OUT starts rising | tens of µs | 39 µs |
+| OUT 10 → 90 % ramp | ~0.5 ms | 0.40 ms (97 V/ms) |
+| peak inrush | ~30 A, < IHSC | 29.7 A |
+| fuse state `fd` peak | ≪ 1 | 0.005 |
+| latched faults / DIAG | none / high | none / 3.3 V |
+| VCP − VS (steady, minimum during ramp) | 14.5 V | 14.50 V (14.44 V) |
+| VGS at FET | 12…15 V | 13.37 V |
+| CS readback | 10 mV ± 5 % | 9.94 mV |
+
+**Things to try.** Increase `Cload` to 1–2 mF and see the inrush approach IHSC.
+Change `C_SLEW` and see the ramp/inrush trade-off (connects to tb05). Set
+`CPON=0` to include the charge-pump start-up time in the turn-on delay.
 
 ![tb01](docs/img/tb01_startup_inrush.png)
 
-### tb02: hard short circuit (`tb02_hard_short.cir`)
-5 mΩ short at the load connector at 3 ms, MCU retry (CLR) at 6 ms, short removed
-at 9 ms, CLR at 10 ms. HSHT latches **8.0 µs** after the short: 3 µs to reach
-105.6 A at ~30 A/µs, plus the 5 µs delay. The FET current peaks at ~340 A (load
-capacitor via the harness), the battery current at 227 A, VBAT at 64.4 V, VDS at
-66.5 V, VGS at 15.9 V (zener), and OUT at −3.2 V (freewheel). The retry trips
-again, and after the short is removed CLR restarts the channel.
+---
+
+### tb02: hard short circuit and firmware retry (`tb02_hard_short.cir`)
+
+**What we simulate.** A chafed harness shorts the load connector to chassis while
+the channel is on. This is the most violent event the eFuse sees. The current
+rises at tens of A/µs, and the protection must open the switch within
+microseconds. Interrupting hundreds of amperes in an inductive harness then
+creates over-voltage on the battery side and negative voltage on the load side.
+The bench also checks the firmware's view of the event: the fault latches, a
+retry into a persistent short trips again, and the channel restarts once the
+short is gone.
+
+**Setup.** As tb01 (220 µF + 4.8 Ω, 10 A). A 5 mΩ switch (`Ssc`) shorts the load
+node to ground.
+
+| Time | Event |
+|---|---|
+| 0.5 ms | OUTCTL → 1, normal start-up |
+| 3.0 ms | **short applied** at the load connector |
+| 6.0 ms | `CLR` pulse (50 µs): MCU clears HSHT/FUSE_LATCH and retries |
+| 9.0 ms | short removed |
+| 10.0 ms | `CLR` pulse: restart |
+
+**Signals in the plots.**
+* *Zoom* (−10…+40 µs around the short):
+  1. VBAT, OUT, FET gate and FET drain.
+  2. FET/harness current and battery current, with the IHSC line.
+  3. VGS of the FET.
+  4. The HSHT latch, the gate command and DIAG.
+* *Sequence* (0–12 ms): OUT and VBAT, FET current, and HSHT / FUSE_LATCH / DIAG.
+
+**Expected behaviour.**
+* **Current rise.** The short sits behind the 1 µH load harness. With 48 V across
+  it, di/dt ≈ 48 V/1 µH ≈ 48 A/µs at first, decreasing as OUT sags. From 10 A to
+  105.6 A therefore takes **~3 µs**.
+* **Detection.** VSENSE > 105.6 mV must hold for `HSC_DLY` = 5 µs, so the latch
+  sets about **3 + 5 = 8 µs** after the short.
+* **Turn-off.** The latch removes the gate command, and the driver sinks 0.5 A
+  from the gate. Because of the diode/RG_OFF path, C_SLEW discharges in µs. The
+  current keeps rising until the FET actually turns off, so the **peak is well
+  above the threshold**, at a few hundred amperes.
+* **Energy in the inductances.** On the battery side, ½·L·I² in the 1 µH supply
+  harness is pushed into the bus capacitor and TVS. VBAT must stay below 70 V
+  (abs. max). On the load side, the harness current continues through the
+  freewheel Schottky (OUT ≈ −1…−3 V) and decays with L/R ≈ 1 µH/15 mΩ ≈ 70 µs.
+* **Gate protection.** OUT collapses to ~0 V while C_SLEW still holds the gate
+  near 62 V. The 15 V gate-source zener must clamp VGS (rating ±20 V).
+* **Retry.** After `CLR` the gate charges from 0 through RG_ON·C_SLEW, so the FET
+  conducts after ~50 µs, the short is still there, and HSHT trips again. The
+  second current peak is lower because the FET is still only partially enhanced.
+* **Restart.** After the short is removed, a normal start-up (as tb01).
+
+**Results.**
+
+| Quantity | Expected | Simulated |
+|---|---|---|
+| VSENSE crosses 105.6 mV | ~3 µs after short | 3.2 µs |
+| HSHT latch (= FET turn-off command) | ~8 µs | **8.0 µs** |
+| FET current peak | ≫ IHSC | 340 A at 12.6 µs |
+| battery current peak | < FET peak (Cbus supplies first) | 227 A at 19.8 µs |
+| VBAT peak | < 70 V | 64.4 V at 35 µs |
+| FET VDS peak / VGS peak | < 100 V / < 20 V | 66.5 V / 15.9 V |
+| OUT minimum (freewheel) | −1…−3 V (> −10 V) | −3.2 V |
+| retry: FET conducts / trips again | ~50 µs / ~100 µs after CLR | 57 µs / 99 µs |
+| FUSE_LATCH set by HSHT | yes (datasheet 5.6) | yes |
+| restart after short removed | OUT back to 48 V | OUT > 45 V 0.5 ms after CLR |
+
+**Things to try.** Reduce `Cbus` to 10 µF and VBAT exceeds the 70 V rating
+(88 V). Remove `Dzgs` from the module and watch VGS. Lower `HSC_CODE` to reduce the
+peak current. Change the harness inductance and see how the peak current scales.
 
 ![tb02 zoom](docs/img/tb02_hard_short_zoom.png)
 ![tb02 sequence](docs/img/tb02_hard_short_sequence.png)
 
-### tb03: I²t curve characterisation (`tb03_i2t_curve.cir`)
-VOC 6 mV, VHSC 160 mV, tNOM 1 s (= DS13084 Fig. 4). 19 constant overload
-currents × 2 FUSE_MODEs. Stepwise mode matches tNOM/2ᵐ within **1.4 %** (t ≥ 2 ms).
-The ideal mode matches (tNOM/32)/(x²−1) within 1.5 %. Below ~1 ms the ADC-like
-latency of one 61 µs window adds ~40 µs, as on the silicon (fastest step: 108 µs
-vs 61 µs nominal). See the figure in [7.6](#76-the-efuse-i²t-curve).
+---
 
-### tb04: PWM load and RMS behaviour (`tb04_pwm_rms.cir`)
-The eFuse stays on while a downstream switch chops a ~40 A load at 200 Hz.
-D = 0.25 (I_RMS 0.90·INOM) and D = 0.30 (0.98·INOM) never trip. D = 0.35
-(1.06·INOM) trips after 0.98 s, and D = 0.50 (1.27·INOM) after **61 ms**,
-against 62.5 ms predicted from the heat balance 0.5·64 − 0.5·32 = 16/tNOM.
+### tb03: I²t (current-vs-time) curve characterisation (`tb03_i2t_curve.cir`)
+
+**What we simulate.** This is the core of the eFuse: the time-to-trip as a
+function of overload current. The bench measures it point by point and compares
+it with the datasheet curve (DS13084 Fig. 4) and the reverse-engineered equation
+([7.6](#76-the-efuse-i²t-curve)). It demonstrates that the model reproduces the
+staircase shape: tNOM at INOM, halving at every step, with the last step at 61 µs.
+
+**Setup.** The datasheet Fig. 4 settings: OVC_CODE 0 (VOC = 6 mV → INOM = 6 A),
+HSC_CODE 15 (160 mV → IHSC = 160 A), tNOM = 1 s, so the widest window (15
+steps). The load is an **ideal current source**, so the overload is exactly
+defined. It is resistive below 5 V so that OUT is defined after the trip. The
+VDS threshold is set to 1.8 V and the FET is well cooled, so only the fuse acts.
+
+| Time | Event |
+|---|---|
+| 0.5 ms | OUTCTL → 1 |
+| 5 ms | overload current `ILOAD` applied (step) |
+| ≤ 1.1 s | FUSE_LATCH → trip time = t(FUSE_LATCH) − 5 ms |
+
+`.step` runs 19 currents (6.06…150 A, dense near INOM where the steps are close
+together) × `FUSE_MODE` 0/1 (stepwise / ideal), 38 runs in total (~35 s).
+
+**Signals in the plot.** Log-log trip time vs VSENSE. The lines are the model
+equations (stepwise in blue, ideal dashed). Circles and squares are the LTspice
+results. The green crosses are the step corners digitised from the datasheet
+Fig. 4. Dotted verticals mark VOC (no trip below) and VHSC (hard-short region).
+
+**Expected behaviour.**
+* x = I/INOM; stepwise t = tNOM/2^m with m = floor(log2(32·(x²−1))), ideal
+  t = (tNOM/32)/(x²−1), both capped at tNOM.
+* Just above INOM: t = tNOM = 1 s. Points at x = 1.125 and x = 1.2 fall on the
+  **same step** (125 ms), which shows the staircase.
+* At high current the trip time approaches the 61 µs sampling period. A real
+  sampled device cannot react faster than ~one sample, so a fixed latency of a
+  few tens of µs is expected to appear.
+
+**Results** (selection; all 38 points are in the plot):
+
+| ILOAD | x | m | stepwise expected | stepwise sim | ideal expected | ideal sim |
+|---|---|---|---|---|---|---|
+| 6.06 A | 1.01 | 0 | 1 s | 1.000 s | 1 s | 1.000 s |
+| 6.25 A | 1.04 | 1 | 0.5 s | 0.500 s | 0.367 s | 0.367 s |
+| 6.75 A | 1.125 | 3 | 125 ms | 125.1 ms | 117.6 ms | 117.6 ms |
+| 7.20 A | 1.20 | 3 | 125 ms | 125.1 ms | 71.0 ms | 71.1 ms |
+| 12 A | 2.0 | 6 | 15.6 ms | 15.7 ms | 10.4 ms | 10.5 ms |
+| 19.2 A | 3.2 | 8 | 3.91 ms | 3.96 ms | 3.38 ms | 3.43 ms |
+| 45 A | 7.5 | 10 | 977 µs | 1008 µs | 566 µs | 612 µs |
+| 102 A | 17 | 13 | 122 µs | 177 µs | 109 µs | 154 µs |
+| 150 A | 25 | 14 | 61 µs | 108 µs | 50 µs | 93 µs |
+
+The error is ≤ 1.4 % for t ≥ 2 ms. Below that, a constant ~40–50 µs latency from
+the 61 µs averaging filter appears. The hard-short protection never acts
+(150 A < 160 A).
+
+**Things to try.** Reproduce Fig. 5 with `OVC_CODE=16 HSC_CODE=12 TNOM_CODE=25`
+(tNOM = 51 s) and `.tran 60`. Use `TOL_T=0.9/1.1` for the ±10 % time tolerance.
+Repeat a step overload twice with a pause in between to see the fuse memory
+(`KCOOL`).
+
+---
+
+### tb04: PWM load: does the fuse respond to RMS? (`tb04_pwm_rms.cir`)
+
+**What we simulate.** Many 48 V loads are PWM-controlled: heaters, fans, pumps and
+lamps behind a downstream driver. The eFuse then sees a pulsed current whose
+*peak* can exceed INOM while its *heating effect* (RMS) does not. A melting fuse
+responds to RMS naturally, and the datasheet states that the eFuse "calculates
+the mean square of the current". The bench checks that a pulsed load trips only
+when I_RMS > INOM.
+
+**Setup.** The eFuse stays on. A downstream low-side switch chops a 1.2 Ω load
+(**~39 A peak**, x_on ≈ 1.8) at **200 Hz**. A 47 µF capacitor sits at the load.
+The duty cycle is stepped: D = 0.25, 0.30, 0.35, 0.50. The PWM starts at 20 ms.
+
+**Signals in the plot.**
+1. The fuse state `fd` for each duty cycle. The thick bands are the 200 Hz
+   fill-and-drain ripple. A trip occurs at fd = 1, after which fd decays (memory).
+2. Detail of the eFuse current at D = 0.5: 5 ms period, current spikes when the
+   switch closes (the 47 µF load capacitor recharges), and LC ringing of the
+   harness with the load capacitor.
+
+**Expected behaviour.** In the stepwise model a pulse at x_on ≈ 1.8 fills at
+2^m = 64/tNOM (m = 6), and the off-time drains at 32·(1 − 0)/tNOM. The average
+fill rate is
+
+```
+D·64 − (1 − D)·32   [1/tNOM]       → trip if > 0, trip time ≈ tNOM / rate
+D = 0.25 : 16 − 24  = −8   → never trips     (I_RMS = 0.90·INOM)
+D = 0.30 : 19.2 − 22.4 = −3.2 → never trips  (I_RMS = 0.98·INOM)
+D = 0.35 : 22.4 − 20.8 = +1.6 → ~0.6 s        (I_RMS = 1.06·INOM)
+D = 0.50 : 32 − 16  = +16  → 62.5 ms         (I_RMS = 1.27·INOM)
+```
+
+Near I_RMS ≈ INOM the net rate is a small difference of two large terms, so the
+trip time there is long and very sensitive. This is physically correct: a wire at
+its rated current heats up very slowly.
+
+**Results.**
+
+| D | measured I_RMS | fd peak | expected | simulated trip |
+|---|---|---|---|---|
+| 0.25 | 19.6 A (0.90·INOM) | 0.076 | no trip | no trip |
+| 0.30 | 21.5 A (0.99·INOM) | 0.092 | no trip | no trip |
+| 0.35 | 23.2 A (1.06·INOM) | 1 | ~0.6 s (sensitive) | 0.98 s |
+| 0.50 | – | 1 | 62.5 ms | **61.3 ms** |
+
+The D = 0.35 case trips later than the simple estimate. The load capacitor and
+harness smooth the current pulses (lower peaks, current flowing into the off-time),
+and near the balance point a few percent of difference in heating changes the
+trip time a lot.
+
+**Things to try.** Run `FUSE_MODE=1` (the ideal curve trips almost exactly at
+I_RMS = INOM). Change `FPWM` to 20 Hz: at D = 0.5 a single 25 ms pulse is longer
+than the 15.6 ms trip time at x = 1.8, so the fuse trips within one pulse. Very
+slow PWM is judged pulse by pulse, not by RMS. Raise the peak current (smaller
+`Rpwm`) at constant RMS.
 
 ![tb04](docs/img/tb04_pwm_rms.png)
 
-### tb05: VDS desaturation and blanking (`tb05_vds_desat.cir`)
-680 µF load with C_SLEW = 47 nF ramps in 0.6 ms (83 A inrush) and stays on.
-With C_SLEW = 470 nF the ramp would take ~6 ms, and VDS_MAX latches **970 µs**
-after turn-on (960 µs blanking + 10 µs). This is the design rule from [8.2](#82-gate-slew-network-and-the-960-µs-rule).
+---
+
+### tb05: VDS desaturation and the 960 µs blanking (`tb05_vds_desat.cir`)
+
+**What we simulate.** The VDS monitor protects the MOSFET from operating in its
+linear region, where it dissipates VDS × I. During turn-on, VDS is large by
+definition, so the monitor is **blanked for 960 µs**. This creates a hard design
+constraint: the output must finish ramping within 0.96 ms, or the channel trips
+at the end of the blanking time. The bench shows a design that respects the rule
+and one that violates it.
+
+**Setup.** Large capacitive load: 680 µF (10 mΩ) + 9.6 Ω (5 A). The gate slew
+capacitor is stepped: `C_SLEW` = 47 nF (default) and 470 nF (10× slower).
+VDS_CODE 14 → threshold 1.0 V.
+
+| Time | Event |
+|---|---|
+| 0.5 ms | OUTCTL → 1 |
+| 1.46 ms | end of VDS blanking (0.5 ms + 960 µs) |
+| 10 ms | end |
+
+**Signals in the plot.**
+1. OUT for both cases.
+2. VDS = V(drain) − V(OUT), with the blanking window (grey) and the 1.0 V
+   threshold (dashed).
+3. The VDS_MAX latch.
+
+**Expected behaviour.**
+* **47 nF**: ramp ≈ 0.5 ms (as tb01). At the end of blanking the FET is fully on,
+  VDS ≈ I·RDS ≈ 5 A × 2 mΩ = 10 mV ≪ 1 V, so there is no trip. The inrush is
+  ≈ 680 µF × ~100 V/ms ≈ 70–80 A: below IHSC, but large. It fills the fuse bucket
+  noticeably and heats the FET by ½·C·V² ≈ 0.8 J, which is an SOA check.
+* **470 nF**: dV/dt is 10× lower (~10 V/ms). After 960 µs OUT has reached only
+  ~7 V, VDS ≈ 41 V > 1 V, so VDS_MAX latches after the 5 + 5 µs
+  deglitch/delay, **≈ 970 µs after turn-on**. With the FET off, the 680 µF then
+  discharges into the load (τ = 680 µF × 9.6 Ω = 6.5 ms).
+
+**Results.**
+
+| Quantity | C_SLEW = 47 nF | C_SLEW = 470 nF |
+|---|---|---|
+| OUT at 90 % | 0.50 ms after EN | never (stops at ~6.6 V) |
+| VDS at end of blanking | 7 mV | 41.3 V |
+| VDS_MAX latch | no | **970 µs after EN** |
+| peak inrush | 82.8 A | 7.7 A |
+| fuse state `fd` peak | 0.11 | 0 |
+| FET junction peak (from 25 °C) | 60 °C | 35 °C |
+
+**Things to try.** Find the largest `Cload` that starts with 47 nF before IHSC
+trips. The rule of thumb is C_max ≈ IHSC·0.96 ms/VBAT ≈ 2 mF; see
+[8.2](#82-gate-slew-network-and-the-960-µs-rule). Raise `VDS_CODE` to 30 (1.8 V):
+it does not help with 470 nF, because VDS is tens of volts. Watch `tfet` for SOA.
 
 ![tb05](docs/img/tb05_vds_desat.png)
 
+---
+
 ### tb06: 48 V supply transients (`tb06_supply_transients.cir`)
-An ISO 21780 / LV148-style profile (illustrative levels): 54 V, 60 V for 40 ms,
-70 V for 5 ms (extended range), a dip to 24 V, 6 V (minimum operating) and 4 V.
-OUT follows VBAT. At 6 V the charge pump gives VS + 8.98 V and VGS = 8.6 V
-(spec ≥ 6 V). The UV shutdown triggers at 4.47 V on the falling ramp (4.5 V plus
-the 33 µs filter). No fault latches, and the channel restarts automatically.
+
+**What we simulate.** A 48 V board net is not a stiff 48 V source. It sees
+over-voltages from load dump and regenerative braking, slow sags when the
+battery is weak, and deep drops. ISO 21780 / LV148 define voltage classes for
+this. The bench checks how the channel behaves over a full profile: does the gate
+drive stay adequate, where does it shut down, and does it recover by itself?
+
+**Setup.** Channel on, 10 A resistive load (4.8 Ω) with 100 µF. The battery is a
+PWL source (illustrative levels, not a certified test pulse):
+
+| Time | VBAT | Meaning |
+|---|---|---|
+| 0–5 ms | 48 V | nominal |
+| 6–15 ms | 54 V | upper limited range |
+| 16–56 ms | 60 V | over-voltage (40 ms) |
+| 57–62 ms | **70 V** | VNF1048F extended range (≤ 100 ms allowed) |
+| 63–75 ms | 48 V | back to nominal |
+| 75–95 ms | → 24 V | slow sag to the lower limited range |
+| 95–125 ms | → **6 V** | minimum operating voltage of the VNF1048F |
+| 125–135 ms | → **4 V** | below VS_USD = 4.5 V |
+| 135–160 ms | → 48 V | recovery |
+
+**Signals in the plot.**
+1. VBAT and OUT.
+2. VGS at the FET and VCP − VS (charge-pump headroom).
+3. The UV shutdown flag, the gate command and DIAG.
+
+**Expected behaviour.**
+* **OUT follows VBAT** minus a few mV (10–15 A × ~3 mΩ). The eFuse is a switch,
+  not a regulator: **it does not protect the load against over-voltage**. At 70 V
+  the load sees 70 V. The VNF1048F has no over-voltage shutdown either.
+* **VGS stays regulated** at ~13.4 V for VS > 10 V. On fast VBAT steps there are
+  short dips or spikes, because the gate (held by C_SLEW to ground) lags OUT.
+  On the falling 70 → 48 V step the gate-source zener clamps at ~15.5 V.
+* **At 6 V** the charge pump can only make VS + 7…11 V (the model uses the mid
+  value, 9 V), so VGS drops to ~8.6 V. That is still above the 6 V datasheet
+  minimum and the 5 V VGS-UVLO threshold at this supply, so the FET stays fully on.
+* **Below 4.5 V** (filtered 33 µs) everything turns off: UV flag set, DIAG low.
+  On a ramp of 1 V/ms the 33 µs filter shifts the trip point by ~33 mV, to 4.47 V.
+* **Recovery** at VS > 4.6 V (0.1 V hysteresis): UV is a real-time, non-latched
+  fault, so the gate restarts automatically. It needs a short charge-pump
+  re-start and then the normal slew ramp.
+
+**Results.**
+
+| Quantity | Expected | Simulated |
+|---|---|---|
+| VGS at 70 V | 12…15 V | 13.37 V |
+| VGS peak (70 → 48 V step) | ≤ zener clamp | 15.5 V |
+| VCP − VS at VS = 6 V | 7…11 V | 8.98 V |
+| VGS at VS = 6 V | ≥ 6 V | 8.58 V |
+| UV shutdown (falling) | 4.5 V − filter | 4.47 V |
+| restart (rising) | 4.6 V | 4.60 V |
+| latched faults over the profile | none | none |
+| OUT at the end | 48 V | 47.87 V |
+
+**Things to try.** Make the 4 V dip shorter than 33 µs: it is filtered and nothing
+happens. Increase the load to see the droop at low VS. Replace the PWL with your
+OEM's test pulses.
 
 ![tb06](docs/img/tb06_supply_transients.png)
 
-### tb07: external FET over-temperature via NTC (`tb07_ntc_overtemp.cir`)
-TAMB 105 °C, RthCA 40 K/W, 23 A (below INOM = 24.8 A at OVC_CODE 15). The pad
-heats up and NTC_OVT latches at **119.8 °C / VNTC = 70.38 mV** (code 4 = 120 °C).
-The FET cools down, a CLR at 14 s re-arms the channel at 108 °C, and it heats
-again and re-trips, which is the expected latch-off behaviour.
+---
+
+### tb07: external MOSFET over-temperature via NTC (`tb07_ntc_overtemp.cir`)
+
+**What we simulate.** A current just **below** INOM is "legal" for the fuse
+logic, but it can still overheat the MOSFET in a hot environment with poor
+cooling: under-hood, a sealed box, a failing thermal interface. The NTC on the
+drain pad is the last line of defence. The bench checks the electro-thermal chain:
+MOSFET losses → pad temperature → NTC resistance → bridge voltage → trip at the
+programmed temperature. It also shows the latch-and-re-arm behaviour.
+
+**Setup.** TAMB = 105 °C, deliberately poor cooling (RthCA = 40 K/W,
+CthC = 0.15 J/K → τ = 6 s), continuous 23 A (2.087 Ω). OVC_CODE 15 →
+INOM = 24.8 A, so **the fuse is not involved** (x = 0.93). NTC_CODE 4 →
+VNTC threshold 70.38 mV ↔ 120 °C.
+
+| Time | Event |
+|---|---|
+| 1 ms | OUTCTL → 1 |
+| ~3 s | pad reaches 120 °C → NTC_OVT |
+| 14 s | `CLR` pulse: re-arm |
+| 20 s | end |
+
+**Signals in the plot.**
+1. FET junction and pad/NTC temperature, with the 120 °C line.
+2. The bridge voltage VNTC = V(drain) − V(NTC), with the code-4 threshold.
+3. The NTC_OVT latch, the gate command and DIAG.
+
+**Expected behaviour.**
+* FET losses P ≈ I²·RDS(on) ≈ 23² × 2 mΩ ≈ 1.06 W → steady pad temperature
+  105 + 1.06 × 40 ≈ 147 °C, which would overheat the FET. Rising with τ = 6 s, the pad
+  crosses 120 °C after ≈ −6 s·ln(1 − 15/42) ≈ **2.6 s**.
+* The NTC at 120 °C is 623 Ω, so VNTC = 1.2 V·623/(10 k + 623) = **70.4 mV**. The
+  threshold table and the NTC fit are consistent by construction (see 7.9).
+* After the trip, the losses stop and the pad cools towards 105 °C.
+* The NTC check is active only while the FET is on. A `CLR` at 14 s (pad ≈ 108 °C,
+  below the threshold) re-arms the channel. It heats up again and re-trips after
+  ~2.5 s. This is the expected behaviour of a latched protection with a persistent
+  cause: firmware must limit its retries.
+* The small junction spikes at each turn-on are the inrush energy into the
+  100 µF output capacitor, deposited into the small junction heat capacity.
+
+**Results.**
+
+| Quantity | Expected | Simulated |
+|---|---|---|
+| time to trip | ≈ 2.6 s | 3.09 s |
+| pad temperature at trip | 120 °C | **119.8 °C** |
+| VNTC at trip | 70.38 mV ± 3 mV | 70.38 mV |
+| pad temperature at CLR (14 s) | ~108 °C | 108.0 °C |
+| re-trip after CLR | yes, ~2.5 s later | 16.53 s (2.5 s) |
+| fuse state `fd` | ~0 | 0.001 |
+
+**Things to try.** Change `NTC_CODE` (0 = 100 °C … 10 = 150 °C). Improve cooling
+with `RTHCA` and see no trip. Make the current higher than INOM and see which
+protection wins.
 
 ![tb07](docs/img/tb07_ntc_overtemp.png)
 
-### tb08: stand-by, bypass and AUTO-ON (`tb08_standby_autoon.cir`)
-CPON = 0 (stand-by), bypass on, 20 mA sleep current (OUT = 47.86 V via ~7 Ω).
-When the load wakes up and draws 5 A, the 470 µF hold-up drops by 1.3 V in
-~100 µs and AUTO-ON fires (108 µs). The charge pump starts from zero, the FET
-turns on, and OUT dips to 45.3 V before recovering. DIAG stays low (wake-up flag)
-until the MCU sets OUTCTL and clears with CLR.
+---
+
+### tb08: stand-by, low-current bypass and AUTO-ON wake-up (`tb08_standby_autoon.cir`)
+
+**What we simulate.** In a parked vehicle, some loads (gateways, telematics,
+always-on ECUs) must stay powered while the eFuse consumes almost nothing. The
+VNF1048F turns off its charge pump and supplies these loads through a small
+internal bypass switch. When such a load **wakes up** and needs real current, the
+eFuse must take over by itself before the load browns out, and tell the MCU. The
+bench checks this hand-over and the hold-up capacitance it requires.
+
+**Setup.** `CPON` = 0 (Stand-by: charge pump off), OUTCTL = 0, BYPCTL = 1. The
+load is 2.4 kΩ (20 mA sleep current) plus 9.6 Ω (5 A) switched in at wake-up,
+with a 470 µF hold-up capacitor.
+
+| Time | Event |
+|---|---|
+| 0–5 ms | sleeping: 20 mA through the bypass |
+| 5 ms | **load wakes up** (5 A) |
+| 15 ms | MCU sets OUTCTL = 1 (takes ownership) |
+| 20 ms | MCU `CLR`: clears BYPASS_SAT → DIAG released |
+| 25 ms | end |
+
+**Signals in the plot.**
+1. VBAT and OUT (zoomed 40–50 V).
+2. VCP − VS and the VGS at the HS_GATE pin.
+3. The load current.
+4. Bypass on, AUTO-ON and DIAG.
+
+**Expected behaviour.**
+* Sleeping: OUT = 48 V − 20 mA × 7 Ω ≈ 47.86 V. Only the bypass conducts. CP = 0.
+* At wake-up the bypass saturates at ~0.11 A. The hold-up capacitor supplies the
+  rest: dV/dt ≈ 4.9 A/470 µF ≈ 10 V/ms. VS − VOUT reaches the 1.3 V bypass
+  saturation threshold after ≈ 1.3 V/(10 V/ms) ≈ 0.12 ms, plus 5 µs deglitch,
+  and then AUTO-ON fires.
+* AUTO-ON turns the bypass off and starts the charge pump **from zero**. The
+  gate can only rise once CP has charged (~470 nF × 14.5 V/30 mA ≈ 0.2 ms), so
+  OUT keeps falling for a while and then recovers when the FET turns on.
+* DIAG goes low at AUTO-ON (the wake-up flag) and stays low until the MCU clears
+  it. The MCU sets OUTCTL **before** clearing. Clearing first would hand the load
+  back to the bypass, which would saturate again.
+
+**Results.**
+
+| Quantity | Expected | Simulated |
+|---|---|---|
+| OUT while sleeping | ~47.86 V | 47.86 V |
+| bypass current sleeping / max | 20 mA / ~0.11 A | 20 mA / 0.111 A |
+| wake-up → AUTO-ON | ~0.12 ms | **108 µs** |
+| CP reaches VS + 6 V / VS + 14 V | ~0.2 ms after wake-up | 205 µs / 347 µs |
+| OUT minimum (hold-up droop) | 48 − ΔV | 45.26 V at 245 µs |
+| DIAG after wake-up / after CLR | low / high | 0.13 V / 3.3 V |
+
+**Things to try.** Reduce `Chold` to 47 µF and the load browns out deeper (ΔV ≈
+I·t/C). Start with `CPON=1` (Unlocked mode, pump running) and the hand-over is
+much faster. Move the CLR before 15 ms to see the hand-back problem.
 
 ![tb08](docs/img/tb08_standby_autoon.png)
 
-### tb09: inductive load turn-off (`tb09_inductive_turnoff.cir`)
-2 mH / 10 A switched off. With the Schottky freewheel OUT = −0.55 V and the
-current decays with L/R. Without it OUT goes to −52 V, VDS clamps at the 100 V
-avalanche, and the FET absorbs 120 mJ.
+---
+
+### tb09: switching off an inductive load (`tb09_inductive_turnoff.cir`)
+
+**What we simulate.** Solenoids, valves, relays and motor windings store energy
+in their inductance. When the eFuse switches them off, the current cannot stop
+instantly, so it forces OUT negative until it finds a path. The bench compares
+the correct design (freewheel diode) with a missing diode, and quantifies what
+the MOSFET and the VNF1048F OUT pin experience.
+
+**Setup.** Load = 2 mH + 4.8 Ω (10 A, L/R = 0.42 ms) with 100 nF at OUT. The
+freewheel Schottky is switched in or out via its series resistor (`FW` = 1:
+1 mΩ, `FW` = 0: 1 GΩ). OUTCTL turns the channel on at 0.5 ms and **off at 10 ms**.
+
+**Signals in the plot** (time relative to switch-off):
+1. OUT.
+2. VDS of the FET, with the 100 V avalanche line.
+3. The inductor current, each for both cases.
+
+**Expected behaviour.**
+* **With freewheel**: OUT is clamped at −V_F (~0.5 V at 10 A). The current
+  circulates through the diode and decays exponentially with τ = L/R = 0.42 ms,
+  reaching 1 A after ≈ 2.3·τ ≈ 0.95 ms. The FET only sees the short switching
+  transition (a few mJ).
+* **Without freewheel**: the only path for the inductor current is *through the
+  MOSFET in avalanche*. OUT is pulled down until VDS = BV ≈ 100 V, i.e.
+  OUT ≈ 48 − 100 = **−52 V**. The inductor then discharges against ~52 V +
+  I·R, and the current falls almost linearly to zero in ≈ L·I/V ≈ 0.3 ms. The FET
+  absorbs ½·L·I² ≈ 100 mJ plus the energy the battery delivers during the
+  avalanche. Afterwards L rings with the 100 nF at ≈ 11 kHz. **OUT at −52 V
+  violates the VNF1048F rating** (−2 V DC, −10 V for 10 µs).
+
+**Results.**
+
+| Quantity | with freewheel | without freewheel |
+|---|---|---|
+| OUT minimum | −0.55 V | −52.5 V |
+| VDS maximum | 49 V | 100.4 V (avalanche) |
+| current decay to 1 A | 0.93 ms (exponential) | 0.25 ms (linear, avalanche 268 µs) |
+| energy in the FET | 2.4 mJ | **120 mJ** |
+
+**Things to try.** Increase L to 10 mH and compare with the FET's single-pulse
+avalanche rating. Replace the Schottky with a TVS from OUT to GND to get faster
+demagnetization with a limited negative voltage. That trade-off matters for
+valves, which need a fast release.
 
 ![tb09](docs/img/tb09_inductive_turnoff.png)
 
-### tb10: system context, 48 V zonal PDU (`tb10_zonal_system.cir`)
-Two channels on one bus: CH1 feeds a 1 kW constant-power 48→12 V DC/DC
-(470 µF, UVLO 30/26 V), CH2 a 12 A fan motor. CH2 is shorted at 15 ms and
-isolates in **9.0 µs** (318 A peak). The bus dips to 33.7 V for a few µs, the
-DC/DC input never drops below 42.4 V, CH1 records no fault, and the DC/DC stays
-enabled. Only the faulty branch is disconnected.
+---
 
-The bench also exposed a real effect. With CH1 off, the IC's 1.3 mA OUT bias
-current charged the DC/DC input. Without a bleeder, the constant-power load
-then enabled itself, which would cause a hiccup in hardware. The bench therefore
-includes a 4.7 kΩ input bleeder.
+### tb10: system context: a 48 V zonal power distribution unit (`tb10_zonal_system.cir`)
+
+**What we simulate.** In a real vehicle several eFuse channels share one 48 V
+bus. The key system property is **selectivity**: a fault in one branch must
+disconnect only that branch, fast enough that the voltage dip does not reset or
+brown out loads on the healthy branches. The bench puts two very different
+channels on one bus and shorts one of them.
+
+**Setup.**
+* Battery: 48 V, 20 mΩ, main harness 2 µH / 5 mΩ, 220 µF + TVS at the PDU.
+* **CH1**: OVC_CODE 22 (INOM 39.1 A), HSC_CODE 14 (IHSC 139.3 A), tNOM 5 s →
+  48→12 V DC/DC modeled as a 1 kW **constant-power** load (I = P/V) with 470 µF
+  input capacitance, UVLO on at 30 V / off at 26 V, and a 4.7 kΩ input bleeder.
+* **CH2**: standard settings (INOM 21.8 A, IHSC 105.6 A) → fan motor 3.8 Ω +
+  200 µH (12 A), 100 µF local capacitance, 1.5 µH harness.
+
+| Time | Event |
+|---|---|
+| 1 ms | CH1 on → DC/DC input charges, DC/DC starts at 30 V |
+| 4 ms | CH2 on (staggered to avoid simultaneous inrush) |
+| 15 ms | **5 mΩ short at the end of the CH2 harness** |
+| 20 ms | end |
+
+**Signals in the plot.**
+1. 48 V bus, DC/DC input (CH1) and motor node (CH2).
+2. Channel currents.
+3. DIAG of both channels and the DC/DC enable.
+
+**Expected behaviour.**
+* Start-up: CH1's inrush into 470 µF is large but stays below its 139 A HSC.
+  The DC/DC enables at 30 V and then draws ~21 A. CH2's inrush is small.
+* Short on CH2: its current rises behind 1.5 µH, crosses 105.6 A in a few µs, and
+  trips after the 5 µs delay (≈ 9 µs in total). Until then the short draws
+  hundreds of amperes **from the bus**, which dips. The bus capacitors and, through
+  CH1's FET (which conducts in both directions when on), the DC/DC input
+  capacitor support the bus. CH1's current briefly reverses.
+* The DC/DC input is behind CH1's harness and 470 µF, so it dips much less than
+  the bus and must stay above its 26 V UVLO. Constant-power loads draw *more*
+  current when their voltage drops, so a long dip could collapse them.
+* After CH2 opens, the main-harness inductance gives a small bus overshoot. CH1
+  never sees an over-current, so no fault occurs on CH1.
+
+**Results.**
+
+| Quantity | Expected | Simulated |
+|---|---|---|
+| CH1 inrush peak / DC/DC enable | < 139 A / at 30 V | 84 A / 1.29 ms |
+| CH1 steady current (1 kW at 47 V) | ~21 A | 21.2 A |
+| CH2 inrush / motor current | small / ~12 A | 20 A / 12.3 A |
+| CH2 isolation time after the short | ~9 µs | **9.0 µs** |
+| CH2 peak current | ≫ IHSC | 318 A |
+| bus minimum / time below 45 V | short dip | 33.7 V / 20 µs |
+| bus overshoot after opening | < 58 V (TVS) | 50.6 V |
+| DC/DC input minimum | > 26 V (UVLO) | 42.4 V |
+| CH1 faults / DC/DC stays enabled | none / yes | none / yes |
+
+**A real effect this bench revealed.** In the first version, with CH1 off, the
+IC's 1.3 mA OUT bias current (datasheet Tab. 4, "IOUT") slowly charged the DC/DC
+input capacitor. Once it passed the 30 V UVLO, the constant-power load turned on,
+pulled the voltage down, turned off again, and so on. In simulation this showed
+up as a circuit with no DC solution; in hardware it would be a hiccup. The fix is
+the input bleeder (4.7 kΩ → 6 V with the channel off), which a real DC/DC
+needs for the same reason.
+
+**Things to try.** Short CH1 instead (139 A threshold, more stored energy).
+Remove CH1's 470 µF and see how deep the DC/DC input dips. Increase the
+main-harness inductance and see the bus dip and overshoot grow. Add a third channel.
 
 ![tb10](docs/img/tb10_zonal_system.png)
 
+---
+
 ### Schematics
-* `demo_efuse48_module.asc`: the tb02 scenario drawn with the `EFUSE48_MOD`
-  symbol. It reproduces the tb02 trip time exactly (3.00799 ms).
-* `app_vnf1048f_discrete.asc`: the full discrete application around the
-  `VNF1048F` symbol (shunt, FET, slew network, NTC bridge with an editable pad
-  temperature source `Vtpad`, DIAG pull-up). A 30 A overload (x = 1.36) trips
-  after **62.5 ms = tNOM/2⁴**, and CLR restarts the channel.
+
+* **`demo_efuse48_module.asc`**: the tb02 scenario (start-up, short at 3 ms,
+  retry, restart) drawn with the `EFUSE48_MOD` symbol in a battery/harness/load
+  context. Use it as a template for your own system schematics. It reproduces
+  the netlist bench exactly: HSHT at 3.00799 ms, 340 A peak, VBAT 64.4 V.
+* **`app_vnf1048f_discrete.asc`**: the full discrete application around the
+  `VNF1048F` symbol, as in DS13084 Fig. 16. It has the shunt, FET, slew network
+  with fast turn-off diode, gate-source zener, NTC bridge with an editable pad
+  temperature source `Vtpad`, charge-pump capacitor and DIAG pull-up. Scenario:
+  10 A load, then a +20 A overload at 5 ms (30 A, x = 1.36 → m = 4). The fuse
+  trips after **62.5 ms = tNOM/2⁴** (expected 62.5 ms). The overload is removed
+  at 75 ms, and a CLR at 80 ms restarts the channel. Use it as a template when
+  you want to change the FET, the shunt or the gate network.
+
 
 ---
 
