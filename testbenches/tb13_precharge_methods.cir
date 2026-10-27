@@ -1,0 +1,92 @@
+* tb13_precharge_methods.cir
+* ---------------------------------------------------------------------------
+* Three ways to pre-charge the same 4.7 mF load, all limited to ~10 A:
+*   METHOD 0  resistor        RPRE = 4.8 Ohm  (10 A peak, exponential)
+*   METHOD 1  constant current 10 A           (linear ramp: a linear current
+*             regulator, e.g. a MOSFET in a current loop)
+*   METHOD 2  switch-mode     hysteretic buck 8..12 A: switch + 100 uH +
+*             Schottky freewheel (the inductor, not a resistance, limits I)
+* The hand-over to the eFuse is voltage-based (comparator): eFuse on when
+* V(OUT) > 95 % VBAT, pre-charge path off 2 ms later.
+* Expected (from V0 ~ 6 V to 95 %, C = 4.7 mF, ~10 A):
+*   resistor : t = tau*ln((48-V0)/(0.05*48)) = 65 ms,  loss ~ 1/2*C*dV^2 ~ 4.1 J
+*   CC       : t = C*dV/I = 18.6 ms,                   loss ~ 4.1 J (same!)
+*   buck     : t ~ 18.6 ms,                            loss << 1 J
+* ---------------------------------------------------------------------------
+.include ../models/VNF1048F_beh.lib
+.param METHOD=0 CL=4.7m T0=1m
+
+Vbat bat 0 48
+Rbat bat b1 10m
+Lbat b1 vbat 1u
+Dtvs 0 vbat TVS_58V
+Cbus vbat 0 100u Rser=30m
+
+X1 vbat out 0 en byp clr diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12
++ VDS_CODE=14 TNOM_CODE=0
+
+* ---- pre-charge paths, VBAT -> pin ... pout -> OUT (0 V sources = ammeters)
+Vpin vbat pin 0
+Vpout pout out 0
+* METHOD 0: switch + resistor
+Sr pin pr pact0 0 SPRE
+Rpre pr pout 4.8
+* METHOD 1: linear constant-current source (0.3 V compliance, 20 us soft-start:
+* a real current loop has finite bandwidth)
+Rpf pact pactf 2k
+Cpf pactf 0 10n
+Bcc pin pout I=if({METHOD}==1, V(pactf)*10*limit(V(pin,pout)/0.3,0,1), 0)
+Rcc pin pout 100Meg
+* METHOD 2: hysteretic buck. Switch on below 8 A, off above 12 A; local input
+* capacitor Cin carries the pulsed input current
+Cin pin 0 10u Rser=10m
+Sbk pin sw hc 0 SBK
+Dbk 0 sw SCH_100V
+Lpc sw pout 100u Rser=20m
+Bhc hc 0 V=if({METHOD}==2 & V(pact)>0.5, 10-I(Lpc), -10)
+.model SPRE SW(Ron=50m Roff=10Meg Vt=0.5 Vh=-0.2)
+.model SBK  SW(Ron=20m Roff=10Meg Vt=0 Vh=2)
+* the resistor path is enabled only in METHOD 0
+Bpm pact0 0 V=V(pact)*({METHOD}==0)
+
+* load: 4.7 mF + 4.7k bleeder (load itself off during pre-charge)
+Lh out o1 1u
+Rh o1 load 10m
+Cload load 0 {CL} Rser=10m
+Rbl load 0 4.7k
+Dfw 0 out SCH_100V
+
+* ---- sequencer: pre-charge from T0; eFuse on when OUT > 95 % VBAT (latched);
+*      pre-charge path off 2 ms after the eFuse is on. The comparator sees
+*      20 us RC-filtered voltages (as an MCU ADC would)
+Rfb vbat vbf 2k
+Cfb vbf 0 10n
+Rfl load vlf 2k
+Cfl vlf 0 10n
+Bpgs pgs 0 V=(time>{T0}) & (V(vlf)>0.95*V(vbf))
+Xpg pgs 0 pg 0 EF_LATCH
+Xpgd pg pgd 0 EF_DGL T=2m
+Bpact pact 0 V=(time>{T0}) & !(V(pgd)>0.5)
+Ben en 0 V=3.3*V(pg)
+Vbyp byp 0 0
+Vclr clr 0 0
+
+.save V(vbat) V(out) V(load) V(pact) V(pg) V(sw) I(Vpin) I(Vpout) I(Lpc) I(Lh)
+.save V(x1:drn) V(x1:xu:gcmd) V(x1:xu:hsht) V(x1:xu:vdsmax) V(x1:xu:fd) V(diag)
+.meas tran v0     find V(load) at {T0}
+.meas tran t_pg   find time when V(pg)=0.5 rise=1
+.meas tran t_pre  param t_pg-T0
+.meas tran e_in   integ V(vbat)*I(Vpin)
+.meas tran e_out  integ V(out)*I(Vpout)
+.meas tran e_loss param e_in-e_out
+.meas tran iin_av avg I(Vpin) from {T0+1m} to {T0+8m}
+.meas tran iout_pk max I(Vpout)
+.meas tran iout_av avg I(Vpout) from {T0+1m} to {T0+8m}
+.meas tran ifet   max V(vbat,x1:drn)*1k*V(x1:xu:gcmd)
+.meas tran hsht   max V(x1:xu:hsht)
+.meas tran vdsmax max V(x1:xu:vdsmax)
+.meas tran vend   avg V(load) from 85m to 90m
+.step param METHOD list 0 1 2
+.tran 0 90m 0 2u
+.options plotwinsize=0
+.end

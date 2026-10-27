@@ -1,0 +1,68 @@
+* tb12_precharge_resistor.cir
+* ---------------------------------------------------------------------------
+* Resistor pre-charge of a load capacitance too large for dV/dt control
+* (4.7 mF, see tb11), followed by the hand-over to the eFuse main path.
+*   - a pre-charge path (small switch + RPRE = 4.7 Ohm) in parallel with the
+*     eFuse charges C_LOAD with tau = RPRE*C_LOAD = 22 ms
+*   - after a FIXED time T_HO the MCU switches the eFuse on (OUTCTL), 2 ms
+*     later the pre-charge switch is opened
+*   - stepped: T_HO = 1, 2, 3, 5 tau  -> residual dV = VBAT*exp(-T_HO/tau)
+*       1 tau : dV = 17.7 V -> C_LOAD*dV/dt >> IHSC -> HSC trip
+*       2 tau : dV =  6.5 V -> large residual inrush (HSC trip)
+*       3 tau : dV =  2.4 V -> residual inrush below IHSC, ok
+*       5 tau : dV = 0.32 V -> clean hand-over
+* Expected: energy lost in RPRE = 1/2*C*(VBAT-V0)^2 = 4.1 J regardless of RPRE
+* (V0 ~ 6 V OUT pre-bias), peak resistor power (VBAT-V0)^2/RPRE = 370 W,
+* residual inrush ~ dV/R_loop.
+* ---------------------------------------------------------------------------
+.include ../models/VNF1048F_beh.lib
+.param RPRE=4.7 CL=4.7m TAU={RPRE*CL} NHO=3 T0=1m THO={T0+NHO*TAU}
+
+Vbat bat 0 48
+Rbat bat b1 10m
+Lbat b1 vbat 1u
+Dtvs 0 vbat TVS_58V
+Cbus vbat 0 100u Rser=30m
+
+* main path: eFuse channel (standard settings, default slew network)
+X1 vbat out 0 en byp clr diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12
++ VDS_CODE=14 TNOM_CODE=0
+
+* pre-charge path: switch (e.g. small P-MOSFET or a low-current HSD channel)
+* + pulse-rated pre-charge resistor, VBAT -> OUT
+Spre vbat pc pcg 0 SPRE
+.model SPRE SW(Ron=50m Roff=10Meg Vt=0.5 Vh=-0.2)
+Rpre pc out {RPRE}
+
+* load: 4.7 mF input capacitance + 4.7k bleeder (load itself still off)
+Lh out o1 1u
+Rh o1 load 10m
+Cload load 0 {CL} Rser=10m
+Rbl load 0 4.7k
+Dfw 0 out SCH_100V
+
+* sequencer (MCU): pre-charge on at T0, eFuse on at THO, pre-charge off THO+2 ms
+Vpcg pcg 0 PWL(0 0 {T0} 0 {T0+1u} 1 {THO+2m} 1 {THO+2m+1u} 0)
+Ven en 0 PWL(0 0 {THO} 0 {THO+1u} 3.3)
+Vbyp byp 0 0
+Vclr clr 0 0
+
+.save V(vbat) V(out) V(load) V(pc) V(x1:drn) V(x1:g) I(Lh) I(Rpre) V(tfet)
+.save V(x1:xu:hsht) V(x1:xu:vdsmax) V(x1:xu:fd) V(x1:xu:gcmd) V(diag)
+.meas tran v_ho   find V(load) at {THO}
+.meas tran dv_ho  param 48-v_ho
+* (peaks taken after the first 20 us: the ideal switch steps current into the
+*  1 uH harness and gives a sub-us spike a real switch would not)
+.meas tran ipre   max I(Rpre) from {T0+20u} to {THO}
+.meas tran ppre   max V(pc,out)*I(Rpre) from {T0+20u} to {THO}
+.meas tran e_pre  integ V(pc,out)*I(Rpre)
+.meas tran ifet   max V(vbat,x1:drn)*1k*V(x1:xu:gcmd)
+.meas tran t_hsc  find time when V(x1:xu:hsht)=0.5 rise=1
+.meas tran dt_hsc param t_hsc-THO
+.meas tran e_fet  integ V(x1:drn,out)*V(vbat,x1:drn)*1k
+.meas tran fdmax  max V(x1:xu:fd)
+.meas tran vend   avg V(load) from {THO+8m} to {THO+10m}
+.step param NHO list 1 2 3 5
+.tran 0 {T0+5*TAU+12m} 0 5u
+.options plotwinsize=0
+.end

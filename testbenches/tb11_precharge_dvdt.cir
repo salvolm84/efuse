@@ -1,0 +1,58 @@
+* tb11_precharge_dvdt.cir
+* ---------------------------------------------------------------------------
+* Pre-charge by output slew-rate (dV/dt) control: the eFuse FET itself is the
+* pre-charge element, run as a source follower while its gate ramps through
+* RG_ON / C_SLEW. The bench maps the design window of this method with a 2-D
+* sweep of load capacitance x gate slew capacitor:
+*   C_LOAD = 0.22 / 0.47 / 1 / 2.2 / 4.7 mF   C_SLEW = 22 / 47 / 68 / 100 / 220 nF
+* Three outcomes are possible:
+*   PASS      : ramp done inside the 960 us VDS blanking, inrush < IHSC
+*   HSC trip  : too fast for the capacitance  -> C_LOAD*dV/dt > IHSC (105.6 A)
+*   VDS trip  : too slow -> OUT still ramping when the VDS blanking ends
+* Expected: dV/dt ~ 9 V/(RG_ON*C_SLEW) independent of C_LOAD, inrush =
+* C_LOAD*dV/dt, FET energy = 1/2*C_LOAD*(VBAT-V0)^2 in every passing case
+* (V0 ~ 6 V: OUT is pre-biased by the 1.3 mA off-state OUT current into the
+* 4.7k bleeder). A window exists only for C_LOAD < ~IHSC*0.9 ms/VBAT ~ 2 mF.
+* ---------------------------------------------------------------------------
+.include ../models/VNF1048F_beh.lib
+.param CL=1m CSL=47n
+
+Vbat bat 0 48
+Rbat bat b1 10m
+Lbat b1 vbat 1u
+Dtvs 0 vbat TVS_58V
+Cbus vbat 0 100u Rser=30m
+
+X1 vbat out 0 en byp clr diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12
++ VDS_CODE=14 TNOM_CODE=0 C_SLEW={CSL}
+
+* load: input capacitance of the load (ESR 10 mOhm) + 4.7k discharge bleeder;
+* the load itself is not yet running during the pre-charge
+Lh out o1 1u
+Rh o1 load 10m
+Cload load 0 {CL} Rser=10m
+Rbl load 0 4.7k
+Dfw 0 out SCH_100V
+
+Ven en 0 PWL(0 0 0.5m 0 0.501m 3.3)
+Vbyp byp 0 0
+Vclr clr 0 0
+
+.save V(vbat) V(out) V(load) V(x1:drn) V(x1:g) I(Lh) V(tfet)
+.save V(x1:xu:hsht) V(x1:xu:vdsmax) V(x1:xu:fd) V(x1:xu:gcmd)
+.meas tran v0     avg V(out) from 0.4m to 0.5m
+.meas tran t10v   find time when V(out)=10 rise=1
+.meas tran t20v   find time when V(out)=20 rise=1
+.meas tran t90    find time when V(out)=43.2 rise=1
+.meas tran ipk    max I(Lh)
+.meas tran t_hsc  find time when V(x1:xu:hsht)=0.5 rise=1
+.meas tran t_vds  find time when V(x1:xu:vdsmax)=0.5 rise=1
+.meas tran e_fet  integ (V(x1:drn)-V(out))*I(Lh)
+.meas tran fdmax  max V(x1:xu:fd)
+.meas tran tjmax  max V(tfet)
+.meas tran vend   avg V(load) from 2.9m to 3m
+.step param CL  list 0.22m 0.47m 1m 2.2m 4.7m
+.step param CSL list 22n 47n 68n 100n 220n
+.tran 0 3m 0 0.5u
+.options plotwinsize=0
+.end

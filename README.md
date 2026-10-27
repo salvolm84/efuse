@@ -3,14 +3,15 @@
 A detailed **behavioral LTspice model of a 48 V automotive electronic fuse**, using
 the STMicroelectronics **VNF1048F** as the reference part ("High-side switch
 controller with intelligent fuse protection for 12 V, 24 V and 48 V automotive
-applications", datasheet DS13084 Rev 6). The repository also has ten validated
-test benches, two ready-to-run schematics and a scripted regression that checks
-47 simulation results against the datasheet.
+applications", datasheet DS13084 Rev 6). The repository also has fourteen
+validated test benches (four of them on pre-charging capacitive loads), two
+ready-to-run schematics and a scripted regression that checks 80 simulation
+results against the datasheet and against hand calculations.
 
 > **Disclaimer.** This is an independent, **unofficial** model. STMicroelectronics
 > did not provide, review or endorse it. It was built from the public datasheet.
 > Where the datasheet gives no number, an engineering estimate is used and
-> marked **[EST]** (see [Assumptions and estimates](#10-assumptions-estimates-and-limitations)).
+> marked **[EST]** (see [Assumptions and estimates](#11-assumptions-estimates-and-limitations)).
 > Use it for architecture studies, protection coordination and harness/load
 > interaction. Do not use it in place of ST's own models, the latest datasheet or
 > hardware validation.
@@ -27,11 +28,12 @@ test benches, two ready-to-run schematics and a scripted regression that checks
 6. [Model architecture and pins](#6-model-architecture-and-pins)
 7. [Block-by-block description (with equations)](#7-block-by-block-description)
 8. [EFUSE48_MOD: the complete channel and the external-component design](#8-efuse48_mod-complete-channel-and-external-component-design)
-9. [Test benches and results](#9-test-benches-and-results)
-10. [Assumptions, estimates and limitations](#10-assumptions-estimates-and-limitations)
-11. [Numerical notes and troubleshooting](#11-numerical-notes-and-troubleshooting)
-12. [Designing with the model: worked example](#12-designing-with-the-model-worked-example)
-13. [References](#13-references)
+9. [Pre-charging capacitive loads](#9-pre-charging-capacitive-loads)
+10. [Test benches and results](#10-test-benches-and-results)
+11. [Assumptions, estimates and limitations](#11-assumptions-estimates-and-limitations)
+12. [Numerical notes and troubleshooting](#12-numerical-notes-and-troubleshooting)
+13. [Designing with the model: worked example](#13-designing-with-the-model-worked-example)
+14. [References](#14-references)
 
 ---
 
@@ -227,6 +229,10 @@ on top of the load current (tb01: 30 A peak with the 10 A load). Two limits pull
 A diode around `RG_ON` (`RG_OFF` path) makes the **turn-off** fast even though
 the turn-on is slow. A short has to be interrupted in microseconds.
 
+This slow ramp is one way to **pre-charge** the load capacitance. It only works
+up to about 1–2 mF. Larger capacitances need a separate pre-charge path; see
+[section 9](#9-pre-charging-capacitive-loads) and benches tb11–tb14.
+
 ### 1.6 Turning off hard: where the energy goes
 
 Every wire has inductance, and a current in an inductance stores energy, ½·L·I².
@@ -263,6 +269,9 @@ itself** (AUTO-ON, node `autoon`) and pulls DIAG low to wake the MCU (tb08).
 | Hot under-hood, poor cooling | NTC trip at the set temperature | `NTC_CODE` | tb07 |
 | Parked car, ECU wakes up | bypass → AUTO-ON | `CPON`, `VBYP_SAT` | tb08 |
 | Solenoid switched off | energy into the freewheel diode | (external Schottky) | tb09 |
+| Key-on with 1 mF: how fast may OUT ramp? | dV/dt window between HSC and VDS blanking | `C_SLEW`, `HSC_CODE` | tb11 |
+| Key-on with 4.7 mF (inverter, big DC/DC) | resistor pre-charge, then eFuse hand-over | (external pre-charge path) | tb12, tb13 |
+| Pre-charge into a shorted or leaky load | supervisor aborts, eFuse never closes | (pre-charge supervisor) | tb14 |
 
 ---
 
@@ -285,7 +294,7 @@ itself** (AUTO-ON, node `autoon`) and pulls DIAG low to wake the MCU (tb08).
 | Fault clearing (SPI "read & clear") | `CLR` logic pin. Faults are re-armed, and if the fault persists the channel re-trips. |
 
 Not modeled: the SPI protocol itself, watchdog, Locked/Unlocked state machine,
-self-tests, HWLO, ADC sample timing (filters are used instead). See [10](#10-assumptions-estimates-and-limitations).
+self-tests, HWLO, ADC sample timing (filters are used instead). See [11](#11-assumptions-estimates-and-limitations).
 
 ---
 
@@ -303,7 +312,7 @@ efuse/
 ├── schematics/                   ready-to-run schematics (symbols copied alongside)
 │   ├── demo_efuse48_module.asc   module in a 48 V harness: start-up, short, retry
 │   └── app_vnf1048f_discrete.asc full discrete application (DS13084 Fig. 16 + slew network)
-├── testbenches/                  tb01..tb10 netlists (.cir), see section 9
+├── testbenches/                  tb01..tb14 netlists (.cir), see section 10
 ├── docs/
 │   ├── img/                      result plots (generated)
 │   └── VALIDATION.md             pass/fail report vs datasheet (generated)
@@ -333,8 +342,8 @@ efuse/
 ### From the command line (full regression)
 
 ```bash
-tools/run_ltspice.sh testbenches/*.cir schematics/*.asc   # ~100 s for all 12
-python3 tools/validate.py                                 # -> docs/VALIDATION.md, 47 checks
+tools/run_ltspice.sh testbenches/*.cir schematics/*.asc   # ~3 min for all 16
+python3 tools/validate.py                                 # -> docs/VALIDATION.md, 80 checks
 python3 tools/plot_results.py                             # -> docs/img/*.png
 ```
 
@@ -692,7 +701,9 @@ Two limits apply at the same time:
 
 So with this controller the maximum load capacitance scales roughly as
 C_LOAD,max ≈ IHSC · 0.96 ms / VBAT, about 2 mF for a 105 A HSC at 48 V before
-margins. For larger capacitances, increase RSENSE·IHSC or pre-charge the load.
+margins. tb11 maps this window: with margins the practical limit is ~1–1.5 mF.
+For larger capacitances, raise IHSC (if the FET and harness allow it) or
+pre-charge the load through a separate path ([section 9](#9-pre-charging-capacitive-loads)).
 
 Two more parts in the module are design lessons from the test benches:
 
@@ -713,7 +724,250 @@ Two more parts in the module are design lessons from the test benches:
 
 ---
 
-## 9. Test benches and results
+## 9. Pre-charging capacitive loads
+
+Almost every 48 V load has a large capacitor at its input: DC/DC converters,
+traction or e-compressor inverters, electric power steering, ECUs with bulk
+capacitance. Before such a load is connected to the battery, that capacitor
+has to be **pre-charged**. This section explains why, compares the ways of
+doing it and lists the design considerations. Benches tb11–tb14
+([section 10](#10-test-benches-and-results)) put numbers on each point.
+
+### 9.1 What pre-charge is, intuitively
+
+Think of the load capacitor as an empty tank and the battery as a water main
+under pressure. If you open the big main valve (the eFuse MOSFET) at once, the
+water rushes in limited only by the pipe friction (the loop resistance). At 48 V
+the loop is battery + harness + shunt + FET + capacitor ESR, about 30 mΩ, so an
+empty capacitor would try to draw 48 V / 30 mΩ ≈ **1.5 kA**. For the first
+microseconds a discharged capacitor is electrically **a short circuit**.
+
+**Pre-charging** means filling the tank slowly through a small, controlled
+path first, and opening the main valve only when the levels are (almost) equal.
+Then the main switch closes with almost no voltage across it, and almost no
+current flows at that instant.
+
+Why it matters in an eFuse system:
+
+* **False trips.** The eFuse cannot tell an empty capacitor from a short. An
+  uncontrolled inrush crosses IHSC and the channel latches off (tb11, tb12).
+* **Stress in the element that limits the current.** Whatever limits the
+  inrush (FET, resistor, current regulator) has to absorb a lot of energy in a
+  short time (see below).
+* **Supply-side disturbance.** A large inrush pulls the 48 V bus down for every
+  other load on it (tb10 shows how a short does the same).
+* **Connector and relay contacts.** Closing a mechanical contact onto an empty
+  capacitor makes it arc and can weld it. eFuses avoid this, but many 48 V systems
+  also have a battery disconnect switch or relay.
+
+#### The half-energy rule: you cannot avoid the heat, only move it
+
+There is one fact that dominates every pre-charge design. When you charge a
+capacitor from a constant voltage source through **any** resistive or linear
+element, that element dissipates **exactly as much energy as the capacitor
+stores**:
+
+```
+charge drawn from the battery     Q = C·VBAT
+energy delivered by the battery   E_bat = Q·VBAT = C·VBAT²
+energy stored in the capacitor    E_C   = ½·C·VBAT²
+energy turned into heat           E_loss = E_bat − E_C = ½·C·VBAT²
+(starting from V0 instead of 0:   E_loss = ½·C·(VBAT − V0)² )
+```
+
+The value of the resistor, the current limit, the ramp rate and the time all
+drop out. A 4.7 mF capacitor charged to 48 V stores **5.4 J**, so the pre-charge
+element turns 5.4 J into heat every time, whether it is a 1 Ω or a 100 Ω
+resistor, a MOSFET ramping in 1 ms or a current source taking 20 ms. The
+method decides only **where** the heat goes (FET, resistor), **how fast** (peak
+power) and **how long** the event lasts. For comparison: dumped adiabatically into the
+junction of the model's FET (thermal capacitance 0.02 J/K, [EST]) those 5.4 J
+would mean +270 K. The FET survives tb01/tb11 only because the energy is smaller
+and spread over a time in which the heat can reach the case.
+
+The only way around the half-energy rule is to limit the current with an
+**inductor** instead of a resistance, as a switch-mode converter does
+(method D below, tb13: 0.11 J lost instead of 4 J).
+
+The same formula with V0 explains the **hand-over**. If the main switch closes
+while ΔV is still left across it, the remaining charge flows through the loop
+resistance with a peak current of about ΔV / R_loop and dissipates ½·C·ΔV².
+Pre-charging to 95 % (ΔV = 2.4 V) leaves only 0.25 % of the energy for the main
+switch. tb12 shows what happens when the hand-over comes too early.
+
+### 9.2 Ways of doing it
+
+```
+ A  dV/dt control of the main switch          B  resistor + bypass switch
+
+ VBAT ─RSENSE─ D[FET]S ─── OUT ── C_LOAD                ┌──[S_PRE]──[R_PRE]──┐
+                  G                           VBAT ─────┤                    ├── OUT ── C_LOAD
+                  ├── RG_ON ── HS_GATE                  └─────[ eFuse ]──────┘
+                  └── C_SLEW ── GND           S_PRE on → V(OUT) ≥ 95 % → eFuse on → S_PRE off
+
+
+ C  constant-current (linear) pre-charge     D  switch-mode (inductor-limited) pre-charge
+
+          ┌──[ I_PRE regulator ]──┐                   ┌──[S]──┬──[ L ]──┐
+ VBAT ────┤                       ├── OUT   VBAT ─────┤       │         ├── OUT
+          └───────[ eFuse ]───────┘                   │       ▲ D       │
+                                                      │      GND        │
+                                                      └────[ eFuse ]────┘
+```
+
+**A. dV/dt (slew-rate) control of the main switch** (tb01, tb05, tb11). The
+eFuse FET itself is the pre-charge element. Its gate is ramped slowly (RG_ON,
+C_SLEW), the FET works as a source follower, and OUT follows the gate at a
+constant dV/dt. The inrush is a constant I = C_LOAD·dV/dt, and the ramp takes
+VBAT/(dV/dt). It needs no extra parts, but the FET dissipates the full ½·C·V² in linear
+mode, and with the VNF1048F the method sits in a **window** with two edges:
+fast enough to finish within the 960 µs VDS blanking, slow enough to keep
+C·dV/dt below IHSC. That window closes at ~2 mF and is comfortable only up to
+~1 mF (tb11).
+
+**B. Resistor + bypass switch** (tb12, tb14). A small switch (a small
+P-MOSFET, a low-current high-side driver channel, a relay) and a pre-charge
+resistor in parallel with the main switch. The capacitor charges with
+τ = R_PRE·C_LOAD and reaches 95 % after 3τ and 99 % after 4.6τ. Then the main switch
+closes and the pre-charge switch opens. It is simple, robust and well understood
+(it is the standard method for high-voltage traction batteries), and the heat
+goes into a resistor, not the FET. The drawbacks: it is slow, the
+current is highest at the start (peak power VBAT²/R_PRE), the final voltage is
+approached only asymptotically, and the resistor must be rated for the pulse
+energy and for the fault cases (9.3). A PTC thermistor as R_PRE limits itself
+if the load is shorted.
+
+**C. Constant-current (linear) pre-charge** (tb13). A current regulator, i.e. a
+MOSFET in a current loop, charges the capacitor with a constant current, so the
+voltage rises linearly and the time is t = C·ΔV/I. For the same peak current it is
+about 3.5× faster than a resistor to 95 %. The energy lost is still ½·C·V², but
+it is now dumped at a high, almost constant power (VBAT·I at the start) for the
+whole charge. A long linear-mode pulse at high VDS is the hardest
+SOA case for a MOSFET, so this needs a FET specified for linear operation and a
+heatsink.
+
+**D. Switch-mode pre-charge** (tb13). The current is limited by an inductor: a
+switch, a freewheel diode and L form a buck converter (here with hysteretic 8–12 A
+current control). The inductor stores energy and hands it on instead of turning
+it into heat, so the loss is only the conduction and switching losses
+(0.11 J instead of 4 J in tb13). The battery current is also lower than the
+charging current (power, not current, is conserved). The cost is more parts,
+switching noise (EMC) and control. Many 48 V architectures already have this
+hardware: the bidirectional 48 V/12 V DC/DC converter can pre-charge the 48 V
+bus from the 12 V side before the main switch closes.
+
+**Other methods, not simulated here.**
+
+* *Pulsed (PWM) switching of the main switch without an inductor*: the average
+  current is limited, but each pulse must stay below IHSC and the ½·C·V² loss
+  remains. It has the losses of method A plus the trip risk of every pulse.
+* *NTC inrush limiters*: simple, but they work only when cold and are slow to
+  recover, so they suit mains equipment better than vehicles.
+* *Soft-start inside the load*: the load's own input stage limits its
+  inrush, e.g. an active inrush limiter in the DC/DC. Then the eFuse can switch fast,
+  but you depend on every load being designed that way.
+* *Why not the VNF1048F low-current bypass?* It saturates at ~0.12 A, which would
+  take C·V/I = 4.7 mF·48 V/0.12 A ≈ 1.9 s. More importantly, once VS − OUT
+  exceeds ~1.3 V for 5 µs, the controller reads it as a load wake-up and turns
+  the main FET on by itself (AUTO-ON, tb08). The bypass immediately hands over
+  to method A, so it is not a pre-charge path.
+
+**The methods compared** on the same 4.7 mF load at about 10 A (tb13, with tb11 for
+method A at 1 mF):
+
+| Method | Time to 95 % | Energy lost | Peak / average power in the element | Extra parts | Practical C range | Bench |
+|---|---|---|---|---|---|---|
+| A dV/dt (1 mF, 65 V/ms) | 0.66 ms | 0.79 J (FET) | 2.7 kW / 1.3 kW in the FET | none | ≲ 1–1.5 mF | tb11 |
+| B resistor 4.8 Ω | 65.8 ms | 4.08 J | 377 W / 62 W | switch + R | any (time ∝ C) | tb12–14 |
+| C constant current 10 A | 18.5 ms | 4.05 J | 415 W / 219 W | linear FET + loop | any, SOA-limited | tb13 |
+| D switch-mode, 10 A avg | 18.4 ms | 0.11 J | (switching losses) | switch, L, diode, control | any | tb13 |
+
+### 9.3 Design considerations
+
+1. **Size the energy, not only the current.** Every pre-charge dissipates
+   ½·C·(VBAT − V0)² (5.4 J for 4.7 mF from 0 V). Check the element against its
+   **single-pulse** rating at the actual pulse length: the pulse-load curve of the
+   resistor, or the FET's transient thermal impedance and SOA at the VDS it actually
+   sees. Then check the **repetitive** case: key cycles, retries and pre-charge
+   aborts in quick succession all add heat.
+2. **The fault case sizes the pre-charge element.** Into a shorted load a
+   resistor dissipates VBAT²/R_PRE (470 W for 4.7 Ω) for as long as the
+   pre-charge is allowed to run. tb14: 10.3 J by the checkpoint at 1τ, against
+   4 J for a normal pre-charge. Without the early checkpoint, the 100 ms timeout
+   alone would let ~47 J into the resistor. **Fail fast**: check that V(OUT) is
+   rising after a fraction of the expected time.
+3. **Hand over on voltage, not on time.** A fixed timer assumes a known C, VBAT,
+   V0 and load. A comparator on the voltage across the main switch
+   (VBAT − VOUT < ΔV_max) works for any capacitance tolerance, battery voltage
+   or residual charge (hot restart). For the main switch,
+   I_handover ≈ ΔV/R_loop must stay well below IHSC. In tb12, R_loop,eff ≈ 51 mΩ, so
+   IHSC = 105.6 A is reached at ΔV ≈ 5.4 V: 2τ (5.9 V) trips, 3τ (2.2 V, 43 A) and
+   95 % (2.4 V) are fine, and 98 % or more leaves comfortable margin.
+4. **Supervise the pre-charge and give it an outcome.** A robust sequence has
+   (a) an early **checkpoint** (V(OUT) above x % after ~1τ) that catches shorts,
+   (b) a **timeout** that catches leaky loads, an oversized C or a load that
+   switched on, (c) an **abort** that opens the pre-charge path, latches and reports,
+   and (d) a rule never to close the main switch after an abort (tb14). The pre-charge is
+   also a cheap **load diagnostic**: a short or a leak is found at 10 A
+   instead of at 300 A (compare tb02).
+5. **Keep the load off until power-good.** A resistive load forms a divider
+   with R_PRE (final voltage VBAT·R_L/(R_L + R_PRE), tb14 "leaky load"). A
+   **constant-power** load (DC/DC, inverter) is worse: it draws *more* current
+   as its voltage falls. If it starts on its own UVLO in the middle of the
+   pre-charge, the pre-charge path cannot supply it. The capacitor collapses, the load
+   stops, the capacitor recharges, and the cycle repeats (tb14: 18 start/stop cycles in 80 ms).
+   Gate the load enable with the power-good of the pre-charge supervisor.
+6. **Design for the capacitance tolerance and for all the capacitance.**
+   Electrolytic capacitors are typically −20/+20 % or worse, lose capacitance with
+   age and cold, and every ECU on the branch adds its own input capacitance. With
+   method A the inrush scales directly with C (keep the worst case inside the
+   tb11 window). With methods B–D the time scales with C (set the timeout for
+   C_max and the checkpoint for C_min). The measured pre-charge time is a free
+   estimate of C, useful for detecting capacitor degradation.
+7. **Respect the eFuse protections during pre-charge.** The inrush counts towards
+   the I²t bucket (tb11: fd = 0.10 for 1 mF). The HSC has to clear the peak, not
+   the average: with a pre-biased output the first-conduction spike is
+   1.2–1.5× C·dV/dt (tb11). The VDS monitor is blanked for only 960 µs. And the
+   pre-charge path bypasses all of these protections (point 8).
+8. **The pre-charge path is a sneak path around the fuse.** It sits in parallel
+   with the protected switch. If its switch sticks closed, or the MCU leaves it on, the
+   harness is fed through R_PRE without any eFuse protection. Its current must
+   be limited by design to a value the wire tolerates (VBAT/R_PRE = 10 A here), the
+   resistor must survive or fail safe (fusible or PTC type), and its state should
+   be monitored. It must also open when the eFuse trips, so it does not keep
+   feeding the fault.
+9. **Mind the supply side.** The inrush also flows through the battery and the
+   main harness: 100 A through 20 mΩ is a 2 V dip for every other load on the bus.
+   Stagger the pre-charge of large loads (tb10 staggers CH1 and CH2).
+10. **Expect ringing at the end of a fast pre-charge.** The harness inductance
+    and C_LOAD form a resonant circuit. When a fast ramp stops, the current overshoots
+    and rings (tb11: −12 A after the 1 mF ramp). Capacitor ESR and the bleeder
+    damp it.
+
+### 9.4 Choosing a method
+
+| Load capacitance / use | Suggested method | Watch out for |
+|---|---|---|
+| up to ~1 mF (with tolerances) | A: dV/dt with `C_SLEW` in the middle of the tb11 window | FET SOA and Tj, first-conduction spike vs IHSC |
+| ~1–20 mF, pre-charge occasionally (key-on) | B: resistor + switch, supervised (tb12, tb14) | resistor pulse and fault energy, hand-over ΔV, sneak path |
+| large C, fast or frequent start-up | C: constant current, if the FET SOA allows | long linear-mode pulse at high VDS |
+| very large C, or efficiency matters | D: switch-mode (often the existing bidirectional DC/DC) | EMC, control, fault handling |
+
+Sizing formulas in one place:
+
+```
+any resistive / linear method   E_loss = ½·C·(VBAT − V0)²         (per event)
+A  dV/dt                        I = C·dV/dt,  t = VBAT/(dV/dt),  P_FET,peak ≈ VBAT·I
+                                window:  (VBAT − V0)/(t_BLK − t_d) < dV/dt < IHSC/(k·C),  k ≈ 1.2–1.5
+B  resistor                     τ = R·C,  t95 ≈ 3τ,  t99 ≈ 4.6τ,  I_peak = VBAT/R,  P_peak = VBAT²/R
+                                fault (short) energy = VBAT²/R · t_detect
+C  constant current             t = C·ΔV/I,  P_peak = VBAT·I,  P_avg = E_loss/t
+hand-over                       I_ho ≈ ΔV/R_loop  <  IHSC/2,   E_ho = ½·C·ΔV²
+```
+
+---
+
+## 10. Test benches and results
 
 Each bench is a plain netlist in `testbenches/` and can be opened directly in
 LTspice. The write-ups below have the same structure:
@@ -726,7 +980,7 @@ LTspice. The write-ups below have the same structure:
 * **Things to try**: parameters worth changing to explore the behaviour.
 
 All numbers are simulated values from the `.meas` statements
-(`docs/VALIDATION.md`: **47/47 checks pass**).
+(`docs/VALIDATION.md`: **80/80 checks pass**).
 
 **Common setup** unless noted: 48 V battery with 10 mΩ internal resistance and
 1 µH supply harness, 100 µF bus capacitance (+ 58 V TVS), RSENSE = 1 mΩ,
@@ -1357,6 +1611,261 @@ main-harness inductance and see the bus dip and overshoot grow. Add a third chan
 
 ---
 
+### tb11: pre-charge by dV/dt control, the design window (`tb11_precharge_dvdt.cir`)
+
+**What we simulate.** Method A of [section 9](#9-pre-charging-capacitive-loads):
+the eFuse FET itself pre-charges the load while its gate ramps through RG_ON and
+C_SLEW. tb01 and tb05 each showed one operating point. This bench maps the whole
+design space, so you can see how much capacitance the method can handle and how
+to pick C_SLEW.
+
+**Setup.** Common setup, load = C_LOAD (10 mΩ ESR) + 4.7 kΩ bleeder (the load
+itself is not running yet). 2-D sweep, 25 runs:
+C_LOAD = 0.22 / 0.47 / 1 / 2.2 / 4.7 mF × C_SLEW = 22 / 47 / 68 / 100 / 220 nF.
+OUTCTL → 1 at 0.5 ms, end at 3 ms.
+
+**Signals in the plots.**
+* Waveforms (C_LOAD = 1 mF, all five C_SLEW): OUT with the VDS blanking window
+  (grey), load current with the IHSC line, and which fault latched.
+* Window map: every run as a point at (C_LOAD, measured dV/dt). Green = pass
+  (labelled with the peak inrush), red × = HSC trip, amber △ = VDS trip. The two
+  dashed lines are the hand-calculated limits.
+
+**Expected behaviour.**
+* While OUT ramps, the FET is a source follower and dV/dt is set by the
+  gate network alone: about (14 V − VGS,plateau)/(RG_ON·C_SLEW) ≈ 9–10 V/(2.2 kΩ·C_SLEW),
+  measured 200 / 99 / 69 / 47 / 21 V/ms. It **does not depend on C_LOAD**.
+* The inrush is C_LOAD·dV/dt: **HSC edge** at C_LOAD·dV/dt = IHSC = 105.6 A.
+* OUT has to reach ~47 V (VDS < 1 V) before the blanking ends 960 µs after
+  OUTCTL: **VDS edge** at dV/dt ≈ (48 − 6) V / (0.96 ms − delay) ≈ 46 V/ms. OUT
+  starts at V0 ≈ 6 V, because the 1.3 mA off-state OUT current of the
+  controller pre-biases it through the 4.7 kΩ bleeder.
+* The two edges cross at C_LOAD ≈ 105.6 A / 46 V/ms ≈ **2.3 mF**. Above that no
+  C_SLEW works. Below it the window widens as C_LOAD falls.
+* FET energy in a passing run: ½·C·(VBAT − V0)², minus the small part burnt in the
+  series resistances (half-energy rule, 9.1).
+
+**Results (C_LOAD = 1 mF).**
+
+| C_SLEW | dV/dt | Outcome | Peak current | Notes |
+|---|---|---|---|---|
+| 22 nF | ~200 V/ms | **HSC trip** 67 µs after OUTCTL | 125 A | OUT stops at 9 V |
+| 47 nF | ~97 V/ms | **HSC trip** 126 µs after OUTCTL | 109 A | the module default is too fast for 1 mF |
+| 68 nF | 65 V/ms | **pass**, OUT at 95 % after 0.66 ms | 79 A | E_FET 0.79 J (½CΔV² = 0.88 J), FET 25 → 63 °C, fd 0.10 |
+| 100 nF | 45 V/ms | **VDS trip** 970 µs after OUTCTL | 54 A | OUT reached only 45.5 V, just outside the window |
+| 220 nF | 21 V/ms | **VDS trip** 970 µs after OUTCTL | 24 A | OUT at 23 V |
+
+Over the whole map: the measured dV/dt varies by < 6 % between 0.22 and 1 mF for
+a given C_SLEW (C_LOAD has no influence, as expected). **No C_SLEW passes at 2.2 or 4.7 mF.**
+At 2.2 mF with 100 nF the inrush (104 A) is just below IHSC, but the ramp is too slow,
+and the FET still heats from 25 to 104 °C before the VDS trip. The peak inrush
+of the passing runs is 1.2–1.5× C·dV/dt. The extra is a first-conduction spike: the gate
+is still on the steep start of its RC charge when the FET begins to conduct
+from the pre-biased OUT.
+
+**Design reading.** For a given C_LOAD, put dV/dt in the middle of the
+window, including C tolerance: with 1 mF ± 20 %, 65 V/ms gives 1.2 mF × 65 V/ms × 1.25
+≈ 98 A worst case, which is tight. That is why ~1 mF is the practical limit, and
+why larger loads need a separate pre-charge path (tb12–tb14).
+
+**Things to try.** Raise `HSC_CODE` to 14 (139 A) and watch the window grow
+to the right. Lower `VBAT` to 36 V: the VDS edge drops and slower ramps pass.
+Add a resistive load (as tb05) and see it eat into the HSC margin.
+
+![tb11 waveforms](docs/img/tb11_precharge_dvdt.png)
+![tb11 window](docs/img/tb11_precharge_window.png)
+
+---
+
+### tb12: resistor pre-charge and the hand-over point (`tb12_precharge_resistor.cir`)
+
+**What we simulate.** Method B: a 4.7 mF load, well beyond the dV/dt window,
+is pre-charged through a resistor in parallel with the eFuse. Then the eFuse is
+switched on. The open question is *when*. A firmware timer is the obvious
+choice, so the bench steps the timer and shows what the residual voltage at
+the hand-over does to the eFuse.
+
+**Setup.** Common setup. Pre-charge path VBAT → switch (50 mΩ) → R_PRE = 4.7 Ω
+→ OUT, so τ = R_PRE·C_LOAD = 22 ms. Load = 4.7 mF + 4.7 kΩ bleeder. The eFuse uses
+the module defaults (C_SLEW 47 nF).
+
+| Time | Event |
+|---|---|
+| 1 ms | pre-charge switch on |
+| 1 ms + N·τ | OUTCTL → 1 (hand-over), stepped N = 1, 2, 3, 5 |
+| hand-over + 2 ms | pre-charge switch off |
+
+**Signals in the plot.**
+1. V(load) for the four hand-over times.
+2. FET current right after OUTCTL (measured across RSENSE), with IHSC.
+3. Pre-charge resistor power and accumulated energy (5τ case).
+
+**Expected behaviour.**
+* V(load) = V0 + (VBAT − V0)(1 − e^(−t/τ)), with V0 ≈ 6.1 V (OUT pre-bias):
+  32.6 V after 1τ, 42.2 V after 2τ, 45.9 V after 3τ, 47.7 V after 5τ.
+* Resistor: peak current (VBAT − V0)/R ≈ 8.8 A, peak power (VBAT − V0)²/R ≈ 370 W,
+  decaying with τ/2. Total energy ½·C·(VBAT − V0)² = 4.12 J (the half-energy
+  rule, independent of R_PRE). Into an empty capacitor (V0 = 0) the peak would be
+  VBAT²/R = 490 W.
+* At the hand-over the gate charges from 0 V towards OUT + 14 V. When it reaches
+  V(load) + VTH the FET conducts, and the residual ΔV drives a current of about
+  ΔV / R_loop. With ΔV = 16 V or 6 V that is far above IHSC; with 2 V it is not.
+
+**Results.**
+
+| Hand-over | V(load) at hand-over | ΔV | FET peak current | Outcome |
+|---|---|---|---|---|
+| 1τ (22 ms) | 32.4 V | 15.6 V | 117 A | **HSC trip** 108 µs after OUTCTL |
+| 2τ (44 ms) | 42.1 V | 5.9 V | 108 A | **HSC trip** 137 µs after OUTCTL |
+| 3τ (66 ms) | 45.8 V | 2.2 V | 43 A | ok, OUT = 48 V |
+| 5τ (110 ms) | 47.6 V | 0.35 V | 6.9 A | ok, clean |
+
+Pre-charge resistor: 8.8 A and 366 W peak, **4.05 J** in total. Both passing
+points give the same effective loop resistance, ΔV/I ≈ **51 mΩ**, so the hand-over
+current is predictable. IHSC is reached at ΔV ≈ 5.4 V, which sets the
+hand-over threshold (≤ 2.7 V with a factor-2 margin, i.e. ≥ ~95 % at 48 V).
+
+**Things to try.** Halve R_PRE: the time halves, the peak power doubles, and
+the energy stays the same. Change `CL` by ±20 % with the timer fixed at 3τ_nom
+and see the hand-over margin move (that is why tb13/tb14 hand over on
+voltage). Add `C_SLEW=4.7n` to `X1` (a fast main switch): the residual inrush
+is then limited only by the loop.
+
+![tb12](docs/img/tb12_precharge_resistor.png)
+
+---
+
+### tb13: pre-charge methods compared (`tb13_precharge_methods.cir`)
+
+**What we simulate.** The same 4.7 mF load pre-charged three ways at the
+same ~10 A current level: a resistor (method B), a linear constant-current
+regulator (C) and a switch-mode, inductor-limited path (D). The bench measures
+the time each takes and the energy each loses, which tests the half-energy rule
+of [9.1](#91-what-pre-charge-is-intuitively) directly.
+
+**Setup.** Common setup, load 4.7 mF + 4.7 kΩ. The pre-charge paths sit between
+VBAT and OUT, with 0 V ammeters at their input and output so the energy lost
+in the path is E_in − E_out.
+
+* METHOD 0: switch + 4.8 Ω (10 A peak).
+* METHOD 1: ideal 10 A current regulator with 0.3 V compliance and 20 µs
+  soft-start.
+* METHOD 2: hysteretic buck. The switch turns on below 8 A and off above 12 A, with a
+  100 µH inductor, a 100 V Schottky freewheel and a 10 µF local input capacitor.
+
+The hand-over is voltage-based: eFuse on when V(load) > 95 % VBAT (both inputs
+RC-filtered by 20 µs, as an ADC would see them), pre-charge path off 2 ms later.
+
+**Signals in the plot.**
+1. V(load) with the 95 % threshold.
+2. Current into the load capacitor (the buck shows its 8–12 A ripple band).
+3. Accumulated energy lost in the pre-charge element.
+
+**Expected behaviour.** From V0 = 6.1 V to 45.6 V (95 %):
+* resistor: t = τ·ln((48 − 6.1)/2.4) ≈ 2.86τ ≈ **65 ms**;
+* constant current: t = C·ΔV/I = 4.7 mF × 39.5 V / 10 A = **18.6 ms**;
+* buck: the same average current, so also **~18.6 ms**;
+* energy lost, resistor and CC: ½·C·[(48 − 6.1)² − 2.4²] = **4.11 J**, identical
+  even though the CC is 3.5× faster;
+* buck: only conduction and diode losses. Because it converts power, the battery
+  current is *lower* than the 10 A charging current while V(OUT) < VBAT.
+
+**Results.**
+
+| Quantity | Resistor | Constant current | Switch-mode |
+|---|---|---|---|
+| time to 95 % | 65.8 ms | 18.5 ms | 18.4 ms |
+| energy lost in the pre-charge path | **4.08 J** | **4.05 J** | **0.11 J** |
+| energy delivered to the capacitor | 4.83 J | 4.89 J | 5.44 J* |
+| current into C: peak / average over the first 7 ms | 9.8 / 7.1 A | 10.0 / 10.0 A | 12.0 / 10.0 A |
+| average battery current (first 7 ms) | 7.1 A | 10.0 A | **3.5 A** |
+| element power: peak / average | 377 / 62 W | 415 / 219 W | (losses only) |
+| FET current at hand-over (ΔV ≈ 2.4 V) | 47 A | 43 A | 41 A |
+| eFuse faults | none | none | none |
+
+\* Includes the 2 ms after the hand-over in which the buck path still conducts
+in parallel with the eFuse. The loss figure is not affected.
+
+The buck switches at ~27 kHz in mid-charge (OUT ≈ 16 V). Its battery current of
+3.5 A at 10 A output current is the power balance 16 V × 10 A ≈ 48 V × 3.4 A.
+
+**Things to try.** Double the CC current: half the time, double the power, the
+same energy. Replace R_PRE with 2.4 Ω: the same 4 J in half the time. Lower the
+hysteresis band of the buck to 9–11 A and watch the switching frequency rise.
+
+![tb13](docs/img/tb13_precharge_methods.png)
+
+---
+
+### tb14: supervised pre-charge and fault cases (`tb14_precharge_faults.cir`)
+
+**What we simulate.** A pre-charge that only works on a healthy load is not
+a design. This bench adds the supervisor a real system needs (power-good
+hand-over, early checkpoint, timeout, abort) and runs it into three faults next to
+the normal case. The load is a 1 kW 48→12 V DC/DC (constant power, UVLO
+30 / 26 V) behind 4.7 mF.
+
+**Setup.** Resistor pre-charge as tb12 (4.7 Ω, τ = 22 ms). Supervisor (MCU):
+
+| Rule | Value |
+|---|---|
+| start | pre-charge on at 1 ms |
+| hand-over (power-good) | V(load) > 95 % VBAT → eFuse on, pre-charge off 2 ms later |
+| checkpoint | at 1 ms + 1τ, V(load) must be > 40 % VBAT, otherwise abort |
+| timeout | no power-good by 1 ms + 100 ms (~4.5τ) → abort |
+| abort | latched: pre-charge off, eFuse never switched on |
+| DC/DC enable | 5 ms after power-good (cases 0–2); case 3 ignores it |
+
+Stepped cases: **0** normal; **1** hard short at the load (50 mΩ);
+**2** leaky load (10 Ω, e.g. a damaged load or wet connector); **3** the DC/DC is
+*not* gated by power-good and starts on its own UVLO.
+
+**Signals in the plot.**
+1. V(load) with the 95 % and 40 % thresholds; dotted lines = checkpoint and timeout.
+2. Pre-charge resistor current.
+3. DC/DC enable.
+4. Abort latch per case, and power-good for the normal case.
+
+**Expected behaviour.**
+* Normal: power-good after ≈ 2.86τ ≈ 64 ms. The DC/DC starts 5 ms later and draws
+  1 kW / 47.5 V ≈ 21 A through the eFuse.
+* Short: V(load) stays at ~0.5 V (10 A × 50 mΩ) and fails the checkpoint at
+  1τ. The resistor takes ≈ VBAT²/R_PRE × 22 ms ≈ **10 J**, about 2.5× the normal
+  pre-charge, and the eFuse is never closed into the short.
+* Leaky load: V(load) settles at the divider value 48 V × 10/(10 + 4.7) ≈ 32.7 V.
+  That passes the checkpoint (~25 V at 1τ) but never reaches 95 %, so the timeout aborts.
+* DC/DC not gated: at 30 V it starts and wants 1 kW / 30 V ≈ 33 A, while
+  the resistor supplies (48 − 30)/4.7 ≈ 3.8 A. The capacitor drops to the 26 V UVLO in
+  ~0.5 ms, the DC/DC stops, the capacitor recharges, and the cycle repeats. The 95 %
+  threshold is never reached, so the timeout aborts.
+
+**Results.**
+
+| Case | V(load) at checkpoint | Outcome | When | R_PRE energy | eFuse |
+|---|---|---|---|---|---|
+| 0 normal | 32.4 V | **power-good**, DC/DC on at 70.5 ms, 21.1 A | 64.5 ms | 4.04 J | on, no fault |
+| 1 short | 0.50 V | **abort at checkpoint** | 22.1 ms | 10.3 J | never on |
+| 2 leaky load | 24.9 V | **abort by timeout** (V = 32.4 V) | 100 ms | 9.8 J | never on |
+| 3 DC/DC not gated | 28.7 V | **hiccup**, 18 start/stop cycles (~0.54 ms on, 4.7 ms period), then **abort by timeout** | 100 ms | 9.9 J | never on |
+
+(Times are measured from the start of the pre-charge.)
+
+Two lessons. First, every fault case puts about **2.5×** the normal energy into the pre-charge
+resistor, so the faults set the resistor rating, not the nominal pre-charge.
+Without the checkpoint the short would run to the timeout: 470 W × 100 ms ≈ 47 J.
+Second, case 3 makes the DC/DC itself oscillate. Downstream this is a 12 V rail
+that browns out 18 times. The fix is a power-good gate on the load enable, not a
+bigger resistor.
+
+**Things to try.** Move the checkpoint to 0.5τ: a faster abort and less energy, but
+check the margin against C_max at the lowest VBAT. Replace the 50 mΩ short with
+2 Ω (a partial short) and see which rule catches it. Remove the abort latch
+and let the MCU retry every 200 ms: the resistor energy accumulates.
+
+![tb14](docs/img/tb14_precharge_faults.png)
+
+---
+
 ### Schematics
 
 * **`demo_efuse48_module.asc`**: the tb02 scenario (start-up, short at 3 ms,
@@ -1375,7 +1884,7 @@ main-harness inductance and see the bus dip and overshoot grow. Add a third chan
 
 ---
 
-## 10. Assumptions, estimates and limitations
+## 11. Assumptions, estimates and limitations
 
 **[EST] values, not in the datasheet:**
 
@@ -1407,10 +1916,15 @@ main-harness inductance and see the bus dip and overshoot grow. Add a third chan
   The thermal network drives only the NTC and `TFET`.
 * EMC, the charge-pump ripple, and the flying capacitors (CP1/CP2 pins are not
   brought out).
+* Pre-charge benches (tb12–tb14): the pre-charge switches are ideal `SW`
+  elements, the constant-current regulator is a behavioural source with 20 µs
+  soft-start, and the buck has an ideal hysteretic controller. The resistor and
+  the linear element are not thermally modeled; check their pulse ratings
+  against the energies the benches report.
 
 ---
 
-## 11. Numerical notes and troubleshooting
+## 12. Numerical notes and troubleshooting
 
 * The DC operating point solves directly or with LTspice's normal Gmin stepping.
   Two deliberate choices keep it well-conditioned: the charge-pump current limit
@@ -1426,10 +1940,14 @@ main-harness inductance and see the bus dip and overshoot grow. Add a third chan
 * A floating output with a constant-power load can have **no DC solution**,
   because of the 1.3 mA OUT bias current (tb10). Add the load's real bleeder or
   UVLO behaviour.
+* Ideal switches (`SW`) that step a current into the harness inductance cause
+  sub-µs spikes in currents and voltages. Take peak `.meas` values after the
+  first ~20 µs (tb12), and RC-filter the inputs of behavioural comparators the
+  way an ADC would (tb13, tb14). Otherwise a single spike can set a latch.
 
 ---
 
-## 12. Designing with the model: worked example
+## 13. Designing with the model: worked example
 
 **Goal:** protect a 2.5 mm² 48 V feed to a 15 A (continuous) pump, with an
 800 µF input capacitance and a firmware retry.
@@ -1439,7 +1957,11 @@ main-harness inductance and see the bus dip and overshoot grow. Add a third chan
 3. **IHSC** above the inrush and below the FET/harness limit: HSC_CODE 12 =
    105.6 mV → 105.6 A (IHSC/INOM = 5.5 → 10 steps).
 4. **Slew.** The ramp must be under 0.96 ms, so with 48 V take ≥ 60 V/ms.
-   80 V/ms × 800 µF = 64 A < 105 A ✓ (RG_ON 2.2 kΩ, C_SLEW 47…56 nF).
+   80 V/ms × 800 µF = 64 A < 105 A, but check it against the tb11 window. With
+   +20 % capacitance (960 µF) and the 1.2–1.5× first-conduction spike, the peak
+   becomes 90–115 A, which is too close to IHSC. C_SLEW = 68 nF (~65 V/ms, ramp
+   ~0.65 ms) gives ~52 A nominal and ≤ 94 A worst case ✓, and still finishes
+   inside the blanking time.
 5. **tNOM** from the wire: the curve t = (tNOM/32)/(x² − 1) must stay below the
    wire's damage curve over INOM…IHSC. For example tNOM = 31 s (TNOM_CODE 15)
    gives 0.32 s (ideal) / 0.48 s (stepwise) at 2·INOM and 40 ms / 61 ms at 5·INOM.
@@ -1448,7 +1970,7 @@ main-harness inductance and see the bus dip and overshoot grow. Add a third chan
 
 ---
 
-## 13. References
+## 14. References
 
 * STMicroelectronics, *VNF1048F – High-side switch controller with intelligent
   fuse protection for 12 V, 24 V and 48 V automotive applications*, datasheet

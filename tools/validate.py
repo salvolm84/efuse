@@ -113,6 +113,69 @@ check(t, "faulty channel (CH2) isolation time", m(t, "dt_trip2") * 1e6, 5, 10, "
 check(t, "healthy channel (CH1) faults", m(t, "ch1_flt"), -0.01, 0.01, "", "selectivity")
 check(t, "DC/DC input minimum", m(t, "vdc_min"), 30, 49, "V", "stays above DC/DC UVLO")
 check(t, "DC/DC stays enabled", m(t, "dcen_min"), 0.99, 1.01, "", "ride-through")
+# ---- tb11 dV/dt pre-charge window ---------------------------------------------
+t = "tb11_precharge_dvdt"
+NCL = 5                                   # inner step C_LOAD, outer step C_SLEW
+
+
+def k11(i_csl, i_cl):
+    return i_csl * NCL + i_cl
+
+
+def tripped(key, k):
+    return not failed(t, key, k)
+
+
+sr68 = [10 / (m(t, "t20v", k11(2, i)) - m(t, "t10v", k11(2, i))) / 1e3 for i in range(3)]
+check(t, "dV/dt independent of C_LOAD (68 nF, 0.22..1 mF)", 100 * (max(sr68) - min(sr68)) / min(sr68),
+      0, 10, "%", "source follower: dV/dt set by RG_ON*C_SLEW")
+check(t, "1 mF, C_SLEW 22 nF: HSC trip", 1.0 if tripped("t_hsc", k11(0, 2)) else 0.0, 1, 1, "",
+      "C*dV/dt > IHSC")
+check(t, "1 mF, C_SLEW 68 nF: no fault", 0.0 if tripped("t_hsc", k11(2, 2)) or tripped("t_vds", k11(2, 2)) else 1.0,
+      1, 1, "", "inside the window")
+check(t, "1 mF, C_SLEW 68 nF: inrush", m(t, "ipk", k11(2, 2)), 50, 105.6, "A", "~C*dV/dt = 65 A, < IHSC")
+check(t, "1 mF, C_SLEW 68 nF: FET energy / (1/2 C dV^2)",
+      m(t, "e_fet", k11(2, 2)) / (0.5 * 1e-3 * (48 - m(t, "v0", k11(2, 2))) ** 2), 0.85, 1.0, "",
+      "rest in the series resistances")
+check(t, "1 mF, C_SLEW 220 nF: VDS trip after turn-on", (m(t, "t_vds", k11(4, 2)) - 0.5e-3) * 1e6, 864, 1066, "us",
+      "VDS_BLK 960 us + 10 us")
+n_ok = sum(1 for j in range(5) for i in (3, 4)
+           if not (tripped("t_hsc", k11(j, i)) or tripped("t_vds", k11(j, i))))
+check(t, "C_LOAD >= 2.2 mF: passing C_SLEW values", n_ok, 0, 0, "", "C_max ~ IHSC*0.9 ms/VBAT ~ 2 mF")
+# ---- tb12 resistor pre-charge ------------------------------------------------
+t = "tb12_precharge_resistor"
+v0 = 6.13                                  # OUT pre-bias (1.3 mA OUT current x 4.7k)
+check(t, "V(load) after 1 tau", m(t, "v_ho", 0), 31.5, 33.5, "V", "V0 + (VBAT-V0)(1-1/e) = 32.6 V")
+check(t, "pre-charge resistor peak power", m(t, "ppre", 3), 340, 400, "W", "(VBAT-V0)^2/RPRE = 373 W")
+check(t, "pre-charge resistor energy (5 tau)", m(t, "e_pre", 3), 3.9, 4.3, "J", "1/2 C (VBAT-V0)^2 = 4.12 J")
+check(t, "hand-over at 1 tau: HSC trip", m(t, "dt_hsc", 0) * 1e6, 50, 200, "us", "dV 16 V -> I >> IHSC")
+check(t, "hand-over at 2 tau: HSC trip", m(t, "dt_hsc", 1) * 1e6, 50, 200, "us", "dV 5.9 V / ~50 mOhm > IHSC")
+check(t, "hand-over at 3 tau: residual inrush", m(t, "ifet", 2), 20, 105.6, "A", "dV 2.2 V / ~50 mOhm, < IHSC")
+check(t, "hand-over at 5 tau: residual inrush", m(t, "ifet", 3), 0, 15, "A", "dV 0.35 V")
+check(t, "hand-over at 3 tau: output on", m(t, "vend", 2), 47.5, 48.5, "V", "no fault")
+# ---- tb13 pre-charge methods -------------------------------------------------
+t = "tb13_precharge_methods"
+check(t, "resistor: time to 95 %", m(t, "t_pre", 0) * 1e3, 60, 70, "ms", "tau*ln(41.9/2.4) = 65 ms")
+check(t, "constant current: time to 95 %", m(t, "t_pre", 1) * 1e3, 17.5, 19.5, "ms", "C*dV/I = 18.6 ms")
+check(t, "switch-mode: time to 95 %", m(t, "t_pre", 2) * 1e3, 17.5, 19.5, "ms", "C*dV/I_avg = 18.6 ms")
+check(t, "resistor: energy lost", m(t, "e_loss", 0), 3.9, 4.3, "J", "1/2 C (dV0^2 - dV1^2) = 4.11 J")
+check(t, "constant current: energy lost", m(t, "e_loss", 1), 3.9, 4.3, "J", "same as resistor")
+check(t, "switch-mode: energy lost", m(t, "e_loss", 2), 0, 0.5, "J", "no resistive drop to dissipate")
+check(t, "switch-mode: average battery current", m(t, "iin_av", 2), 2, 5, "A", "P_in ~ P_out: I_in < I_out")
+check(t, "faults at hand-over (all methods)", max(m(t, "hsht", k) + m(t, "vdsmax", k) for k in range(3)),
+      -0.01, 0.01, "", "dV = 2.4 V at 95 %")
+# ---- tb14 supervised pre-charge, faults --------------------------------------
+t = "tb14_precharge_faults"
+check(t, "normal: hand-over time", (m(t, "t_pg", 0) - 1e-3) * 1e3, 60, 70, "ms", "95 % after ~2.9 tau")
+check(t, "normal: DC/DC current after start", m(t, "idc", 0), 20, 22.5, "A", "1 kW / 47.5 V")
+check(t, "normal: latched faults", m(t, "fltmax", 0), -0.01, 0.01, "", "none expected")
+check(t, "short: abort at the checkpoint", m(t, "dt_ab", 1) * 1e3, 21, 24, "ms", "TCHK = 1 tau = 22 ms")
+check(t, "short: eFuse never switched on", m(t, "gcmax", 1), -0.01, 0.01, "", "no hand-over into a short")
+check(t, "short: resistor energy", m(t, "e_pre", 1), 9, 12, "J", "~VBAT^2/RPRE x 22 ms")
+check(t, "leaky load: abort by the timeout", m(t, "dt_ab", 2) * 1e3, 99, 102, "ms", "TTO = 100 ms")
+check(t, "leaky load: V(load) at abort", m(t, "v_ab", 2), 30, 35, "V", "divider 10/(10+4.7) -> 32.7 V")
+check(t, "DC/DC not gated: hiccup (3rd start)", m(t, "t_dc3", 3) * 1e3, 20, 40, "ms", "UVLO 30/26 V")
+check(t, "DC/DC not gated: abort by the timeout", m(t, "dt_ab", 3) * 1e3, 99, 102, "ms", "never reaches 95 %")
 # ---- schematics ----------------------------------------------------------------
 S = os.path.join(ROOT, "schematics")
 check("demo_efuse48_module.asc", "HSC trip (matches tb02)", m("demo_efuse48_module", "t_trip", 0, S) * 1e3,
