@@ -1,0 +1,61 @@
+* tb32_hw_vs_fw.cir
+* ---------------------------------------------------------------------------
+* Why the fast protections must be hardware. Hard short at the load
+* connector at 3 ms (tb02 circuit), three protection configurations:
+*   CASE 0 : as designed: hardware HSC (105.6 A, 5 us)
+*   CASE 1 : HSC and I2t disabled; the VDS desaturation monitor (1.0 V,
+*            5+5 us, blanking long over) is the only hardware layer left
+*   CASE 2 : all hardware protections disabled; "firmware" protection: the
+*            MCU reads the current (CS) and switches OUTCTL off 1 ms after
+*            CS > 100 mV (ADC sampling + 1 ms task)
+* Expected: CASE 0 ~8 us / ~340 A / ~20 mJ. CASE 1 the FET carries the
+* short until VDS > 1 V for 10 us: a few hundred A more, still < ~0.1 J.
+* CASE 2 the FET carries ~1.5 kA (loop-resistance limited) for 1 ms: several
+* J, junction far beyond any rating (in reality: a destroyed FET and a
+* fused harness), and the late turn-off of 1.5 kA kicks VBAT to ~100 V.
+* Interview guide: question G3.
+* ---------------------------------------------------------------------------
+.include ../models/VNF1048F_beh.lib
+.param CASE=0
+.param HSCMV={if(CASE>0, 5000, 0)}
+.param VOCMV={if(CASE>0, 5000, 0)}
+.param VDSMV={if(CASE>1, 60000, 0)}
+
+Vbat bat 0 48
+Rbat bat b1 10m
+Lbat b1 vbat 1u
+Dtvs 0 vbat TVS_58V
+Cbus vbat 0 100u Rser=30m
+
+X1 vbat out 0 en byp clr diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12
++ VDS_CODE=14 TNOM_CODE=0 HSC_MV={HSCMV} VOC_MV={VOCMV} VDS_MV={VDSMV}
+
+Lh out o1 1u
+Rh o1 load 10m
+Cload load 0 220u Rser=20m
+Rload load 0 4.8
+Dfw 0 out SCH_100V
+Ssc load 0 sc 0 SSHORT
+Vsc sc 0 PWL(0 0 3m 0 3.0001m 1)
+.model SSHORT SW(Ron=5m Roff=1Meg Vt=0.5 Vh=-0.2)
+
+* "firmware": CS > 100 mV continuously for 1 ms -> OUTCTL off (latched)
+Bfw fwc 0 V=V(cs)>0.1
+Xfwd fwc fwt 0 EF_DGL T=1m
+Xfwl fwt 0 fwoff 0 EF_LATCH
+Ben en 0 V=3.3*(time>0.5m)*(1-V(fwoff))
+Vbyp byp 0 0
+Vclr clr 0 0
+
+.save V(vbat) V(out) V(x1:drn) V(cs) I(Lh) V(tfet) V(fwoff)
+.save V(x1:xu:hsht) V(x1:xu:vdsmax) V(x1:xu:gcmd)
+.meas tran t_off   find time when V(vbat,x1:drn)=10m fall=last
+.meas tran dt_off  param t_off-3m
+.meas tran ipk     max V(vbat,x1:drn)/1m from 3m to 5m
+.meas tran e_fet   integ V(x1:drn,out)*V(vbat,x1:drn)/1m from 3m to 5m
+.meas tran tjpk    max V(tfet)
+.meas tran vbatmin min V(vbat) from 3m to 5m
+.step param CASE list 0 1 2
+.tran 0 5m 0 0.2u
+.options plotwinsize=0
+.end

@@ -1,0 +1,45 @@
+* tb15_12v_vs_48v.cir
+* ---------------------------------------------------------------------------
+* Why 48 V? The same 1 kW load fed over a 3 m feed at 12 V and at 48 V.
+*   CASE 0 : 12 V, 2.5 mm2 feed  (7.6 mOhm/m -> 22.8 mOhm)
+*   CASE 1 : 12 V, 16 mm2 feed   (1.2 mOhm/m -> 3.6 mOhm, 6.4x the copper)
+*   CASE 2 : 48 V, 2.5 mm2 feed  (22.8 mOhm)
+*   CASE 3 : 48 V, 0.75 mm2 feed (24.7 mOhm/m -> 74 mOhm, 0.3x the copper)
+* Load: constant-power DC/DC (1 kW) with 470 uF input capacitance, enabled at
+* 2 ms (power regulated with ~1 ms bandwidth). At 20 ms a bolted 5 mOhm short at the load end shows the current slope
+* di/dt = V/L and the prospective short current V/R_loop of each system.
+* There is deliberately no protection device: this bench shows the physics.
+* Expected (steady state): 12 V / 2.5 mm2 ~128 A, ~370 W in the wire, load
+* voltage ~8 V; 48 V / 2.5 mm2 ~21 A, ~10 W. Short: di/dt 4 vs 16 A/us,
+* prospective current ~0.3 vs ~1.3 kA.
+* Interview guide: question A1.
+* ---------------------------------------------------------------------------
+.param CASE=2
+.param VB={if(CASE<2, 12, 48)}
+.param RW={table(CASE, 0,22.8m, 1,3.6m, 2,22.8m, 3,74m)}
+
+Vbat bat 0 {VB}
+Rbat bat b1 10m
+Lw b1 load 3u Rser={RW}
+Cin load 0 470u Rser=10m
+* constant power with a 1 ms regulation bandwidth: above ~160 Hz the DC/DC
+* acts as a constant current, so the wire L + input C resonance stays damped
+Rvf load vf 1k
+Cvf vf 0 1u
+Bdc load 0 I=if(V(dcen)>0.5, 1000/max(V(vf),0.5*{VB}), 0)
+Vdcen dcen 0 PWL(0 0 2m 0 2.01m 1)
+
+Ssc load 0 sc 0 SSHORT
+Vsc sc 0 PWL(0 0 20m 0 20.0001m 1)
+.model SSHORT SW(Ron=5m Roff=1Meg Vt=0.5 Vh=-0.2)
+
+.save V(load) V(b1) I(Lw) I(Bdc)
+.meas tran iw    avg I(Lw) from 15m to 19m
+.meas tran vl    avg V(load) from 15m to 19m
+.meas tran pwire avg I(Lw)*I(Lw)*{RW} from 15m to 19m
+.meas tran pload avg V(load)*I(Bdc) from 15m to 19m
+.meas tran isc   max I(Lw) from 20m to 20.6m
+.step param CASE list 0 1 2 3
+.tran 0 20.6m 0 1u
+.options plotwinsize=0
+.end

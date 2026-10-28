@@ -1,0 +1,81 @@
+* tb31_retry.cir
+* ---------------------------------------------------------------------------
+* Firmware retry strategy after a trip. Two independent channels:
+*   A : permanent hard short at the load connector from 2 ms. The MCU
+*       retries (CLR) with back-off 1 / 2 / 4 ms (at 3, 5 and 9 ms), then
+*       latches the channel off for good. Every retry repeats the full
+*       short-circuit event: ~340 A peak, ~64 V on the bus, ~20 mJ in the FET.
+*   B : permanent overload ~35 A (x = 1.6, trip after tNOM/2^5 = 31 ms)
+*       from 20 ms. First retry 5 ms after the trip: the thermal model has
+*       not cooled (fd ~ 0.84) -> re-trip after ~5 ms. Second retry 100 ms
+*       after the second trip: fd has decayed to 0 -> full 31 ms again.
+* Interview guide: question G2.
+* ---------------------------------------------------------------------------
+.include ../models/VNF1048F_beh.lib
+
+* ---- channel A: hard short, retries with back-off
+Vbata bata 0 48
+Rbata bata ba1 10m
+Lbata ba1 vba 1u
+Dtvsa 0 vba TVS_58V
+Cbusa vba 0 100u Rser=30m
+XA vba outa 0 en 0 clra diaga csa tfeta EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12
++ VDS_CODE=14 TNOM_CODE=0
+Lha outa oa1 1u
+Rha oa1 loada 10m
+Cla loada 0 220u Rser=20m
+Rla loada 0 4.8
+Dfwa 0 outa SCH_100V
+Ssca loada 0 sca 0 SSHORT
+Vsca sca 0 PWL(0 0 2m 0 2.0001m 1)
+.model SSHORT SW(Ron=5m Roff=1Meg Vt=0.5 Vh=-0.2)
+Vclra clra 0 PWL(0 0 3m 0 3.001m 3.3 3.05m 3.3 3.051m 0 5m 0 5.001m 3.3 5.05m 3.3
++ 5.051m 0 9m 0 9.001m 3.3 9.05m 3.3 9.051m 0)
+
+* ---- channel B: persistent overload, retry too early / after cooling
+Vbatb batb 0 48
+Rbatb batb bb1 10m
+Lbatb bb1 vbb 1u
+Cbusb vbb 0 100u Rser=30m
+XB vbb outb 0 en 0 clrb diagb csb tfetb EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12
++ VDS_CODE=14 TNOM_CODE=0 RTHCA=2
+Lhb outb ob1 1u
+Rhb ob1 loadb 10m
+Clb loadb 0 47u Rser=20m
+Rlb loadb 0 4.8
+Rovb loadb ovb 1.92
+Sovb ovb 0 govb 0 SOV
+Vgovb govb 0 PWL(0 0 20m 0 20.001m 1)
+.model SOV SW(Ron=2m Roff=1Meg Vt=0.5 Vh=-0.2)
+Dfwb 0 outb SCH_100V
+Vclrb clrb 0 PWL(0 0 56.5m 0 56.501m 3.3 56.6m 3.3 56.601m 0 162m 0 162.001m 3.3
++ 162.1m 3.3 162.101m 0)
+
+Ven en 0 PWL(0 0 0.5m 0 0.501m 3.3)
+
+.save V(vba) V(outa) I(Lha) V(tfeta) V(xa:drn) V(xa:xu:hsht) V(diaga)
+.save V(outb) I(Lhb) V(xb:xu:fd) V(xb:xu:fusel) V(diagb)
+.meas tran ia1 max I(Lha) from 2m to 2.2m
+.meas tran ia2 max I(Lha) from 3m to 3.3m
+.meas tran ia3 max I(Lha) from 5m to 5.3m
+.meas tran ia4 max I(Lha) from 9m to 9.3m
+.meas tran va1 max V(vba) from 2m to 2.3m
+.meas tran va4 max V(vba) from 9m to 9.3m
+.meas tran ea  integ V(xa:drn,outa)*V(vba,xa:drn)/1m from 1.9m to 12m
+.meas tran ea1 integ V(xa:drn,outa)*V(vba,xa:drn)/1m from 1.9m to 2.9m
+.meas tran ea2 integ V(xa:drn,outa)*V(vba,xa:drn)/1m from 2.9m to 4.9m
+.meas tran ea4 integ V(xa:drn,outa)*V(vba,xa:drn)/1m from 8.9m to 12m
+.meas tran ta2 find time when V(xa:xu:hsht)=0.5 rise=2
+.meas tran dta2 param ta2-3.05m
+.meas tran tja max V(tfeta)
+.meas tran tb1 find time when V(xb:xu:fusel)=0.5 rise=1
+.meas tran tb2 find time when V(xb:xu:fusel)=0.5 rise=2
+.meas tran tb3 find time when V(xb:xu:fusel)=0.5 rise=3
+.meas tran dtb1 param tb1-20m
+.meas tran dtb2 param tb2-56.6m
+.meas tran dtb3 param tb3-162.1m
+.meas tran fd_r1 find V(xb:xu:fd) at 56.5m
+.meas tran fd_r2 find V(xb:xu:fd) at 162m
+.tran 0 220m 0 2u
+.options plotwinsize=0
+.end

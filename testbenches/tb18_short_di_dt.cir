@@ -1,0 +1,52 @@
+* tb18_short_di_dt.cir
+* ---------------------------------------------------------------------------
+* Hard short: the first 20 us, and how the harness inductance sets them.
+* tb02 circuit (10 A load, 5 mOhm short at the load connector at 3 ms) with
+* the load-harness inductance stepped: LH = 0.5 / 1 / 2 / 5 uH.
+* The current rises at ~VBAT/LH, crosses IHSC (105.6 A), and keeps rising
+* for the 5 us HSC delay before the gate is discharged:
+*   I_pk ~ IHSC + (VBAT/LH)*5 us  ->  ~580 / 340 / 220 / 150 A
+*   t_latch ~ (IHSC - 10 A)*LH/VBAT + 5 us -> ~6 / 7-8 / 9-10 / 15-17 us
+* A slower di/dt (longer harness, or a lab set-up) gives a later trip and a
+* lower peak: the same controller "measures" 8 us or 15 us depending on L.
+* Interview guide: questions B3, H1, H3, K.
+* ---------------------------------------------------------------------------
+.include ../models/VNF1048F_beh.lib
+.param LH=1u
+
+Vbat bat 0 48
+Rbat bat b1 10m
+Lbat b1 vbat 1u
+Dtvs 0 vbat TVS_58V
+Cbus vbat 0 100u Rser=30m
+
+X1 vbat out 0 en byp clr diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12
++ VDS_CODE=14 TNOM_CODE=0
+
+Lh out o1 {LH}
+Rh o1 load 10m
+Cload load 0 220u Rser=20m
+Rload load 0 4.8
+Dfw 0 out SCH_100V
+Ssc load 0 sc 0 SSHORT
+Vsc sc 0 PWL(0 0 3m 0 3.0001m 1)
+.model SSHORT SW(Ron=5m Roff=1Meg Vt=0.5 Vh=-0.2)
+
+Ven en 0 PWL(0 0 0.5m 0 0.501m 3.3)
+Vbyp byp 0 0
+Vclr clr 0 0
+
+.save V(vbat) V(out) V(x1:drn) V(x1:g) I(Lh) I(Lbat) V(x1:hsg) V(x1:xu:hsht) V(x1:xu:vsf)
+.meas tran t_x     find time when I(Lh)=105.6 rise=1 td=3m
+.meas tran dt_x    param t_x-3m
+.meas tran t_trip  find time when V(x1:xu:hsht)=0.5 rise=1
+.meas tran dt_trip param t_trip-3m
+.meas tran ipk     max I(Lh) from 3m to 3.1m
+.meas tran vbatpk  max V(vbat) from 3m to 3.2m
+.meas tran voutmin min V(out) from 3m to 3.2m
+.meas tran vdspk   max V(x1:drn,out) from 3m to 3.2m
+.meas tran e_fet   integ V(x1:drn,out)*V(vbat,x1:drn)/1m from 3m to 3.2m
+.step param LH list 0.5u 1u 2u 5u
+.tran 0 3.2m 0 0.1u
+.options plotwinsize=0
+.end

@@ -1,0 +1,86 @@
+* tb24_back_to_back.cir
+* ---------------------------------------------------------------------------
+* Reverse current: single FET vs back-to-back FETs.
+* Two identical channels (bare VNF1048F, 1 mOhm shunt, same slew network)
+* feed the same kind of load: an EPS-like motor that is back-driven and
+* regenerates (back-EMF ramps 0 -> 55 V from 1 to 2 ms, 0.3 Ohm winding,
+* 470 uF local capacitance). Bus 48 V (10 mOhm battery).
+*   A : one FET. Off, its body diode still conducts from OUT to the bus.
+*   B : two FETs common source, common gate (the controller OUT pin sits on
+*       the common source): off, the second body diode blocks.
+*   0 - 3 ms channel OFF, 3 - 6 ms ON, 6 - 9 ms OFF again.
+* Expected: A conducts ~20 A backwards while "off" (~16 W in the body
+* diode) and cannot disconnect the load; B blocks (0 A) when off. When on,
+* both conduct ~20 A in reverse and the unidirectional current sense reads
+* ~0: the VNF1048F cannot see (or limit) reverse current.
+* Interview guide: question C2.
+* ---------------------------------------------------------------------------
+.include ../models/VNF1048F_beh.lib
+
+* ================= channel A: single FET
+Vbata bata 0 48
+Rbata bata vba 10m
+Cbusa vba 0 100u Rser=30m
+Rsha vba drna 1m
+XUA vba cpa vba drna hsga outa ntca ntcma 0 diaga en 0 0 csa VNF1048F OVC_CODE=13
++ HSC_CODE=12 VDS_CODE=14 NTC_CODE=4 TNOM_CODE=0
+Cvsa vba 0 100n
+Ccpa cpa vba 470n
+Rgona hsga ga 2.2k
+Rgoffa hsga gofa 10
+Dgoffa ga gofa EF_DSW
+Cslwa ga 0 47n
+Dzgsa outa ga EF_DZ15
+Rgba ga outa 47k
+M1a drna ga outa outa FET100V_2M
+Rntca drna ntca 10k
+Rtrefa ntca ntcma 10k
+Rpua v33 diaga 4.7k
+Lha outa la 1u Rser=10m
+Cla la 0 470u Rser=20m
+Rwa la ema 0.3
+Bema ema 0 V=V(emf)
+
+* ================= channel B: back-to-back, common source, common gate
+Vbatb batb 0 48
+Rbatb batb vbb 10m
+Cbusb vbb 0 100u Rser=30m
+Rshb vbb drnb 1m
+XUB vbb cpb vbb drnb hsgb srcb ntcb ntcmb 0 diagb en 0 0 csb VNF1048F OVC_CODE=13
++ HSC_CODE=12 VDS_CODE=14 NTC_CODE=4 TNOM_CODE=0
+Cvsb vbb 0 100n
+Ccpb cpb vbb 470n
+Rgonb hsgb gb 2.2k
+Rgoffb hsgb gofb 10
+Dgoffb gb gofb EF_DSW
+Cslwb gb 0 47n
+Dzgsb srcb gb EF_DZ15
+Rgbb gb srcb 47k
+M1b drnb gb srcb srcb FET100V_2M
+M2b outb gb srcb srcb FET100V_2M
+Rntcb drnb ntcb 10k
+Rtrefb ntcb ntcmb 10k
+Rpub v33 diagb 4.7k
+Lhb outb lb 1u Rser=10m
+Clb lb 0 470u Rser=20m
+Rwb lb emb 0.3
+Bemb emb 0 V=V(emf)
+
+Vlog v33 0 3.3
+Vemf emf 0 PWL(0 0 1m 0 2m 55)
+Ven en 0 PWL(0 0 3m 0 3.001m 3.3 6m 3.3 6.001m 0)
+
+.save V(vba) V(outa) V(la) I(Lha) V(csa) V(vbb) V(outb) V(srcb) V(lb) I(Lhb) V(csb) V(emf)
+.save V(xua:flt) V(xub:flt) V(drna) V(drnb)
+.meas tran ia_off1 avg I(Lha) from 2.5m to 3m
+.meas tran ib_off1 avg I(Lhb) from 2.5m to 3m
+.meas tran ia_on   avg I(Lha) from 5m to 6m
+.meas tran ib_on   avg I(Lhb) from 5m to 6m
+.meas tran csa_on  avg V(csa) from 5m to 6m
+.meas tran ia_off2 avg I(Lha) from 8.5m to 9m
+.meas tran ib_off2 avg I(Lhb) from 8.5m to 9m
+.meas tran pda     avg V(outa,drna)*(-I(Lha)) from 8.5m to 9m
+.meas tran vlb_off avg V(lb) from 8.5m to 9m
+.tran 0 9m 0 1u
+.options plotwinsize=0
+.end

@@ -1,0 +1,31 @@
+* tb27_half_energy.cir
+* ---------------------------------------------------------------------------
+* The half-energy rule. A 4.7 mF capacitor is charged from 0 to 48 V through
+* a resistor RPRE = 1 / 4.7 / 22 / 100 Ohm (48 V source, 10 mOhm).
+* Expected: the resistor always dissipates 1/2*C*V^2 = 5.4 J, the same as
+* the energy stored in C, and the source delivers C*V^2 = 10.8 J. Only the
+* charging time (3*tau to 95 %: 14 ms ... 1.4 s) and the peak power
+* (V^2/R: 2.3 kW ... 23 W) change.
+* Interview guide: questions D2, K.
+* ---------------------------------------------------------------------------
+.param RPRE=4.7
+Vsrc src 0 48
+Rsrc src vb 10m
+Spre vb pc gp 0 SPRE
+.model SPRE SW(Ron=1m Roff=1G Vt=0.5 Vh=-0.2)
+Vgp gp 0 PWL(0 0 1m 0 1.001m 1)
+Rpre pc load {RPRE}
+Cload load 0 4.7m
+.ic V(load)=0
+
+.save V(src) V(vb) V(load) V(pc) I(Rpre) I(Vsrc)
+.meas tran e_r   integ V(pc,load)*I(Rpre)
+.meas tran e_src integ -V(src)*I(Vsrc)
+.meas tran vend  find V(load) at 2.6
+.meas tran e_c   param 0.5*4.7m*vend*vend
+.meas tran ppk   max V(pc,load)*I(Rpre)
+.meas tran t95   find time when V(load)=45.6 rise=1
+.step param RPRE list 1 4.7 22 100
+.tran 0 2.6 0 20u
+.options plotwinsize=0
+.end

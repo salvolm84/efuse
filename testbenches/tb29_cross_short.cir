@@ -1,0 +1,75 @@
+* tb29_cross_short.cir
+* ---------------------------------------------------------------------------
+* 48 V to 12 V cross-short. At 5 ms the 48 V load harness (downstream of the
+* eFuse: 10 A load, 220 uF) touches a 12 V wire (10 mOhm contact).
+*   CASE 0 : the 12 V wire is close to the 12 V battery (10 mOhm, 1 uH):
+*            low impedance -> the 48 V eFuse sees (48-12)/R_loop -> HSC trip
+*   CASE 1 : the 12 V wire is a branch fed by the 48/12 V DC/DC, which can
+*            source but not sink, with a 12 V ECU (6 Ohm, 100 uF): the 12 V
+*            node is pulled to ~47 V, the eFuse current rises only to
+*            ~10 + 8 = 18 A < INOM -> nothing trips, the 12 V ECU sees 48 V
+*   CASE 2 : as CASE 1, plus a 12 V over-voltage monitor in the PDU
+*            (V12 > 18 V for 20 us) that switches the 48 V channel off
+* Expected: CASE 0 HSC isolation in ~10-20 us; CASE 1 12 V node at ~47 V
+* indefinitely; CASE 2 isolation after the 20 us filter. In every case the
+* 12 V node spikes well above 16 V for tens of us before anything opens:
+* detection limits the duration, not the first peak.
+* Interview guide: question F1.
+* ---------------------------------------------------------------------------
+.include ../models/VNF1048F_beh.lib
+.param CASE=0
+
+Vbat bat 0 48
+Rbat bat b1 10m
+Lbat b1 vbat 1u
+Dtvs 0 vbat TVS_58V
+Cbus vbat 0 100u Rser=30m
+
+X1 vbat out 0 en byp clr diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12
++ VDS_CODE=14 TNOM_CODE=0
+
+Lh out o1 1u
+Rh o1 load 10m
+Cload load 0 220u Rser=20m
+Rload load 0 4.8
+Dfw 0 out SCH_100V
+
+* ---- 12 V net
+* CASE 0: 12 V battery at the contact point
+V12 b12 0 12
+R12 b12 n12a {if(CASE==0, 10m, 1G)}
+L12 n12a n12 1u
+* CASE 1/2: DC/DC output (sources up to 100 A, cannot sink) + 12 V ECU
+Bdc12 0 n12 I=if({CASE}>0, limit((12-V(n12))/10m, 0, 100), 0)
+Recu n12 0 6
+Cecu n12 0 100u Rser=20m
+
+* ---- the cross-short
+Sx load n12 gx 0 SX
+Vgx gx 0 PWL(0 0 5m 0 5.0001m 1)
+.model SX SW(Ron=10m Roff=1G Vt=0.5 Vh=-0.2)
+
+* ---- CASE 2: 12 V OV monitor (20 us filter) -> 48 V channel off (latched)
+Bov12 ov12 0 V=({CASE}==2) & (V(n12)>18)
+Xovd ov12 ovt 0 EF_DGL T=20u
+Xovl ovt 0 ovl 0 EF_LATCH
+Ben en 0 V=3.3*(time>0.5m)*(1-V(ovl))
+Vbyp byp 0 0
+Vclr clr 0 0
+
+.save V(vbat) V(out) V(load) V(n12) I(Lh) V(x1:xu:hsht) V(x1:xu:flt) V(x1:xu:fd) V(ovl) I(Sx)
+.meas tran v12max  max V(n12) from 5m to 15m
+.meas tran v12end  avg V(n12) from 14m to 15m
+.meas tran t16     find time when V(n12)=16 rise=1
+.meas tran t16f    find time when V(n12)=16 fall=last
+.meas tran dt16    param t16f-t16
+.meas tran t_hsc   find time when V(x1:xu:hsht)=0.5 rise=1
+.meas tran dt_hsc  param t_hsc-5m
+.meas tran ipk     max I(Lh) from 5m to 15m
+.meas tran ifuse   avg I(Lh) from 14m to 15m
+.meas tran fdend   find V(x1:xu:fd) at 15m
+.meas tran t_ov    find time when V(ovl)=0.5 rise=1
+.step param CASE list 0 1 2
+.tran 0 15m 0 0.5u
+.options plotwinsize=0
+.end

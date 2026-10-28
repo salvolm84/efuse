@@ -176,6 +176,110 @@ check(t, "leaky load: abort by the timeout", m(t, "dt_ab", 2) * 1e3, 99, 102, "m
 check(t, "leaky load: V(load) at abort", m(t, "v_ab", 2), 30, 35, "V", "divider 10/(10+4.7) -> 32.7 V")
 check(t, "DC/DC not gated: hiccup (3rd start)", m(t, "t_dc3", 3) * 1e3, 20, 40, "ms", "UVLO 30/26 V")
 check(t, "DC/DC not gated: abort by the timeout", m(t, "dt_ab", 3) * 1e3, 99, 102, "ms", "never reaches 95 %")
+# ---- interview companion benches (tb15..tb35) ---------------------------------
+t = "tb15_12v_vs_48v"
+check(t, "12 V / 2.5 mm2: wire current", m(t, "iw", 0), 115, 140, "A", "P = V*I with the wire drop")
+check(t, "48 V / 2.5 mm2: wire current", m(t, "iw", 2), 20, 23, "A", "1 kW / 47 V")
+check(t, "wire loss ratio 12 V / 48 V (2.5 mm2)", m(t, "pwire", 0) / m(t, "pwire", 2), 16, 60, "",
+      ">= (48/12)^2 = 16")
+check(t, "prospective short current 48 V / 12 V", m(t, "isc", 2) / m(t, "isc", 0), 3.5, 4.2, "", "~VBAT ratio")
+t = "tb16_thermal_memory"
+check(t, "pulse train with memory: trip time", m(t, "t_fl", 0), 0.22, 0.26, "s", "3rd pulse")
+check(t, "pulse train without memory: no trip", 1.0 if failed(t, "t_fl", 1) else 0.0, 1, 1, "", "counter resets")
+check(t, "DC at the train's RMS: trip time", m(t, "t_fl", 2), 0.215, 0.235, "s", "0.1 s + tNOM/2^3")
+check(t, "no memory: wire temperature", m(t, "twend", 1), 125, 140, "degC", "70 + 50*(I_RMS/INOM)^2")
+t = "tb17_latch_vs_limit"
+check(t, "latch-off: FET energy", m(t, "ea") * 1e3, 5, 50, "mJ", "~10 us at 100s of A")
+check(t, "current limit: FET power", m(t, "pb") / 1e3, 4.5, 6, "kW", "48 V x ~110 A")
+check(t, "current limit: time to 175 degC", m(t, "dt175") * 1e3, 0.3, 1.0, "ms", "P / CTHJ")
+t = "tb18_short_di_dt"
+check(t, "LH 0.5 uH: peak current", m(t, "ipk", 0), 380, 520, "A", "IHSC + VBAT/L x delay")
+check(t, "LH 5 uH: peak current", m(t, "ipk", 3), 140, 210, "A", "IHSC + VBAT/L x delay")
+check(t, "LH 1 uH: latch delay", m(t, "dt_trip", 1) * 1e6, 7, 9, "us", "= tb02")
+check(t, "LH 5 uH: latch delay", m(t, "dt_trip", 3) * 1e6, 14, 20, "us", "slower di/dt -> later")
+t = "tb19_turnoff_speed"
+check(t, "fast path (10 Ohm): FET energy", m(t, "e_fet", 0) * 1e3, 5, 40, "mJ", "= tb02")
+check(t, "no fast path: FET energy", m(t, "e_fet", 3), 3, 20, "J", "gate held by C_SLEW")
+check(t, "no fast path: turn-off after latch", m(t, "dt_off", 3) * 1e6, 200, 800, "us", "RG_ON x C_SLEW")
+t = "tb20_sense_error"
+check(t, "nominal: trip time at 40 A", m(t, "ttrip", 1) * 1e3, 12.5, 15.5, "ms", "(1/32)/(x^2-1) = 13.2 ms")
+check(t, "-10 % sensed: trip time", m(t, "ttrip", 0) * 1e3, 17.5, 21.5, "ms", "x = 1.62 -> 19.2 ms")
+check(t, "+20 % sensed: trip time", m(t, "ttrip", 3) * 1e3, 7.5, 9.5, "ms", "x = 2.16 -> 8.5 ms")
+t = "tb21_inductive_clamp"
+check(t, "zener clamp: OUT minimum", m(t, "vout_min", 2), -38, -33, "V", "-(33 V + diode)")
+check(t, "zener clamp: VDS below BV", m(t, "vds_max", 2), 75, 95, "V", "48 V + 34 V")
+check(t, "zener clamp: decay to 1 A", m(t, "dt_decay", 2) * 1e3, 0.25, 0.45, "ms", "faster than freewheel")
+check(t, "zener clamp: energy in the zener", m(t, "e_zen", 2) * 1e3, 30, 80, "mJ", "most of L*I^2/2")
+t = "tb22_parallel_fets"
+check(t, "linear mode: energy ratio M1/M2", m(t, "e1") / m(t, "e2"), 4, 15, "", "(VGS-Vth)^2 at common VGS")
+check(t, "fully on: current ratio M1/M2", m(t, "i1on") / m(t, "i2on"), 0.95, 1.05, "", "equal RDS(on)")
+t = "tb23_linear_soa"
+check(t, "1 mF: FET energy / (1/2 C dV^2)", m(t, "e_fet", 2) / (0.5 * 1e-3 * (48 - m(t, "v0", 2)) ** 2),
+      0.8, 1.0, "", "half-energy rule")
+check(t, "1 mF: junction rise", m(t, "tjpk", 2) - 85, 20, 60, "K", "E / CTHJ, Zth")
+check(t, "1 mF: pad (NTC) rise", m(t, "tcpk", 2) - 85, 0, 1, "K", "NTC blind to the pulse")
+t = "tb24_back_to_back"
+check(t, "single FET off: reverse current", -m(t, "ia_off2"), 15, 25, "A", "body diode conducts")
+check(t, "back-to-back off: reverse current", abs(m(t, "ib_off2")), 0, 0.01, "A", "second diode blocks")
+check(t, "reverse current on: CS readback", m(t, "csa_on") * 1e3, 0, 0.1, "mV", "unidirectional sense")
+t = "tb25_supply_clamp"
+check(t, "100 uF + TVS: VBAT peak", m(t, "vbatpk", 0), 55, 70, "V", "= tb02, < VS abs. max")
+check(t, "22 uF, no TVS: VBAT peak", m(t, "vbatpk", 2), 85, 110, "V", "I*sqrt(L/C)")
+check(t, "22 uF + TVS: clamp works but > 70 V", m(t, "vbatpk", 3), 70, 90, "V", "TVS dynamic R at ~110 A")
+check(t, "remote TVS adds overshoot", m(t, "vbatpk", 4) - m(t, "vbatpk", 3), 1, 10, "V", "L*di/dt of the loop")
+check(t, "no freewheel: OUT minimum", m(t, "voutmin", 5), -70, -40, "V", "FET avalanche")
+t = "tb26_hard_turn_on"
+check(t, "hard switch, no protection: inrush", m(t, "ipk", 0), 300, 1000, "A", "V / R_loop, L-limited")
+check(t, "hard switch, protections on: HSC trip", (m(t, "t_hsc", 1) - 0.5e-3) * 1e6, 3, 20, "us", "looks like a short")
+check(t, "dV/dt: no fault", m(t, "fltmax", 2), -0.01, 0.01, "", "= tb11 68 nF")
+t = "tb27_half_energy"
+for k, rr in enumerate([1, 4.7, 22, 100]):
+    check(t, f"R = {rr:g} Ohm: resistor energy", m(t, "e_r", k), 5.2, 5.5, "J", "1/2 C V^2 = 5.41 J")
+check(t, "R = 1 Ohm: peak power", m(t, "ppk", 0), 2000, 2400, "W", "V^2/R")
+t = "tb28_bypass_precharge"
+check(t, "AUTO-ON after bypass on", m(t, "dt_auto", 0) * 1e6, 4, 20, "us", "BYPASS_SAT 5 us")
+check(t, "0.1 mF: charged by the main FET", m(t, "vend", 0), 47, 49, "V", "slew-controlled")
+check(t, "1 mF: HSC trip", 1.0 if not failed(t, "t_hsc", 1) else 0.0, 1, 1, "", "as tb11 47 nF")
+t = "tb29_cross_short"
+check(t, "to 12 V battery: HSC trip", m(t, "dt_hsc", 0) * 1e6, 5, 30, "us", "(48-12)/R_loop")
+check(t, "to DC/DC branch: 12 V node", m(t, "v12end", 1), 45, 49, "V", "no sink on the 12 V side")
+check(t, "to DC/DC branch: eFuse current < INOM", m(t, "ifuse", 1), 15, 21.8, "A", "no eFuse trip")
+check(t, "12 V OV monitor: channel off", m(t, "v12end", 2), 11, 13, "V", "12 V restored")
+t = "tb30_ground_fault"
+check(t, "0.2 Ohm ground: offset", m(t, "vlg_on", 1), 1.5, 2.5, "V", "10 A x 0.2 Ohm")
+check(t, "0.2 Ohm ground: receiver low level", m(t, "vrx_low", 1), 1.5, 2.5, "V", "> 1.5 V threshold")
+check(t, "ground lost: signal-line current", m(t, "irx_max", 2) * 1e3, 200, 600, "mA", "(48 - 6 V)/~105 Ohm")
+check(t, "ground lost: eFuse current", m(t, "ifuse", 2), 0, 1, "A", "eFuse sees an under-current only")
+t = "tb31_retry"
+check(t, "retry into short: energy per retry / first trip", m(t, "ea2") / m(t, "ea1"), 3, 12, "",
+      "linear-mode turn-on into the short")
+check(t, "overload: first trip", m(t, "dtb1") * 1e3, 29, 34, "ms", "tNOM/2^5 = 31 ms")
+check(t, "overload: retry 5 ms after trip", m(t, "dtb2") * 1e3, 4, 8, "ms", "fd still ~0.84")
+check(t, "overload: retry after cooling", m(t, "dtb3") * 1e3, 29, 34, "ms", "fd back to 0")
+t = "tb32_hw_vs_fw"
+check(t, "HSC: FET energy", m(t, "e_fet", 0) * 1e3, 5, 40, "mJ", "hardware, us")
+check(t, "VDS only: FET energy", m(t, "e_fet", 1) * 1e3, 30, 200, "mJ", "second hardware layer")
+check(t, "firmware only: FET energy", m(t, "e_fet", 2), 3, 10, "J", "~1 kA for 1 ms")
+t = "tb33_design_exercise"
+check(t, "dV/dt 68 nF on 2.64 mF: HSC trip", 1.0 if not failed(t, "t_hsc", 0) else 0.0, 1, 1, "", "C*dV/dt > IHSC")
+check(t, "dV/dt 220 nF on 2.64 mF: VDS trip", (m(t, "t_vds", 1) - 1e-3) * 1e6, 950, 1000, "us", "ramp > blanking")
+check(t, "pre-charge: hand-over time", (m(t, "t_pg", 2) - 1e-3) * 1e3, 70, 85, "ms", "~3 tau = 79 ms")
+check(t, "pre-charge: resistor energy", m(t, "e_pre", 2), 2.0, 2.6, "J", "1/2 C dV^2 = 2.3 J")
+check(t, "pre-charge: DC/DC running", m(t, "idc", 2), 20, 23, "A", "1 kW / 47 V")
+check(t, "short at the end of the feed: HSC", m(t, "dt_sc", 3) * 1e6, 5, 25, "us", "2.5 uH feed")
+t = "tb34_cold_start"
+check(t, "25 degC: no fault", 1.0 if failed(t, "t_vds", 0) and failed(t, "t_hsc", 0) else 0.0, 1, 1, "",
+      "ramp inside the blanking")
+check(t, "-40 degC (Vth only): no fault", 1.0 if failed(t, "t_vds", 1) else 0.0, 1, 1, "", "margin absorbs it")
+check(t, "-40 degC + gate drive min: VDS trip", (m(t, "t_vds", 2) - 0.5e-3) * 1e6, 950, 1000, "us",
+      "ramp > blanking")
+t = "tb35_field_return"
+check(t, "healthy: I2t trip", m(t, "t_fl", 0), 2.04, 2.09, "s", "tNOM/2^4 after 2 s")
+check(t, "cracked Kelvin: no trip", 1.0 if failed(t, "t_fl", 1) else 0.0, 1, 1, "", "reads 50 %")
+check(t, "cracked Kelvin: wire overheats", m(t, "twmax", 1), 125, 170, "degC", "undetected overload")
+check(t, "stuck-on FET: current after MCU off", m(t, "i_end", 2), 25, 32, "A", "FET cannot open")
+check(t, "stuck-on FET: plausibility flag", m(t, "t_pl", 2), 2.06, 2.1, "s", "OUT high with gate off")
+check(t, "sneak path: resistor power", m(t, "p_pre", 3), 200, 330, "W", "48 V through 4.7 Ohm")
 # ---- schematics ----------------------------------------------------------------
 S = os.path.join(ROOT, "schematics")
 check("demo_efuse48_module.asc", "HSC trip (matches tb02)", m("demo_efuse48_module", "t_trip", 0, S) * 1e3,

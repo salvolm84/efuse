@@ -1,0 +1,65 @@
+* tb16_thermal_memory.cir
+* ---------------------------------------------------------------------------
+* Thermal memory of the eFuse I2t and what it means for the wire.
+* Base load 18 A (x = 0.83) with repetitive overload pulses to ~35 A
+* (x = 1.6): 20 ms on / 40 ms off. One pulse alone is shorter than the
+* 31 ms trip time at x = 1.6, but I_RMS of the train is ~25 A > INOM.
+*   CASE 0 : pulse train, KCOOL = 1    (symmetric heat balance = memory)
+*   CASE 1 : pulse train, KCOOL = 1000 (counter resets as soon as I < INOM:
+*            a "memory-less" over-current timer)
+*   CASE 2 : DC current equal to the RMS of the train (~25 A), KCOOL = 1
+* A first-order wire model (2.5 mm2-class, 7.6 mOhm/m, dT = 50 K at INOM,
+* tau shortened to 3 s to keep the run short) at 70 degC ambient shows
+* the consequence: with memory the eFuse trips like the DC case; without it
+* the eFuse never trips and the wire settles ~66 K above ambient.
+* Expected: CASE 0 trips in the 3rd pulse (~0.24 s), CASE 1 never,
+* CASE 2 after tNOM/2^3 = 125 ms (~0.225 s).
+* Interview guide: questions B1, H4.
+* ---------------------------------------------------------------------------
+.include ../models/VNF1048F_beh.lib
+.param CASE=0
+.param KC={if(CASE==1, 1000, 1)}
+.param RP={if(CASE==2, 6.86, 2.82)}
+.param TON={if(CASE==2, 100, 20m)}
+.param TPER={if(CASE==2, 200, 60m)}
+
+Vbat bat 0 48
+Rbat bat b1 10m
+Lbat b1 vbat 1u
+Cbus vbat 0 100u Rser=30m
+
+X1 vbat out 0 en byp clr diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12
++ VDS_CODE=14 TNOM_CODE=0 KCOOL={KC} RTHCA=2
+
+Lh out o1 1u
+Rh o1 load 10m
+Cload load 0 47u Rser=20m
+Dfw 0 out SCH_100V
+Rbase load 0 2.67
+Rpls load lsw {RP}
+Spls lsw 0 gp 0 SPLS
+Vgp gp 0 PULSE(0 1 0.1 1u 1u {TON} {TPER})
+.model SPLS SW(Ron=2m Roff=100k Vt=0.5 Vh=-0.2)
+
+* wire thermal model (per metre): P' = I^2*7.6 mOhm, Rth' 13.85 K*m/W,
+* Cth' 0.217 J/(K*m) -> tau = 3 s; node voltage = wire temperature [degC]
+Bw 0 tw I=I(Lh)*I(Lh)*7.6m
+Cw tw 0 0.2166
+Rw tw ta 13.85
+Vta ta 0 70
+
+Ven en 0 PWL(0 0 1m 0 1.001m 3.3)
+Vbyp byp 0 0
+Vclr clr 0 0
+
+.save V(out) V(tw) I(Lh) V(x1:xu:fd) V(x1:xu:fusel) V(x1:xu:xa) V(diag)
+.meas tran t_fl  find time when V(x1:xu:fusel)=0.5 rise=1
+.meas tran irms  rms I(Lh) from 0.1 to 0.4
+.meas tran ipk   max I(Lh) from 0.1 to 0.4
+.meas tran fdmax max V(x1:xu:fd)
+.meas tran twmax max V(tw)
+.meas tran twend find V(tw) at 12
+.step param CASE list 0 1 2
+.tran 0 12 0 0.5m
+.options plotwinsize=0
+.end

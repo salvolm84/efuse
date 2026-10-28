@@ -4,9 +4,11 @@ A detailed **behavioral LTspice model of a 48 V automotive electronic fuse**, us
 the STMicroelectronics **VNF1048F** as the reference part ("High-side switch
 controller with intelligent fuse protection for 12 V, 24 V and 48 V automotive
 applications", datasheet DS13084 Rev 6). The repository also has fourteen
-validated test benches (four of them on pre-charging capacitive loads), two
-ready-to-run schematics and a scripted regression that checks 80 simulation
-results against the datasheet and against hand calculations.
+validated test benches (four of them on pre-charging capacitive loads), twenty-one
+more benches that support an [interview guide](interview/efuse_pdu_48v_interview_guide.md)
+for 48 V PDU hardware engineers, two ready-to-run schematics and a scripted
+regression that checks 159 simulation results against the datasheet and against
+hand calculations.
 
 > **Disclaimer.** This is an independent, **unofficial** model. STMicroelectronics
 > did not provide, review or endorse it. It was built from the public datasheet.
@@ -312,7 +314,9 @@ efuse/
 ├── schematics/                   ready-to-run schematics (symbols copied alongside)
 │   ├── demo_efuse48_module.asc   module in a 48 V harness: start-up, short, retry
 │   └── app_vnf1048f_discrete.asc full discrete application (DS13084 Fig. 16 + slew network)
-├── testbenches/                  tb01..tb14 netlists (.cir), see section 10
+├── testbenches/                  tb01..tb35 netlists (.cir), see section 10
+├── interview/
+│   └── efuse_pdu_48v_interview_guide.md   question bank with a simulation per question
 ├── docs/
 │   ├── img/                      result plots (generated)
 │   └── VALIDATION.md             pass/fail report vs datasheet (generated)
@@ -342,8 +346,8 @@ efuse/
 ### From the command line (full regression)
 
 ```bash
-tools/run_ltspice.sh testbenches/*.cir schematics/*.asc   # ~3 min for all 16
-python3 tools/validate.py                                 # -> docs/VALIDATION.md, 80 checks
+tools/run_ltspice.sh testbenches/*.cir schematics/*.asc   # ~5 min for all 37
+python3 tools/validate.py                                 # -> docs/VALIDATION.md, 159 checks
 python3 tools/plot_results.py                             # -> docs/img/*.png
 ```
 
@@ -980,7 +984,10 @@ LTspice. The write-ups below have the same structure:
 * **Things to try**: parameters worth changing to explore the behaviour.
 
 All numbers are simulated values from the `.meas` statements
-(`docs/VALIDATION.md`: **80/80 checks pass**).
+(`docs/VALIDATION.md`: **159/159 checks pass**, tb15–tb35 included).
+tb01–tb14 are described below. tb15–tb35 are listed in
+[Interview companion benches](#interview-companion-benches-tb15tb35) and described,
+with their plots, in the interview guide.
 
 **Common setup** unless noted: 48 V battery with 10 mΩ internal resistance and
 1 µH supply harness, 100 µF bus capacitance (+ 58 V TVS), RSENSE = 1 mΩ,
@@ -1863,6 +1870,47 @@ check the margin against C_max at the lowest VBAT. Replace the 50 mΩ short with
 and let the MCU retry every 200 ms: the resistor energy accumulates.
 
 ![tb14](docs/img/tb14_precharge_faults.png)
+
+---
+
+### Interview companion benches (tb15–tb35)
+
+These benches were written for the
+[interview guide](interview/efuse_pdu_48v_interview_guide.md): each one isolates the
+concept behind a question. The guide has the plots, the simulated numbers and the
+prompts. They use the same model and common setup as tb01–tb14, are checked by
+`tools/validate.py`, and are plotted by `tools/plot_results.py`. Some use the bare
+`VNF1048F` with discrete FETs where the question needs access to the FET (tb22,
+tb24, tb34, tb35). Parameters marked as illustrative in a bench header (wire
+thermal model, cold-temperature shifts) are assumptions, not datasheet values.
+
+| Bench | Topic | Guide |
+|---|---|---|
+| tb15_12v_vs_48v | 1 kW over 3 m at 12 V vs 48 V: current, wire loss, short current | A1 |
+| tb16_thermal_memory | repetitive overload pulses, with and without I²t thermal memory, wire temperature | B1, H4 |
+| tb17_latch_vs_limit | latch-off vs linear current limiting into the same short | B2 |
+| tb18_short_di_dt | hard short with 0.5…5 µH load harness: di/dt, trip delay, peak | B3, H1, H3 |
+| tb19_turnoff_speed | gate turn-off path (RG_OFF) during a short | B3, B5 |
+| tb20_sense_error | sensed-resistance error vs effective INOM and trip time | B4, E2 |
+| tb21_inductive_clamp | avalanche vs freewheel vs zener demagnetization | B6 |
+| tb22_parallel_fets | two FETs with different VGS(th): linear mode vs fully on | C1 |
+| tb23_linear_soa | linear-mode pulse during dV/dt start-up at 85 °C, junction vs NTC | C1, E1 |
+| tb24_back_to_back | back-driven motor: single FET vs back-to-back | C2 |
+| tb25_supply_clamp | bus capacitance, TVS, TVS placement, freewheel during a short | A2, C3, E2, J2 |
+| tb26_hard_turn_on | hard switch-on vs dV/dt control into 1 mF | D1 |
+| tb27_half_energy | charging 4.7 mF through 1…100 Ω | D2 |
+| tb28_bypass_precharge | pre-charge attempt through the low-current bypass (AUTO-ON) | D3 |
+| tb29_cross_short | 48 V harness touching a 12 V wire | F1 |
+| tb30_ground_fault | load ECU ground offset and ground loss | F2 |
+| tb31_retry | retries into a permanent short and a persistent overload | G2 |
+| tb32_hw_vs_fw | the same short handled by HSC, VDS monitor or firmware | G3 |
+| tb33_design_exercise | the guide's design exercise (1 kW DC/DC, 2.64 mF) | I |
+| tb34_cold_start | dV/dt start-up warm vs cold: which protection fires | J1 |
+| tb35_field_return | sense-path crack, stuck-on FET, sneak path vs wire temperature | F3, J5 |
+
+Three more figures in the guide are post-processed from tb02/tb03/tb05/tb07
+(`iv_b2`, `iv_h2`, `iv_h4` in `tools/plot_results.py`): the time scales of the
+protection layers, probe bandwidth and skew, and the wire curve vs the fuse curve.
 
 ---
 

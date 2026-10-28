@@ -1,0 +1,62 @@
+* tb25_supply_clamp.cir
+* ---------------------------------------------------------------------------
+* Interrupting a hard short: where does the harness energy go?
+* tb02 circuit (10 A, 5 mOhm short at the load connector at 3 ms, IHSC
+* 105.6 A -> ~340 A interrupted) with the board-level protection varied:
+*   CASE 0 : 100 uF bus + 58 V TVS at the PDU input + freewheel (= tb02)
+*   CASE 1 : 100 uF, no TVS
+*   CASE 2 :  22 uF, no TVS
+*   CASE 3 :  22 uF + TVS at the input (5 nH loop)
+*   CASE 4 :  22 uF + TVS placed remotely (300 nH of loop inductance)
+*   CASE 5 : as CASE 0 but without the freewheel diode at OUT
+* Expected: the supply harness energy 1/2*Lbat*I^2 (1 uH, ~230 A -> ~26 mJ)
+* charges the bus capacitance: dV ~ I*sqrt(L/C) -> ~70 V with 100 uF,
+* far above 70 V with 22 uF, unless the TVS clamps it (~64-70 V). A remote
+* TVS adds L*di/dt at the VS pin. Without the freewheel the load-harness
+* energy drives OUT below the -10 V pin rating.
+* Interview guide: questions A2 (follow-up), B3, C3, E2, J2.
+* ---------------------------------------------------------------------------
+.include ../models/VNF1048F_beh.lib
+.param CASE=0
+.param CB={if(CASE==2 | CASE==3 | CASE==4, 22u, 100u)}
+.param TVSON={if(CASE==1 | CASE==2, 0, 1)}
+.param LTVS={if(CASE==4, 300n, 5n)}
+.param FW={if(CASE==5, 0, 1)}
+
+Vbat bat 0 48
+Rbat bat b1 10m
+Lbat b1 vbat 1u
+Ltvs vbat tv {LTVS}
+Rtvs tv tv2 {if(TVSON, 1m, 1G)}
+Dtvs 0 tv2 TVS_58V
+Cbus vbat 0 {CB} Rser=30m
+
+X1 vbat out 0 en byp clr diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12
++ VDS_CODE=14 TNOM_CODE=0
+
+Lh out o1 1u
+Rh o1 load 10m
+Cload load 0 220u Rser=20m
+Rload load 0 4.8
+Dfw 0 fw SCH_100V
+Rfw fw out {if(FW, 1m, 1G)}
+Ssc load 0 sc 0 SSHORT
+Vsc sc 0 PWL(0 0 3m 0 3.0001m 1)
+.model SSHORT SW(Ron=5m Roff=1Meg Vt=0.5 Vh=-0.2)
+
+Ven en 0 PWL(0 0 0.5m 0 0.501m 3.3)
+Vbyp byp 0 0
+Vclr clr 0 0
+
+.save V(vbat) V(out) V(x1:drn) V(tv2) I(Lh) I(Lbat) I(Dtvs) V(x1:xu:hsht)
+.meas tran ilbat   max I(Lbat) from 3m to 3.1m
+.meas tran vbatpk  max V(vbat) from 3m to 3.3m
+.meas tran voutmin min V(out) from 3m to 3.3m
+.meas tran vdspk   max V(x1:drn,out) from 3m to 3.3m
+.meas tran itvs    max -I(Dtvs) from 3m to 3.3m
+.meas tran e_tvs   integ -V(tv2)*I(Dtvs) from 3m to 3.3m
+.meas tran e_fet   integ V(x1:drn,out)*V(vbat,x1:drn)/1m from 3m to 3.3m
+.step param CASE list 0 1 2 3 4 5
+.tran 0 3.3m 0 0.1u
+.options plotwinsize=0
+.end

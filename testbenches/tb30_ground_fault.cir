@@ -1,0 +1,70 @@
+* tb30_ground_fault.cir
+* ---------------------------------------------------------------------------
+* Ground offset and ground loss of a load ECU.
+* A 48 V ECU (10 A, 4.8 Ohm + 100 uF) is fed by the eFuse and returns to
+* chassis through its own ground wire (5 mOhm). It sends a 0/5 V logic
+* signal (1 kHz, 100 Ohm driver, referenced to its local ground, ESD diode
+* to local ground) to a receiver in the PDU (100 Ohm input resistor, ESD
+* diodes to PDU ground and to a 5 V rail, 1.5 V threshold).
+*   CASE 0 : ground wire healthy
+*   CASE 1 : at 5 ms the ground connection degrades to 0.2 Ohm (corroded
+*            ring terminal): ground offset = 10 A x 0.2 Ohm ~ 2 V
+*   CASE 2 : at 5 ms the ground wire opens (ground loss)
+* Expected: CASE 1 the signal "low" arrives at ~2 V > threshold: the PDU
+* reads a constant "high". CASE 2 the ECU ground floats up towards 48 V and
+* its supply current (~0.4 A) returns through the signal line and the
+* receiver's ESD diode into the 5 V rail; the eFuse current falls to
+* ~0.4 A, so it reports nothing but an under-current.
+* Interview guide: question F2.
+* ---------------------------------------------------------------------------
+.include ../models/VNF1048F_beh.lib
+.param CASE=0
+
+Vbat bat 0 48
+Rbat bat b1 10m
+Lbat b1 vbat 1u
+Cbus vbat 0 100u Rser=30m
+
+X1 vbat out 0 en byp clr diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12
++ VDS_CODE=14 TNOM_CODE=0
+Ven en 0 PWL(0 0 0.5m 0 0.501m 3.3)
+Vbyp byp 0 0
+Vclr clr 0 0
+
+* ---- load ECU (local ground lg)
+Lh out o1 1u
+Rh o1 vin 10m
+Dfw 0 out SCH_100V
+Recu vin lg 4.8
+Cecu vin lg 100u Rser=20m
+* ground wire: healthy until 5 ms, then (CASE 1) 0.2 Ohm or (CASE 2) open
+Rgw lg g1 5m
+Sgw g1 0 ggw 0 SGW
+Vggw ggw 0 PWL(0 1 5m 1 5.001m {if(CASE==0, 1, 0)})
+.model SGW SW(Ron=1m Roff=1G Vt=0.5 Vh=-0.2)
+Rgdeg lg 0 {if(CASE==1, 0.2, 1G)}
+* ECU signal driver, referenced to the local ground
+Vdat dat 0 PULSE(0 1 1m 1u 1u 0.5m 1m)
+Bsig sd lg V=5*V(dat)
+Rso sd sig 100
+Desdl lg sig EF_DSW
+* ---- PDU receiver (PDU ground = 0)
+Rln sig rx 0.1
+Rrx rx rxi 100
+Drxl 0 rxi EF_DSW
+Drxh rxi v5 EF_DSW
+Rrxpd rxi 0 10k
+V5 v5 0 5
+Brd rd 0 V=V(rxi)>1.5
+
+.save V(out) V(vin) V(lg) V(sig) V(rxi) V(rd) V(dat) I(Lh) I(Rrx) I(V5)
+.meas tran vlg_on   avg V(lg) from 8m to 10m
+.meas tran vrx_low  min V(rxi) from 8m to 10m
+.meas tran irx_max  max I(Rrx) from 6m to 10m
+.meas tran vecu     avg V(vin,lg) from 8m to 10m
+.meas tran ifuse    avg I(Lh) from 8m to 10m
+.meas tran rd_min   min V(rd) from 8m to 10m
+.step param CASE list 0 1 2
+.tran 0 10m 0 2u
+.options plotwinsize=0
+.end

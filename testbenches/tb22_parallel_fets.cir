@@ -1,0 +1,82 @@
+* tb22_parallel_fets.cir
+* ---------------------------------------------------------------------------
+* Two MOSFETs in parallel: do they share current?
+* Bare VNF1048F controller driving two 100 V / 2 mOhm FETs through one slew
+* network (RG_ON 2.2k, C_SLEW 68 nF) and individual 2.2 Ohm gate resistors.
+* The FETs differ only in threshold voltage, as two parts from one reel can:
+*   M1 VGS(th) 3.0 V, M2 VGS(th) 3.5 V   (RDS(on) identical)
+* Controller: INOM 39.1 A (OVC_CODE 22), IHSC 139 A (HSC_CODE 14).
+*   t = 0.5 ms  OUTCTL on: dV/dt start-up into 1 mF (linear mode, ~80 A)
+*   t = 3 ms    40 A resistive load switched on (FETs fully enhanced)
+* Expected: in linear mode the current is set by (VGS - Vth)^2 at a common
+* VGS: M1 takes roughly 3/4 of the current and most of the energy (the
+* simulation gives 70 A vs 21 A peak, 0.70 J vs 0.08 J). Fully on, the
+* channel resistances are equal and the split is ~50/50.
+* Interview guide: questions C1 (follow-up), K.
+* ---------------------------------------------------------------------------
+.include ../models/VNF1048F_beh.lib
+.model FET_LO VDMOS(Rg=1.2 Vto=3.0 Rd=0.9m Rs=0.4m Rb=1.5m Kp=180 lambda=0.01
++  Cgdmax=3.5n Cgdmin=80p a=0.6 Cgs=9n Cjo=3n m=0.55 Is=5p N=1.05 BV=100 Ibv=10u tt=50n)
+.model FET_HI VDMOS(Rg=1.2 Vto=3.5 Rd=0.9m Rs=0.4m Rb=1.5m Kp=180 lambda=0.01
++  Cgdmax=3.5n Cgdmin=80p a=0.6 Cgs=9n Cjo=3n m=0.55 Is=5p N=1.05 BV=100 Ibv=10u tt=50n)
+
+Vbat bat 0 48
+Rbat bat b1 10m
+Lbat b1 vbat 1u
+Dtvs 0 vbat TVS_58V
+Cbus vbat 0 100u Rser=30m
+
+* ---- discrete channel (DS13084 Fig. 16 + slew network)
+Rsh vbat drn 1m
+XU vbat cp vbat drn hsg out ntc ntcm 0 diag en 0 0 cs VNF1048F OVC_CODE=22 HSC_CODE=14
++ VDS_CODE=14 NTC_CODE=4 TNOM_CODE=2
+Cvs vbat 0 100n
+Ccp cp vbat 470n
+Rgon hsg g 2.2k
+Rgoff hsg goff 10
+Dgoff g goff EF_DSW
+Cslw g 0 68n
+Dzgs out g EF_DZ15
+Rgb g out 47k
+Rg1 g g1 2.2
+Rg2 g g2 2.2
+M1 drn g1 out out FET_LO
+M2 drn g2 out out FET_HI
+* NTC replaced by its 25 degC value
+Rntc drn ntc 10k
+Rtref ntc ntcm 10k
+Vlog v33 0 3.3
+Rpu v33 diag 4.7k
+* thermal networks, one per FET
+Bp1 0 tj1 I=if(time>0, max(V(drn,out)*Id(M1),0), 0)
+Xth1 tj1 tc1 0 FET_TH TAMB=25 RTHJC=0.6 RTHCA=20 CTHJ=0.02 CTHC=0.5
+Bp2 0 tj2 I=if(time>0, max(V(drn,out)*Id(M2),0), 0)
+Xth2 tj2 tc2 0 FET_TH TAMB=25 RTHJC=0.6 RTHCA=20 CTHJ=0.02 CTHC=0.5
+
+* ---- load
+Lh out o1 1u
+Rh o1 load 10m
+Cload load 0 1m Rser=10m
+Rbl load 0 4.7k
+Dfw 0 out SCH_100V
+Rld load ld 1.2
+Sld ld 0 gld 0 SLD
+Vgld gld 0 PWL(0 0 3m 0 3.001m 1)
+.model SLD SW(Ron=2m Roff=1Meg Vt=0.5 Vh=-0.2)
+
+Ven en 0 PWL(0 0 0.5m 0 0.501m 3.3)
+
+.save V(vbat) V(out) V(drn) V(g) Id(M1) Id(M2) V(tj1) V(tj2) I(Lh)
+.save V(xu:hsht) V(xu:vdsmax) V(xu:flt)
+.meas tran i1pk  max Id(M1) from 0.5m to 2.5m
+.meas tran i2pk  max Id(M2) from 0.5m to 2.5m
+.meas tran e1    integ V(drn,out)*Id(M1) from 0.5m to 2.5m
+.meas tran e2    integ V(drn,out)*Id(M2) from 0.5m to 2.5m
+.meas tran tj1pk max V(tj1) from 0.5m to 2.5m
+.meas tran tj2pk max V(tj2) from 0.5m to 2.5m
+.meas tran i1on  avg Id(M1) from 4m to 5m
+.meas tran i2on  avg Id(M2) from 4m to 5m
+.meas tran fltmax max V(xu:flt)
+.tran 0 5m 0 0.5u
+.options plotwinsize=0
+.end

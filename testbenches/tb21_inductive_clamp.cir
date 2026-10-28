@@ -1,0 +1,56 @@
+* tb21_inductive_clamp.cir
+* ---------------------------------------------------------------------------
+* Switching off a 2 mH / 10 A inductive load: three demagnetization paths.
+*   CLAMP 0 : none          -> OUT driven negative until the FET avalanches
+*                              (VDS = BV = 100 V, OUT ~ -52 V), energy in FET
+*   CLAMP 1 : Schottky freewheel GND->OUT -> OUT ~ -0.6 V, slow exponential
+*                              decay (L/R = 0.42 ms), energy in the load R
+*   CLAMP 2 : Schottky + 33 V zener in series GND->OUT -> OUT clamped at
+*                              ~ -34 V, fast linear decay, energy mostly in
+*                              the zener; VDS ~ 82 V stays below BV
+* Expected decay time to 1 A: ~0.25 ms (avalanche), ~0.93 ms (freewheel),
+* ~0.4 ms (zener). Note: the VNF1048F OUT pin is rated -2 V DC / -10 V for
+* 10 us, so CLAMP 0 and CLAMP 2 need the OUT sense pin protected.
+* Interview guide: question B6.
+* ---------------------------------------------------------------------------
+.include ../models/VNF1048F_beh.lib
+.param CLAMP=1
+.model ZD_33V D(Is=1e-12 Rs=0.2 N=1.5 BV=33 Ibv=1m Cjo=1n)
+
+Vbat bat 0 48
+Rbat bat b1 10m
+Lbat b1 vbat 1u
+Dtvs 0 vbat TVS_58V
+Cbus vbat 0 100u Rser=30m
+
+X1 vbat out 0 en byp clr diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12
++ VDS_CODE=14 TNOM_CODE=0
+
+Lload out l1 2m Rser=10m
+Rload l1 0 4.8
+Csn out 0 100n
+* CLAMP 1: freewheel Schottky
+Dfw 0 fw SCH_100V
+Rfw fw out {if(CLAMP==1, 1m, 1G)}
+* CLAMP 2: zener (cathode GND, anode z) + blocking Schottky (anode z,
+* cathode towards OUT): conducts GND -> z -> OUT only when OUT < -(33+0.6) V
+Dzc z 0 ZD_33V
+Dzb z zb SCH_100V
+Rzc zb out {if(CLAMP==2, 1m, 1G)}
+
+Ven en 0 PWL(0 0 0.5m 0 0.501m 3.3 10m 3.3 10.001m 0)
+Vbyp byp 0 0
+Vclr clr 0 0
+
+.save V(vbat) V(out) V(x1:drn) I(Lload) I(Dfw) I(Dzc) V(z) V(tfet)
+.meas tran iload_on avg I(Lload) from 9m to 10m
+.meas tran vout_min min V(out) from 10m to 12m
+.meas tran vds_max  max V(x1:drn,out) from 10m to 12m
+.meas tran t_decay  find time when I(Lload)=1 fall=last
+.meas tran dt_decay param t_decay-10m
+.meas tran e_fet    integ V(x1:drn,out)*V(vbat,x1:drn)/1m from 10m to 12m
+.meas tran e_zen    integ V(z)*I(Dzc) from 10m to 12m
+.step param CLAMP list 0 1 2
+.tran 0 12m 0 0.5u
+.options plotwinsize=0
+.end

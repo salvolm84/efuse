@@ -1,0 +1,97 @@
+* tb35_field_return.cir
+* ---------------------------------------------------------------------------
+* Debug scenario J5 / stuck-on FET (F3): "wire harness damaged on one branch,
+* but the eFuse never reported an overload".
+* Discrete VNF1048F channel (INOM 21.8 A, tNOM 1 s) feeding a 2.5 mm2-class
+* branch wire (thermal model as tb16: 70 degC ambient, +50 K at INOM,
+* tau 3 s). Normal load 15 A from 50 ms; persistent overload to ~30 A
+* (x = 1.38, trip after tNOM/2^4 = 62.5 ms) from 2 s; the MCU commands the
+* channel off at 6 s.
+*   CASE 0 : healthy -> I2t trip at ~2.06 s, wire stays < 100 degC
+*   CASE 1 : cracked Kelvin connection: the ISNS_N trace now taps the
+*            middle of the 2 x 0.5 mOhm shunt, the controller sees half the
+*            current (x = 0.69) -> no trip, the wire heads for ~165 degC
+*   CASE 2 : the FET fails short (1 mOhm D-S) at 1 s: the I2t trips and the
+*            gate is off, but the current keeps flowing, also after the MCU
+*            switches the channel off at 6 s
+*   CASE 3 : sneak path: the pre-charge path (switch + 4.7 Ohm across the
+*            eFuse) is stuck on: after the trip the branch is still fed
+*            (~7.5 A into the overloaded load, ~270 W in the resistor)
+* A plausibility monitor flags "OUT > 5 V for 20 ms while the gate command
+* is off",
+* the signature of CASE 2 and 3. CASE 1 needs an independent current
+* measurement (or a sense self-test) to be found.
+* Interview guide: questions F3, G1, J5.
+* ---------------------------------------------------------------------------
+.include ../models/VNF1048F_beh.lib
+.param CASE=0
+
+Vbat bat 0 48
+Rbat bat b1 10m
+Lbat b1 vbat 1u
+Dtvs 0 vbat TVS_58V
+Cbus vbat 0 100u Rser=30m
+
+* ---- discrete channel, shunt as 2 x 0.5 mOhm
+Rsh1 vbat sm 0.5m
+Rsh2 sm drn 0.5m
+Rkn1 sn drn {if(CASE==1, 1G, 1m)}
+Rkn2 sn sm  {if(CASE==1, 1m, 1G)}
+XU vbat cp vbat sn hsg out ntc ntcm 0 diag en 0 0 cs VNF1048F OVC_CODE=13 HSC_CODE=12
++ VDS_CODE=14 NTC_CODE=4 TNOM_CODE=0
+Cvs vbat 0 100n
+Ccp cp vbat 470n
+Rgon hsg g 2.2k
+Rgoff hsg goff 10
+Dgoff g goff EF_DSW
+Cslw g 0 47n
+Dzgs out g EF_DZ15
+Rgb g out 47k
+M1 drn g out out FET100V_2M
+Rntc sn ntc 10k
+Rtref ntc ntcm 10k
+Vlog v33 0 3.3
+Rpu v33 diag 4.7k
+* CASE 2: FET drain-source short from 1 s
+Sst drn out gst 0 SST
+Vgst gst 0 PWL(0 0 1 0 1.001 {if(CASE==2, 1, 0)})
+.model SST SW(Ron=1m Roff=1G Vt=0.5 Vh=-0.2)
+* CASE 3: pre-charge path stuck on
+Spre vbat pc gpre 0 SPRE
+Vgpre gpre 0 {if(CASE==3, 1, 0)}
+.model SPRE SW(Ron=50m Roff=1G Vt=0.5 Vh=-0.2)
+Rpre pc out 4.7
+
+* ---- branch wire + load
+Lh out o1 1u
+Rh o1 load 10m
+Dfw 0 out SCH_100V
+Cload load 0 47u Rser=20m
+Rload load 0 3.2
+Rov load ov 3.2
+Sov ov 0 gov 0 SOV
+Vgov gov 0 PWL(0 0 2 0 2.001 1)
+.model SOV SW(Ron=2m Roff=1Meg Vt=0.5 Vh=-0.2)
+Bw 0 tw I=I(Lh)*I(Lh)*7.6m
+Cw tw 0 0.2166
+Rw tw ta 13.85
+Vta ta 0 70
+
+Ven en 0 PWL(0 0 50m 0 50.1m 3.3 6 3.3 6.001 0)
+* plausibility monitor: output voltage present while the gate command is off
+Bplc plc 0 V=(V(xu:gcmd)<0.5) & (V(out)>5) & (time>60m)
+Xpld plc pl 0 EF_DGL T=20m
+
+.save V(out) V(load) V(pc) V(tw) V(cs) I(Lh) I(Rpre) V(pl) V(diag)
+.save V(xu:gcmd) V(xu:fusel) V(xu:fd) V(xu:xa)
+.meas tran t_fl   find time when V(xu:fusel)=0.5 rise=1
+.meas tran i_ov   avg I(Lh) from 2.01 to 2.05
+.meas tran x_ov   avg V(xu:xa) from 2.01 to 2.05
+.meas tran i_end  avg I(Lh) from 9 to 10
+.meas tran twmax  max V(tw)
+.meas tran t_pl   find time when V(pl)=0.5 rise=1
+.meas tran p_pre  avg V(pc,out)*I(Rpre) from 3 to 5
+.step param CASE list 0 1 2 3
+.tran 0 10 0 0.5m
+.options plotwinsize=0
+.end
