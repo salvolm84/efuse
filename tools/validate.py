@@ -1,6 +1,6 @@
-"""Check the simulation results against the datasheet (DS13084 Rev 6) and the
-expected application behaviour. Writes docs/VALIDATION.md and exits non-zero
-if any check fails.
+"""Check the simulation results against the datasheet (DS13084 Rev 6), the
+battery and DC/DC model equations (README.md, sections 14-15) and the expected application
+behaviour. Writes docs/VALIDATION.md and exits non-zero if any check fails.
 
     tools/run_ltspice.sh testbenches/*.cir schematics/*.asc
     python3 tools/validate.py
@@ -280,6 +280,269 @@ check(t, "cracked Kelvin: wire overheats", m(t, "twmax", 1), 125, 170, "degC", "
 check(t, "stuck-on FET: current after MCU off", m(t, "i_end", 2), 25, 32, "A", "FET cannot open")
 check(t, "stuck-on FET: plausibility flag", m(t, "t_pl", 2), 2.06, 2.1, "s", "OUT high with gate off")
 check(t, "sneak path: resistor power", m(t, "p_pre", 3), 200, 330, "W", "48 V through 4.7 Ohm")
+# ---- battery models (models/BATTERY_beh.lib), analytic references ---------------
+BAT = {12: dict(cap=70, v0=11.70, v100=12.90, veoc=15.0, r0=2.0e-3, r1=0.8e-3, r2=0.7e-3, l=0.2e-6),
+       48: dict(cap=10, v0=40.0, v100=52.0, veoc=55.0, r0=15e-3, r1=5e-3, r2=5e-3, l=1e-6)}
+from bat_ocv import g as bat_g  # noqa: E402  (PCHIP curve used in the .lib)
+
+
+def bat_ocv(c, soc):
+    return c["v0"] + (c["v100"] - c["v0"]) * bat_g(soc)
+
+
+def bat_ft(temp):
+    return math.exp(1200 * (1 / (temp + 273.15) - 1 / 298.15))
+
+
+def bat_fs(soc):
+    return 1 + 0.5 * (1 - min(max(soc, 0), 1)) ** 2
+
+
+t = "bat01_capacity_ocv"
+for v in (12, 48):
+    c = BAT[v]
+    err = max(abs(m(t, f"vr{v}_{k}") - bat_ocv(c, 1 - 0.1 * k)) for k in range(1, 10))
+    check(t, f"{v} V: rest voltage vs OCV table (9 points)", err * 1e3, 0, 2, "mV", "OCV(SOC) curve points")
+    check(t, f"{v} V: delivered capacity to cut-off / rated", m(t, f"ah{v}") / 3600 / c["cap"], 0.99, 1.01, "",
+          "charge counting, CAP_AH")
+    s_eoc = 1 + 0.02 * ((14.4 if v == 12 else 53) - c["v100"]) / (c["veoc"] - c["v100"])
+    check(t, f"{v} V: CV charge, final raw SOC", m(t, f"s{v}_end"), s_eoc - 5e-4, s_eoc + 5e-4, "",
+          f"OCV = V_CV -> {s_eoc:.4f}")
+    check(t, f"{v} V: CV charge, final current", m(t, f"ich{v}_end"), -0.01, 0.01, "A", "taper to 0")
+check(t, "12 V: SOC after 9 x 10 % pulses", m(t, "sr12_9"), 0.0999, 0.1001, "", "1 - 9 x 0.1")
+t = "bat02_pulse_temperature"
+lg = meas_log(os.path.join(TB, t + ".log"))
+for v in (12, 48):
+    c = BAT[v]
+    e0, e10 = [], []
+    for k, temp in enumerate([-30, -18, 0, 25, 45]):
+        ft = bat_ft(temp)
+        fs10 = bat_fs(0.5 - 100 * 5 / (c["cap"] * 3600))
+        r0 = ft * bat_fs(0.5) * (c["r0"] + c["r1"] * (1 - math.exp(-0.49e-3 / 20e-3)))
+        docv = (c["v100"] - c["v0"]) * 0.5 * (100 * 10 / (c["cap"] * 3600))
+        r10 = ft * fs10 * (c["r0"] + c["r1"] + c["r2"] * (1 - math.exp(-0.5))) + docv / 100
+        e0.append(abs(lg[f"r0_{v}"][k] / r0 - 1)); e10.append(abs(lg[f"r10_{v}"][k] / r10 - 1))
+    check(t, f"{v} V: R0 (0.5 ms), max error -30..45 degC", 100 * max(e0), 0, 1, "%", "R0 x FT(T) x fs(SOC)")
+    check(t, f"{v} V: R(10 s), max error -30..45 degC", 100 * max(e10), 0, 2, "%", "R0' + R1' + R2'(1-e^-0.5) + dOCV")
+check(t, "R0(-30 degC) / R0(25 degC)", lg["r0_12"][0] / lg["r0_12"][3], 0.99 * bat_ft(-30), 1.01 * bat_ft(-30), "",
+      f"FT(-30) = {bat_ft(-30):.3f}")
+t = "bat03_impedance_ac"
+for v in (12, 48):
+    c = BAT[v]; err = []
+    for f, key in [(0.1, "100m"), (1, "1"), (10, "10"), (100, "100"), (1e3, "1k"), (1e4, "10k"),
+                   (1e5, "100k"), (1e6, "1meg")]:
+        jw = 2j * math.pi * f
+        z = (c["r0"] + c["r1"] / (1 + jw * 20e-3) + c["r2"] / (1 + jw * 20)) * bat_fs(0.5) \
+            + 1 / (1 / (jw * c["l"]) + 1 / 100)
+        err.append(abs(m(t, f"z{v}_{key}") / abs(z) - 1))
+    check(t, f"{v} V: |Z| 0.1 Hz .. 1 MHz, max error", 100 * max(err), 0, 1, "%", "R0 + 2 RC + L_INT")
+    check(t, f"{v} V: |Z(100 Hz)| (ohmic plateau)", m(t, f"z{v}_100") * 1e3, 0.99e3 * c["r0"] * bat_fs(0.5),
+          1.02e3 * c["r0"] * bat_fs(0.5), "mOhm", "R0 x fs(50 %)")
+t = "bat04_cold_crank"
+c = BAT[12]; ft18 = bat_ft(-18)
+s30 = 1 - 700 * 30 / (c["cap"] * 3600); fsm = bat_fs((1 + s30) / 2)
+v30 = bat_ocv(c, s30) - 700 * ft18 * fsm * (c["r0"] + c["r1"] + c["r2"] * (1 - math.exp(-1.5)))
+check(t, "CCA 700 A, 30 s, -18 degC: voltage", m(t, "vcca"), 0.98 * v30, 1.02 * v30, "V", f"hand calc {v30:.2f} V")
+check(t, "CCA 700 A: pass criterion", m(t, "vcca"), 7.2, math.inf, "V", "SAE J537 >= 7.2 V at 30 s")
+for k, temp in zip("bcd", (25, -18, -30)):
+    ocv = m(t, f"ocv_{k}"); r0 = c["r0"] * bat_ft(temp) * bat_fs(0.8)
+    ipk = ocv / (r0 + 7.6e-3); vmin = ocv - ipk * r0
+    check(t, f"crank {temp:+d} degC: minimum voltage", m(t, f"vmin_{k}"), 0.97 * vmin, 1.01 * vmin, "V",
+          f"divider R0'/(R0'+7.6 mOhm) = {vmin:.2f} V")
+    check(t, f"crank {temp:+d} degC: inrush peak", m(t, f"ipk_{k}"), 0.95 * ipk, 1.0 * ipk, "A",
+          f"OCV/(R0'+7.6 mOhm) = {ipk:.0f} A")
+t = "bat05_short_circuit"
+c = BAT[12]
+tt = 2.05e-6; i2 = 12.9 / (c["l"] + 0.5e-6) * tt * (1 - tt / (2 * (c["l"] + 0.5e-6) / 3e-3))
+check(t, "12 V short: current 2 us after closing", m(t, "ia_2us"), 0.98 * i2, 1.02 * i2, "A", "OCV/L x t (18.4 A/us)")
+i3 = 12.9 / (c["r0"] + 1e-3 + c["r1"] * (1 - math.exp(-0.1)))
+check(t, "12 V short: current after 2 ms", m(t, "ia_3ms"), 0.98 * i3, 1.02 * i3, "A",
+      "OCV/(R0 + 1 mOhm + R1(1-e^-t/TAU1))")
+check(t, "48 V pack short: I_SC -> FLT delay", m(t, "dt_sc") * 1e6, 99, 102, "us", "T_SC = 100 us")
+check(t, "48 V pack short: switch voltage (clamp)", m(t, "vsw_max"), 80, 85, "V", "V_CLAMP 80 V + I x 1 mOhm")
+check(t, "48 V pack short: current after opening", abs(m(t, "ib_end")), 0, 0.01, "A", "switch off")
+check(t, "48 V pack short: FLT output", m(t, "fltb_end"), 3.2, 3.4, "V", "latched, 3.3 V")
+t = "bat06_bms_protection"
+check(t, "pre-charge: peak current", m(t, "ipre_pk"), 0.98 * m(t, "ocva") / 10, 1.0 * m(t, "ocva") / 10, "A",
+      "OCV / R_PRE")
+check(t, "pre-charge: step at main-switch closing", m(t, "iclose_pk"), 0, 50, "A", "bus within ~1 V of OCV")
+check(t, "pre-charge: no fault", m(t, "flta_max"), -0.01, 0.01, "V", "")
+check(t, "no pre-charge, 10 mF: SC trip at closing", (m(t, "tb_flt") - 0.1) * 1e6, 100, 300, "us",
+      "inrush > I_SC for > T_SC")
+check(t, "overcurrent ~400 A: trip delay", m(t, "dt_oc"), 0.99, 1.01, "s", "T_OC = 1 s")
+check(t, "EN toggle re-arms, pack re-closes", m(t, "vc_rearm"), 48, 50, "V", "fault cleared")
+check(t, "overload 0.8 s < T_OC: no trip", m(t, "fltc_end"), -0.01, 0.01, "V", f"I = {m(t, 'ic_ol2'):.0f} A")
+check(t, "under-voltage: delay after V < V_UV", m(t, "td_flt") - m(t, "td_uv"), 0.99, 1.01, "s", "T_UV = 1 s")
+check(t, "under-voltage: SOC at trip", m(t, "sd_flt"), -0.01, 0.02, "", "near empty")
+check(t, "over-voltage: delay after V > V_OV", m(t, "te_flt") - m(t, "te_ov"), 0.099, 0.101, "s", "T_OV = 0.1 s")
+check(t, "over-voltage: SOC at trip", m(t, "se_flt"), 1.0, 1.01, "", "just past full charge")
+t = "bat07_pdn_48v"
+check(t, "short on CH2: eFuse isolation time", m(t, "dt_trip2") * 1e6, 5, 10, "us", "HSC 5 us (= tb10)")
+check(t, "short on CH2: pack current peak", m(t, "ibat_pk"), 0, 1000, "A", "< I_SC: selectivity")
+check(t, "short on CH2: BMS does not trip", m(t, "fltb_max"), -0.01, 0.01, "V", "selectivity")
+check(t, "short on CH2: DC/DC stays enabled", m(t, "dcen_min"), 0.99, 1.01, "", "ride-through (= tb10)")
+check(t, "BSG generating: pack absorbs the excess", -m(t, "ibat_chg"), 30, 45, "A", "60 A - loads")
+check(t, "pack disconnect: bus peak (load dump)", m(t, "vbus_ld"), 64, 72, "V", "TVS 64 V + Rs x I")
+# ---- DC/DC 48/12 V (models/DCDC48_12_beh.lib), analytic references ------------
+DC = dict(vset=14.0, ilim=1.1 * 700 / 14.0, p0=6.0, rloss=4e-3, ksw=5e-3, rpre=100.0, cout=2.2e-3,
+          esr=3e-3, cin=470e-6, esrin=15e-3, fc=3e3, fci=30e3, tss=5e-3)
+DC["kp"] = 2 * math.pi * DC["fc"] * DC["cout"]
+DC["ki"] = DC["kp"] * 2 * math.pi * DC["fc"] / 4
+DC["taui"] = 1 / (2 * math.pi * DC["fci"])
+
+
+def dc_pin(vin, il):
+    return DC["vset"] * il + DC["p0"] + DC["rloss"] * il ** 2 + DC["ksw"] * vin * math.sqrt(il ** 2 + 1e-4)
+
+
+def dc_step(rload, di, trise, t_end=2e-3, dt=2e-8):
+    """Exact simulation of the linear loop (PI + current loop + COUT/ESR + R) for a
+    load step di (ramp trise) from steady state; returns (vmin, vmax)."""
+    c = DC; rt = 1 / (1 / rload + 1 / c["rpre"]); il = c["vset"] / rt; xi = il; vc = c["vset"]
+    vmin, vmax = c["vset"], c["vset"]
+    n = int(t_end / dt)
+    for k in range(n):
+        t = k * dt
+        iload = di * min(t / trise, 1.0)
+        vo = (il - iload + vc / c["esr"]) / (1 / rt + 1 / c["esr"])
+        e = c["vset"] - vo
+        icr = c["kp"] * e + xi
+        xi += c["ki"] * e * dt
+        il += (icr - il) / c["taui"] * dt
+        vc += (vo - vc) / c["esr"] / c["cout"] * dt
+        vmin, vmax = min(vmin, vo), max(vmax, vo)
+    return vmin, vmax
+
+
+t = "dc01_efficiency"
+lg = meas_log(os.path.join(TB, t + ".log"))
+VIs, ILs = [36, 48, 54], [2.5, 5, 10, 20, 30, 40, 50]
+err_eta, err_v = [], []
+for k in range(21):
+    vi, il_out = VIs[k % 3], ILs[k // 3]
+    il = il_out + DC["vset"] / DC["rpre"]
+    eta_m = DC["vset"] * il_out / dc_pin(vi, il)
+    err_eta.append(abs(lg["pout"][k] / lg["pin"][k] - eta_m)); err_v.append(abs(lg["vout"][k] - DC["vset"]))
+check(t, "efficiency vs loss model, max error (21 points)", 100 * max(err_eta), 0, 0.05, "pp",
+      "P0 + RLOSS I^2 + KSW VIN I")
+check(t, "output regulation, max error", 1e3 * max(err_v), 0, 1, "mV", "integrating loop: VOUT = VSET")
+k = 3 * 6 + 1
+check(t, "efficiency at 700 W, 48 V", 100 * lg["pout"][k] / lg["pin"][k], 95, 97, "%", "[EST] 95..97 % class")
+t = "dc02_load_transient"
+vmin_a, vmax_a = dc_step(2.8, 25, 25e-6)
+check(t, "+25 A step, COUT only: minimum", m(t, "va_min"), vmin_a - 0.02, vmin_a + 0.02, "V",
+      f"linear loop {vmin_a:.3f} V")
+check(t, "-25 A step, COUT only: maximum", m(t, "va_max"), (2 * DC["vset"] - vmin_a) - 0.02,
+      (2 * DC["vset"] - vmin_a) + 0.02, "V", "symmetric (linear)")
+check(t, "+45 A step: current limit reached", m(t, "ilb_max"), DC["ilim"] - 0.01, DC["ilim"] + 0.01, "A",
+      "I_LIM = 1.1 x 700 W / 14 V")
+check(t, "with 12 V battery: converter stays in limit", m(t, "ilc1"), DC["ilim"] - 0.01, DC["ilim"] + 0.01, "A",
+      "OCV 12.6 V < VSET")
+dv = 25 * (2e-3 * 1.02 + 0.8e-3 * 1.02 * (1 - math.exp(-0.1)) + 1e-3)
+check(t, "with 12 V battery: 12 V net change for +25 A", (m(t, "vc0") - m(t, "vc1")) * 1e3, 0.9e3 * dv,
+      1.1e3 * dv, "mV", "dI x (R0' + R1'(1-e^-t/TAU1) + cable)")
+t = "dc03_startup"
+check(t, "soft-start: VOUT half-way through T_SS", m(t, "va_half"), 6.9, 7.1, "V", "VSET/2 at T_SS/2")
+check(t, "PG after EN", (m(t, "tpga") - 1e-3) * 1e3, 4.95, 5.1, "ms", "T_SS = 5 ms")
+check(t, "pre-biased start: minimum inductor current", m(t, "ilb_min"), -1e-3, 1e-3, "A", "no reverse current")
+check(t, "pre-biased start: minimum input current", m(t, "iinb_min"), 0, math.inf, "A", "no power back to 48 V")
+tb = 1e-3 + DC["tss"] * 12.44 / DC["vset"]
+check(t, "pre-biased start: delivery begins", m(t, "tb_on") * 1e3, (tb - 3e-4) * 1e3, (tb + 3e-4) * 1e3, "ms",
+      "vref = V_battery")
+ilc = -(0.5 / 0.05 - DC["vset"] / DC["rpre"])
+check(t, "BIDIR: sunk current", m(t, "ilc_end"), ilc - 0.05, ilc + 0.05, "A", "(14.5 - 14) V / 50 mOhm - pre-load")
+iinc = (DC["vset"] * ilc + DC["p0"] + DC["rloss"] * ilc ** 2 + DC["ksw"] * 48 * abs(ilc)) / 48
+check(t, "BIDIR: power fed back to the 48 V input", m(t, "iinc_end"), iinc - 0.02, iinc + 0.02, "A",
+      "P_in / VIN < 0")
+t = "dc04_short_overload"
+check(t, "short: current limit", m(t, "ia_sc"), DC["ilim"] - 0.01, DC["ilim"] + 0.01, "A", "I_LIM 55 A")
+check(t, "short: hiccup detection delay", m(t, "dt_off1") * 1e3, 0.95, 1.1, "ms", "T_HIC_DET = 1 ms")
+check(t, "hiccup off time", m(t, "dt_offtime") * 1e3, 49.5, 50.5, "ms", "T_HIC_OFF = 50 ms")
+check(t, "hiccup period", m(t, "dt_period") * 1e3, 50.5, 53, "ms", "off + soft-start to limit + 1 ms")
+check(t, "short removed: output back", m(t, "va_end"), 13.99, 14.01, "V", "restart with soft-start")
+check(t, "discharged 12 V battery: no hiccup", m(t, "hicb_max"), -0.01, 0.01, "", "VOUT > 50 % of VSET")
+check(t, "discharged 12 V battery: charging current", m(t, "ib_avg"), DC["ilim"] - 0.01, DC["ilim"] + 0.01, "A",
+      "constant current at I_LIM")
+t = "dc05_input_transients"
+check(t, "UVLO off threshold", m(t, "v_uvoff"), 25.9, 26.1, "V", "VIN_OFF 26 V")
+check(t, "UVLO on threshold", m(t, "v_uvon"), 29.9, 30.1, "V", "VIN_ON 30 V")
+check(t, "OVP threshold", m(t, "v_ovp"), 59.9, 60.1, "V", "VIN_OVP 60 V")
+check(t, "OVP restart threshold", m(t, "v_ovr"), 57.9, 58.1, "V", "VIN_OVP - VOVP_HYS")
+il5 = 14 / 0.5 + 14 / 100
+for v, key in [(36, "iin36"), (54, "iin54")]:
+    ii = dc_pin(v, il5) / v
+    check(t, f"input current at {v} V (392 W out)", m(t, key), 0.995 * ii, 1.005 * ii, "A",
+          f"P_in/VIN = {ii:.2f} A")
+check(t, "restart after UVLO and OVP", m(t, "vout_end"), 13.99, 14.01, "V", "soft-start")
+t = "dc06_impedance_ac"
+il6 = 14 / 0.56 + 14 / 100; rt6 = 1 / (1 / 0.56 + 1 / 100)
+pin6 = dc_pin(48, il6); gcpl = -pin6 / 48 ** 2 + DC["ksw"] * math.sqrt(il6 ** 2 + 1e-4) / 48
+ezo, ezi = [], []
+for f, key in [(10, "10"), (100, "100"), (1e3, "1k"), (3e3, "3k"), (1e4, "10k"), (1e5, "100k")]:
+    s_ = 2j * math.pi * f
+    yc = 1 / (DC["esr"] + 1 / (s_ * DC["cout"]))
+    zo = 1 / (yc + 1 / rt6 + (DC["kp"] + DC["ki"] / s_) / (1 + s_ * DC["taui"]))
+    ezo.append(abs(m(t, f"zo_{key}") / abs(zo) - 1))
+    if key in ("10", "100", "1k", "10k"):
+        zi = 1 / (gcpl + 1 / (DC["esrin"] + 1 / (s_ * DC["cin"])) + 1 / (s_ * 1e3))
+        ezi.append(abs(m(t, f"zi_{key}") / abs(zi) - 1))
+check(t, "|Zout| 10 Hz .. 100 kHz, max error", 100 * max(ezo), 0, 2, "%", "PI + current loop + COUT")
+check(t, "|Zin| 10 Hz .. 10 kHz, max error", 100 * max(ezi), 0, 2, "%", "CPL + CIN")
+s_ = 2j * math.pi * 10
+zr = (1 / (gcpl + 1 / (DC["esrin"] + 1 / (s_ * DC["cin"])) + 1 / (s_ * 1e3))).real
+check(t, "Re(Zin) at 10 Hz: negative resistance", m(t, "zr_10"), 1.02 * zr, 0.98 * zr, "Ohm",
+      f"CPL -VIN^2/P_in = {1 / gcpl:.2f} Ohm, with CIN: {zr:.2f} Ohm")
+t = "dc07_input_filter_stability"
+import numpy as np  # noqa: E402
+
+
+def filt_eig(ls, rs, cin, rc, cd=0.0, rd=1.0, vs=48.0, iout=14 / 0.56 + 14 / 100):
+    """Eigenvalues of feed (Rs, Ls) + CIN/ESR (+ Cd/Rd damper) + linearized CPL."""
+    v = vs
+    for _ in range(20):
+        v = vs - rs * dc_pin(v, iout) / v
+    g = -dc_pin(v, iout) / v ** 2 + DC["ksw"] * iout / v
+
+    def f(x):
+        il, vc, vd = x
+        # node voltage v from KCL: il = (v-vc)/rc + g v + (v-vd)/rd*[cd>0]
+        yd = 1 / rd if cd > 0 else 0.0
+        vn = (il + vc / rc + vd * yd) / (1 / rc + g + yd)
+        return np.array([(-rs * il - vn) / ls, (vn - vc) / rc / cin,
+                         ((vn - vd) * yd / cd) if cd > 0 else 0.0])
+    a = np.zeros((3, 3)); h = 1e-6
+    for j in range(3):
+        e = np.zeros(3); e[j] = h
+        a[:, j] = (f(e) - f(-e)) / (2 * h)
+    lam = np.linalg.eigvals(a if cd > 0 else a[:2, :2])
+    return lam[np.argmax(lam.real)]
+
+
+la = filt_eig(2e-6, 10e-3, 470e-6, 15e-3)
+lb = filt_eig(10e-6, 10e-3, 22e-6, 2e-3)
+lc = filt_eig(10e-6, 10e-3, 22e-6, 2e-3, cd=220e-6, rd=0.68)
+check(t, "A (2 uH, 470 uF): settled ripple", m(t, "vpp_a"), 0, 0.05, "V",
+      f"stable: max Re(eig) = {la.real:.0f} 1/s")
+check(t, "B (10 uH, 22 uF ceramic): oscillation", m(t, "vpp_b"), 10, math.inf, "V",
+      f"unstable: Re = +{lb.real:.0f} 1/s at {abs(lb.imag) / 2 / math.pi / 1e3:.1f} kHz")
+check(t, "B: input peaks trip the OVP, 12 V output collapses", m(t, "vout_b"), 0, 7, "V", "VIN > 60 V")
+check(t, "C (B + 220 uF / 0.68 Ohm damper): settled ripple", m(t, "vpp_c"), 0, 0.05, "V",
+      f"stable: max Re(eig) = {lc.real:.0f} 1/s")
+check(t, "eigenvalue sign A / B / C", float(la.real < 0) + float(lb.real > 0) + float(lc.real < 0), 3, 3, "",
+      "Middlebrook: damping vs -P/V^2")
+t = "dc08_pdn_48v_12v"
+check(t, "DC/DC starts at its UVLO", m(t, "vin_dcrun"), 30, 31.5, "V", "VIN_ON 30 V (+10 us filter)")
+check(t, "CH1 eFuse: no fault (inrush + 15 A)", m(t, "ch1_flt"), -0.01, 0.01, "", "I < INOM 39 A")
+check(t, "CH1 current with the DC/DC at 55 A", m(t, "ich1_ss"), 14, 17, "A", "(V12 x 55 A + loss) / 48 V")
+check(t, "12 V battery charged at the DC/DC limit", -m(t, "ibat12_ss"), 43, 46, "A", "55 A - 10 A base load")
+check(t, "PTC +40 A: DC/DC still in limit", m(t, "ildc_ph"), DC["ilim"] - 0.01, DC["ilim"] + 0.01, "A",
+      "battery charging current drops instead")
+check(t, "48 V branch short: CH2 isolation", m(t, "dt_trip2") * 1e6, 5, 10, "us", "HSC (= tb10)")
+check(t, "48 V branch short: DC/DC input minimum", m(t, "vdc_min"), 30, 49, "V", "> VIN_OFF 26 V")
+check(t, "48 V branch short: DC/DC keeps running", m(t, "uvdc_min"), 0.99, 1.01, "", "no UVLO")
+check(t, "48 V branch short: 12 V net change", (m(t, "v12_min") - m(t, "v12_pre")) * 1e3, -10, 10, "mV",
+      "not noticed on 12 V")
+check(t, "48 V pack: no BMS trip", m(t, "fltb_max"), -0.01, 0.01, "V", "selectivity")
 # ---- schematics ----------------------------------------------------------------
 S = os.path.join(ROOT, "schematics")
 check("demo_efuse48_module.asc", "HSC trip (matches tb02)", m("demo_efuse48_module", "t_trip", 0, S) * 1e3,
@@ -288,6 +551,14 @@ check("app_vnf1048f_discrete.asc", "I2t trip, x = 1.36 (30 A / 21.8 A)", m("app_
       56, 69, "ms", "tNOM/2^4 = 62.5 ms")
 check("app_vnf1048f_discrete.asc", "restart after CLR", m("app_vnf1048f_discrete", "vout_end", 0, S),
       46, 49, "V", "CLR re-arms")
+
+check("demo_battery.asc", "48 V pack: short -> FLT", m("demo_battery", "dt_flt", 0, S) * 1e6, 100, 300, "us",
+      "crossing + T_SC")
+check("demo_battery.asc", "48 V pack: no fault during pre-charge / load", m("demo_battery", "fltpre", 0, S),
+      -0.01, 0.01, "V", "")
+check("demo_dcdc.asc", "DC/DC charges the 12 V battery at the limit", m("demo_dcdc", "il_cl", 0, S),
+      54.99, 55.01, "A", "I_LIM 55 A")
+check("demo_dcdc.asc", "48 V feed current", m("demo_dcdc", "iin", 0, S), 14, 17, "A", "~770 W / 48 V")
 
 hdr = ["# Validation report", "",
        "Generated by `tools/validate.py` from the LTspice `.meas` results "

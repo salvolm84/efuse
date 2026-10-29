@@ -1,0 +1,39 @@
+* dc03_startup.cir
+* ---------------------------------------------------------------------------
+* Start-up of the 48/12 V DC/DC (defaults, VIN = 48 V), EN at 1 ms.
+* A: 2 Ohm load: soft-start ramp T_SS = 5 ms, PG when the ramp is finished
+* B: pre-biased output: 12 V battery (SOC 50 %, OCV 12.44 V) on the output.
+*    The converter must not sink current from the battery (diode emulation):
+*    it starts delivering when the reference passes the battery voltage,
+*    ~T_SS x 12.44/14 after EN, then charges at the current limit.
+* C: BIDIR = 1, output pulled to 14.5 V by an external source through 50 mOhm
+*    (e.g. a second converter): the DC/DC regulates 14 V by sinking ~10 A and
+*    feeds power back into the 48 V input.
+* ---------------------------------------------------------------------------
+.include ../models/DCDC48_12_beh.lib
+.include ../models/BATTERY_beh.lib
+Ven en 0 PWL(0 0 1m 0 1.001m 3.3)
+VinA va 0 48
+XA va oa 0 en pga DCDC48_12
+RA oa 0 2
+VinB vb 0 48
+XB vb ob 0 en pgb DCDC48_12
+XbB ob 0 socb BATTERY VNOM=12 SOC0=0.5
+VinC vc 0 48
+XC vc oc 0 en pgc DCDC48_12 BIDIR=1
+Vext ext 0 14.5
+Rext ext oc 50m
+.save V(oa) V(pga) V(xa:vref) V(ob) V(xb:il) I(VinB) V(oc) V(xc:il) I(VinC) V(pgc)
+.meas tran va_half find V(oa) at 3.5m
+.meas tran ta95 find time when V(oa)=13.3 rise=1
+.meas tran tpga find time when V(pga)=1.65 rise=1
+.meas tran ilb_min min V(xb:il) from 0 to 5m
+.meas tran iinb_min min -I(VinB) from 0 to 20m
+.meas tran tb_on find time when V(xb:il)=1 rise=1
+.meas tran ilb_end find V(xb:il) at 19m
+.meas tran ilc_end find V(xc:il) at 19m
+.meas tran iinc_end find -I(VinC) at 19m
+.meas tran voc_end find V(oc) at 19m
+.tran 0 20m 0 2u
+.options plotwinsize=0
+.end

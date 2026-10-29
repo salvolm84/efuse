@@ -849,12 +849,294 @@ def iv_h4():
     print("  -> iv_h4_wire_vs_fuse.png")
 
 
+# ---------------------------------------------------------------------------
+# battery model benches (models/BATTERY_beh.lib)
+BAT = {12: dict(cap=70, v0=11.70, v100=12.90, veoc=15.0, r0=2.0e-3, r1=0.8e-3, r2=0.7e-3, l=0.2e-6),
+       48: dict(cap=10, v0=40.0, v100=52.0, veoc=55.0, r0=15e-3, r1=5e-3, r2=5e-3, l=1e-6)}
+from bat_ocv import g as _bat_g  # noqa: E402  (PCHIP curve used in the .lib)
+
+
+def bat_ocv(c, s):
+    s = np.asarray(s, dtype=float)
+    mid = c["v0"] + (c["v100"] - c["v0"]) * np.vectorize(_bat_g)(s)
+    lo = c["v0"] * np.maximum(0, 1 + s / 0.02)
+    hi = c["v100"] + (c["veoc"] - c["v100"]) * (s - 1) / 0.02
+    return np.where(s < 0, lo, np.where(s > 1, hi, mid))
+
+
+def bat_ft(temp):
+    return np.exp(1200 * (1 / (np.asarray(temp) + 273.15) - 1 / 298.15))
+
+
+def bat01():
+    r0 = raw("bat01_capacity_ocv"); tu = np.arange(0, r0["time"][-1], 5.0)
+    r = {n: np.interp(tu, r0["time"], r0[n]) for n in r0.names[1:]}    # 5 s resolution
+    t = tu / 3600
+    fig, ax = panels(4, "bat01 - 1C pulsed OCV test, discharge to cut-off and CC-CV charge (12 V 70 Ah, 48 V 10 Ah)")
+    plot(ax[0], t, r["V(p12)"], "terminal", 0); plot(ax[0], t, r["V(x12:ocv)"], "OCV (internal)", 1)
+    ax[0].set_ylabel("12 V class [V]"); ax[0].set_ylim(10, 15)
+    plot(ax[1], t, r["V(p48)"], "terminal", 0); plot(ax[1], t, r["V(x48:ocv)"], "OCV (internal)", 1)
+    ax[1].set_ylabel("48 V class [V]"); ax[1].set_ylim(34, 55)
+    plot(ax[2], t, r["V(soc12)"], "SOC pin, 12 V", 0); plot(ax[2], t, r["V(soc48)"], "SOC pin, 48 V", 1, ls="--")
+    ax[2].set_ylabel("SOC [-]")
+    plot(ax[3], t, r["I(x12:Vi)"] / 70, "12 V (1C = 70 A)", 0)
+    plot(ax[3], t, r["I(x48:Vi)"] / 10, "48 V (1C = 10 A)", 1, ls="--")
+    ax[3].set_ylabel("I / 1C (+ = discharge)")
+    finish(fig, ax, "time [h]", "bat01_capacity_ocv.png")
+    m = meas_log(os.path.join(TB, "bat01_capacity_ocv.log"))
+    fig, ax = plt.subplots(1, 2, figsize=(9, 3.6))
+    fig.suptitle("bat01 - OCV(SOC): model curve and simulated rest voltages", x=0.02, ha="left",
+                 fontsize=11, fontweight="bold", color=INK)
+    sx = np.linspace(-0.02, 1.02, 600)
+    for a, v in zip(ax, (12, 48)):
+        c = BAT[v]
+        a.plot(sx * 100, bat_ocv(c, sx), color=C[0], label="OCV(SOC) of the model")
+        a.plot([100 - 10 * k for k in range(1, 10)], [m[f"vr{v}_{k}"][0] for k in range(1, 10)], "o",
+               color=C[1], ms=6, mfc=SURF, mew=1.5, label="rest voltage after each 10 % step")
+        a.axvspan(-2, 0, color=GRID, alpha=0.6, lw=0); a.axvspan(100, 102, color=GRID, alpha=0.6, lw=0)
+        a.set_title(f"{v} V class (defaults)", loc="left"); a.set_xlabel("SOC [%]"); a.set_ylabel("V")
+        a.set_ylim(c["v0"] - 0.08 * c["v100"], c["veoc"] * 1.01)
+        a.text(1, c["v0"] - 0.06 * c["v100"], "end of\ndischarge", fontsize=7, color=INK2)
+        a.text(82, c["veoc"] * 0.985, "end of charge", fontsize=7, color=INK2)
+    ax[0].legend(loc="upper left")
+    fig.tight_layout(rect=(0, 0, 1, 0.93)); fig.savefig(os.path.join(IMG, "bat01_ocv_curve.png"), dpi=110)
+    plt.close(fig); print("  -> bat01_ocv_curve.png")
+
+
+def bat02():
+    r = raw("bat02_pulse_temperature")
+    m = meas_log(os.path.join(TB, "bat02_pulse_temperature.log"))
+    T = [-30, -18, 0, 25, 45]
+    fig, ax = panels(3, "bat02 - 100 A / 10 s pulse at 50 % SOC, -30 ... +45 degC", sharex=False)
+    tu = np.arange(0, 71, 0.02)                                         # 20 ms resolution
+    for k, temp in enumerate(T):
+        tt = r.get("time", k)
+        plot(ax[0], tu, np.interp(tu, tt, r.get("V(p12)", k)), f"{temp:+d} degC", k)
+        plot(ax[1], tu, np.interp(tu, tt, r.get("V(p48)", k)), f"{temp:+d} degC", k)
+    ax[0].set_ylabel("12 V class [V]"); ax[1].set_ylabel("48 V class [V]")
+    for a in ax[:2]:
+        a.set_xlabel("time [s]")
+    tc = np.linspace(-35, 50, 100)
+    ax[2].plot(tc, bat_ft(tc), color=INK2, lw=1, ls="--", label="FT(T) = exp(1200 K (1/T - 1/298 K))")
+    ax[2].plot(T, np.array(m["r0_12"]) / m["r0_12"][3], "o", color=C[0], ms=6, mfc=SURF, mew=1.5,
+               label="R0 measured, 12 V")
+    ax[2].plot(T, np.array(m["r0_48"]) / m["r0_48"][3], "s", color=C[1], ms=4, label="R0 measured, 48 V")
+    ax[2].plot(T, np.array(m["r10_12"]) / m["r10_12"][3], "^", color=C[2], ms=5, label="R(10 s) measured, 12 V")
+    ax[2].set_ylabel("R(T) / R(25 degC)")
+    finish(fig, ax, "battery temperature [degC]", "bat02_pulse_temperature.png")
+
+
+def bat03():
+    r = raw("bat03_impedance_ac"); f = r["frequency"].real
+    fig, ax = panels(2, "bat03 - output impedance |Z(f)| and phase, 50 % SOC, 25 degC", h=2.6)
+    for k, v in enumerate((12, 48)):
+        c = BAT[v]; z = r[f"V(p{v})"]
+        jw = 2j * np.pi * f
+        za = (c["r0"] + c["r1"] / (1 + jw * 20e-3) + c["r2"] / (1 + jw * 20)) * 1.125 + 1 / (1 / (jw * c["l"]) + 1 / 100)
+        ax[0].loglog(f, np.abs(z) * 1e3, color=C[k], label=f"{v} V class, simulated")
+        ax[0].loglog(f, np.abs(za) * 1e3, color=C[k], ls=":", lw=2.4, label=f"{v} V class, analytic")
+        ax[1].semilogx(f, np.degrees(np.angle(z)), color=C[k], label=f"{v} V class")
+    for fc, lab in [(1 / (2 * np.pi * 20), "TAU2"), (1 / (2 * np.pi * 20e-3), "TAU1")]:
+        for a in ax:
+            a.axvline(fc, color=INK2, lw=0.8, ls="--")
+        ax[0].text(fc * 1.15, 60, lab, color=INK2, fontsize=8)
+    ax[0].set_ylabel("|Z| [mOhm]"); ax[1].set_ylabel("phase [deg]")
+    ax[0].text(2e3, 0.3e3, "L_INT", color=INK2, fontsize=8)
+    finish(fig, ax, "frequency [Hz]", "bat03_impedance_ac.png")
+
+
+def bat04():
+    r = raw("bat04_cold_crank"); t = r["time"]
+    fig, ax = panels(3, "bat04 - engine crank at +25 / -18 / -30 degC (SOC 80 %) and CCA test", sharex=False)
+    mk = t <= 1.6
+    for k, (n, lab) in enumerate([("b", "+25 degC"), ("c", "-18 degC"), ("d", "-30 degC")]):
+        plot(ax[0], t[mk], r[f"V(p{n})"][mk], lab, k)
+        plot(ax[1], t[mk], r[f"I(Lc{n.upper()})"][mk], lab, k)
+    ax[0].set_ylabel("battery terminal [V]"); ax[1].set_ylabel("starter current [A]"); ax[0].set_ylim(5, 15)
+    ax[0].set_xlabel("time [s]")
+    plot(ax[2], t, r["V(pa)"], "terminal voltage, 700 A from 1 s, -18 degC", 0)
+    ax[2].axhline(7.2, color=INK2, ls="--", lw=0.8); ax[2].text(2, 7.35, "7.2 V at 30 s (SAE J537)", color=INK2,
+                                                               fontsize=8)
+    ax[2].set_ylabel("CCA test [V]"); ax[2].set_ylim(6, 13.5)
+    finish(fig, ax, "time [s]", "bat04_cold_crank.png")
+
+
+def bat05():
+    r = raw("bat05_short_circuit"); t = r["time"] * 1e3
+    fig, ax = panels(3, "bat05 - bolted terminal short: 12 V battery (unprotected) and 48 V pack with BMS")
+    plot(ax[0], t, r["I(LA)"] / 1e3, "12 V: short current [kA]", 0)
+    plot(ax[0], t, r["V(pa)"] / 10, "12 V: terminal voltage / 10 [V]", 1)
+    ax[0].set_ylabel("12 V battery")
+    plot(ax[1], t, r["I(xb:Vsw)"] / 1e3, "48 V: pack current [kA]", 0)
+    plot(ax[1], t, r["I(LB)"] / 1e3, "48 V: current in the short [kA]", 2)
+    ax[1].axhline(1.0, color=INK2, ls="--", lw=0.8); ax[1].text(2.5, 1.07, "I_SC 1 kA", color=INK2, fontsize=8)
+    ax[1].set_ylabel("kA")
+    plot(ax[2], t, r["V(xb:bs)"] - r["V(pb)"], "voltage across the pack switch", 0)
+    plot(ax[2], t, r["V(pb)"], "pack terminal", 1); plot(ax[2], t, r["V(fltb)"] * 10, "FLT x 10", 3)
+    ax[2].set_ylabel("V")
+    for a in ax:
+        a.set_xlim(0.9, 3)
+    finish(fig, ax, "time [ms]", "bat05_short_circuit.png")
+
+
+def bat06():
+    r = raw("bat06_bms_protection"); t = r["time"]
+    fig, ax = panels(4, "bat06 - 48 V pack BMS: pre-charge, overcurrent, under-/over-voltage", sharex=False)
+    mk = t <= 0.8
+    plot(ax[0], t[mk], r["V(pa)"][mk], "bus, with pre-charge", 0)
+    plot(ax[0], t[mk], r["V(pb)"][mk], "bus, without pre-charge (SC trip)", 1)
+    plot(ax[0], t[mk], r["V(fltb)"][mk] * 10, "FLT x 10, without pre-charge", 3)
+    ax[0].set_ylabel("V"); ax[0].set_xlabel("time [s]")
+    mk = win(t, 0.099, 0.1004)
+    plot(ax[1], (t[mk] - 0.1) * 1e3, r["I(xb:Vsw)"][mk], "pack current, no pre-charge", 1)
+    plot(ax[1], (t[mk] - 0.1) * 1e3, r["I(xa:Vsw)"][mk] * 100, "pack current, with pre-charge x 100", 0)
+    ax[1].axhline(1000, color=INK2, ls="--", lw=0.8); ax[1].text(0.3, 1050, "I_SC", color=INK2, fontsize=8)
+    ax[1].set_ylabel("A"); ax[1].set_xlabel("time after EN [ms]")
+    mk = t <= 5
+    plot(ax[2], t[mk], r["I(xc:Vsw)"][mk], "pack current (overload ~400 A)", 0)
+    plot(ax[2], t[mk], r["V(fltc)"][mk] * 80, "FLT x 80", 3); plot(ax[2], t[mk], r["V(enc)"][mk] * 100, "EN x 100", 2)
+    ax[2].set_ylim(-150, 700)
+    ax[2].axhline(350, color=INK2, ls="--", lw=0.8); ax[2].text(0.05, 365, "I_OC", color=INK2, fontsize=8)
+    ax[2].set_ylabel("A"); ax[2].set_xlabel("time [s]")
+    plot(ax[3], t, r["V(xd:vm)"], "D: BMS voltage, 100 A from SOC 10 %", 0)
+    plot(ax[3], t, r["V(xe:vm)"], "E: BMS voltage, faulty 56 V charger", 1)
+    plot(ax[3], t, r["V(fltd)"] * 3 + 15, "D: FLT (offset)", 2)
+    plot(ax[3], t, r["V(flte)"] * 3 + 15, "E: FLT (offset)", 3, ls="--")
+    for y, lab in [(36, "V_UV"), (54, "V_OV")]:
+        ax[3].axhline(y, color=INK2, ls="--", lw=0.8); ax[3].text(1, y + 0.4, lab, color=INK2, fontsize=8)
+    ax[3].set_ylabel("V")
+    finish(fig, ax, "time [s]", "bat06_bms_protection.png")
+
+
+def bat07():
+    r = raw("bat07_pdn_48v"); t = r["time"] * 1e3
+    fig, ax = panels(3, "bat07 - 48 V PDU fed by the battery pack: CH2 short 15 ms, BSG 25 ms, pack opens 35 ms")
+    plot(ax[0], t, r["V(bus)"], "48 V bus", 0); plot(ax[0], t, r["V(bat)"], "pack terminal", 1)
+    plot(ax[0], t, r["V(d1)"], "DC/DC input (CH1)", 2); ax[0].set_ylabel("V"); ax[0].set_ylim(20, 85)
+    plot(ax[1], t, r["I(xbat:Vsw)"], "pack current (+ = discharge)", 0)
+    plot(ax[1], t, r["I(Lh2)"], "CH2 (motor) current", 2); plot(ax[1], t, -r["I(Dtvs)"], "TVS current", 3)
+    ax[1].set_ylabel("A"); ax[1].set_ylim(-60, 120)
+    plot(ax[2], t, r["V(diag2)"] / 3.3, "DIAG CH2", 2); plot(ax[2], t, r["V(fltb)"] / 3.3 * 0.95, "pack FLT (x0.95)", 3)
+    plot(ax[2], t, r["V(xbat:x)"] * 0.9, "pack switch state (x0.9)", 0); plot(ax[2], t, r["V(greg)"] * 0.85,
+                                                                              "BSG regulator (x0.85)", 1)
+    ax[2].set_ylabel("logic")
+    finish(fig, ax, "time [ms]", "bat07_pdn_48v.png")
+
+
+# ---------------------------------------------------------------------------
+# DC/DC benches (models/DCDC48_12_beh.lib)
+def dc01():
+    m = meas_log(os.path.join(TB, "dc01_efficiency.log"))
+    VI, IL = [36, 48, 54], [2.5, 5, 10, 20, 30, 40, 50]
+    fig, ax = panels(2, "dc01 - 700 W 48/12 V DC/DC: efficiency and input current vs load", h=2.6)
+    for j, v in enumerate(VI):
+        eta = [100 * m["pout"][3 * k + j] / m["pin"][3 * k + j] for k in range(len(IL))]
+        iin = [m["iin"][3 * k + j] for k in range(len(IL))]
+        pw = [14 * i for i in IL]
+        ax[0].plot(pw, eta, "o-", color=C[j], ms=5, label=f"VIN = {v} V")
+        ax[1].plot(pw, iin, "o-", color=C[j], ms=5, label=f"VIN = {v} V")
+    ax[0].set_ylabel("efficiency [%]"); ax[0].set_ylim(80, 98)
+    ax[1].set_ylabel("input current [A]")
+    for a in ax:
+        a.axvline(700, color=INK2, ls="--", lw=0.8)
+    ax[0].text(705, 82, "700 W", color=INK2, fontsize=8)
+    finish(fig, ax, "output power [W]", "dc01_efficiency.png")
+
+
+def dc02():
+    r = raw("dc02_load_transient"); t = r["time"] * 1e3
+    fig, ax = panels(3, "dc02 - load steps: COUT only (+25 A, +45 A) and with a 12 V battery on the output")
+    mk = win(t, 7.5, 12)
+    plot(ax[0], t[mk], r["V(oa)"][mk], "COUT only, +25 A", 0); plot(ax[0], t[mk], r["V(ob)"][mk], "COUT only, +45 A", 1)
+    plot(ax[0], t[mk], r["V(oc)"][mk], "with 12 V battery, +25 A", 2); ax[0].set_ylabel("VOUT [V]")
+    plot(ax[1], t[mk], r["V(xa:il)"][mk], "il, +25 A", 0); plot(ax[1], t[mk], r["V(xb:il)"][mk], "il, +45 A", 1)
+    plot(ax[1], t[mk], r["V(xc:il)"][mk], "il, with battery", 2)
+    ax[1].axhline(55, color=INK2, ls="--", lw=0.8); ax[1].text(7.55, 56.5, "I_LIM 55 A", color=INK2, fontsize=8)
+    ax[1].set_ylabel("DC/DC current [A]")
+    plot(ax[2], t[mk], -r["I(Lbc)"][mk], "12 V battery current (+ = charging)", 2); ax[2].set_ylabel("A")
+    finish(fig, ax, "time [ms]", "dc02_load_transient.png")
+
+
+def dc03():
+    r = raw("dc03_startup"); t = r["time"] * 1e3
+    fig, ax = panels(3, "dc03 - start-up: soft-start, pre-biased 12 V battery, bidirectional sink")
+    plot(ax[0], t, r["V(oa)"], "VOUT, 2 Ohm load", 0); plot(ax[0], t, r["V(xa:vref)"], "reference", 1, ls="--")
+    plot(ax[0], t, r["V(ob)"], "VOUT, 12 V battery on the output", 2); plot(ax[0], t, r["V(pga)"], "PG (2 Ohm case)", 3)
+    ax[0].set_ylabel("V")
+    plot(ax[1], t, r["V(xb:il)"], "il, battery on the output", 2); plot(ax[1], t, -r["I(VinB)"] * 10, "input current x 10", 4)
+    ax[1].set_ylabel("A")
+    plot(ax[2], t, r["V(xc:il)"], "il, BIDIR=1, output pulled to 14.5 V", 5)
+    plot(ax[2], t, -r["I(VinC)"], "input current (< 0: power to 48 V)", 6); ax[2].set_ylabel("A")
+    finish(fig, ax, "time [ms]", "dc03_startup.png")
+
+
+def dc04():
+    r = raw("dc04_short_overload"); t = r["time"] * 1e3
+    fig, ax = panels(3, "dc04 - output short 10..150 ms (hiccup) and a discharged 12 V battery (constant current)")
+    plot(ax[0], t, r["V(oa)"], "VOUT, shorted output", 0); plot(ax[0], t, r["V(ob)"], "VOUT, discharged battery", 2)
+    ax[0].set_ylabel("V")
+    plot(ax[1], t, r["V(xa:il)"], "il, shorted output", 0); plot(ax[1], t, r["V(xb:il)"], "il, discharged battery", 2, ls="--")
+    ax[1].set_ylabel("A")
+    plot(ax[2], t, r["V(xa:run)"], "running (short case)", 0); plot(ax[2], t, r["V(xa:hic)"] * 0.9, "hiccup off-time (x0.9)", 1)
+    ax[2].set_ylabel("logic")
+    finish(fig, ax, "time [ms]", "dc04_short_overload.png")
+
+
+def dc05():
+    r = raw("dc05_input_transients"); t = r["time"] * 1e3
+    fig, ax = panels(3, "dc05 - input profile: UVLO 26/30 V, OVP 60/58 V, constant-power input current")
+    plot(ax[0], t, r["V(vin)"], "VIN", 0); plot(ax[0], t, r["V(out)"], "VOUT", 1); ax[0].set_ylabel("V")
+    for y in (26, 30, 58, 60):
+        ax[0].axhline(y, color=GRID, lw=0.8)
+    plot(ax[1], t, -r["I(Vin)"], "input current (392 W load)", 0); ax[1].set_ylabel("A"); ax[1].set_ylim(-1, 20)
+    plot(ax[2], t, r["V(x1:uvok)"], "input above UVLO", 0); plot(ax[2], t, r["V(x1:ovp)"] * 0.9, "OVP (x0.9)", 1)
+    plot(ax[2], t, r["V(x1:run)"] * 0.8, "running (x0.8)", 2); ax[2].set_ylabel("logic")
+    finish(fig, ax, "time [ms]", "dc05_input_transients.png")
+
+
+def dc06():
+    r = raw("dc06_impedance_ac"); f = r["frequency"].real
+    fig, ax = panels(2, "dc06 - output and input impedance (25 A load, VIN 48 V)", h=2.6)
+    ax[0].loglog(f, np.abs(r["V(out1)"]) * 1e3, color=C[0], label="|Zout|")
+    ax[0].axvline(3e3, color=INK2, ls="--", lw=0.8); ax[0].text(3.3e3, 0.5, "FC 3 kHz", color=INK2, fontsize=8)
+    ax[0].set_ylabel("|Zout| [mOhm]")
+    zi = r["V(vin2)"]
+    ax[1].semilogx(f, np.abs(zi), color=C[1], label="|Zin|")
+    ax[1].semilogx(f, zi.real, color=C[2], ls="--", label="Re(Zin) (< 0: negative resistance)")
+    ax[1].axhline(0, color=INK2, lw=0.6); ax[1].set_ylabel("Zin [Ohm]"); ax[1].set_ylim(-8, 8)
+    finish(fig, ax, "frequency [Hz]", "dc06_impedance_ac.png")
+
+
+def dc07():
+    r = raw("dc07_input_filter_stability"); t = r["time"] * 1e3
+    fig, ax = panels(2, "dc07 - input-filter stability: 2 uH + 470 uF (A), 10 uH + 22 uF (B), B + damper (C)")
+    plot(ax[0], t, r["V(ia)"], "A: VIN", 0); plot(ax[0], t, r["V(ib)"], "B: VIN (unstable)", 1)
+    plot(ax[0], t, r["V(ic)"], "C: VIN (damped)", 2); ax[0].set_ylabel("V")
+    plot(ax[1], t, r["V(oa)"], "A: VOUT", 0); plot(ax[1], t, r["V(ob)"], "B: VOUT", 1); plot(ax[1], t, r["V(oc)"], "C: VOUT", 2)
+    ax[1].set_ylabel("V")
+    finish(fig, ax, "time [ms]", "dc07_input_filter_stability.png")
+
+
+def dc08():
+    r = raw("dc08_pdn_48v_12v"); t = r["time"] * 1e3
+    fig, ax = panels(3, "dc08 - 48 V pack -> eFuse -> DC/DC -> 12 V net: start-up, 12 V load step 20 ms, 48 V short 30 ms")
+    plot(ax[0], t, r["V(bus)"], "48 V bus", 0); plot(ax[0], t, r["V(d1)"], "DC/DC input (CH1)", 1)
+    plot(ax[0], t, r["V(b12)"] * 3, "12 V net x 3", 2); ax[0].set_ylabel("V"); ax[0].set_ylim(0, 60)
+    plot(ax[1], t, r["I(Lh1)"], "CH1 (DC/DC input) current", 1); plot(ax[1], t, r["V(xdc:il)"], "DC/DC output current", 2)
+    plot(ax[1], t, -r["I(xb12:Vi)"], "12 V battery (+ = charging)", 3); ax[1].set_ylabel("A"); ax[1].set_ylim(-20, 80)
+    plot(ax[2], t, r["V(xdc:run)"], "DC/DC running", 2); plot(ax[2], t, r["V(diag2)"] / 3.3 * 0.9, "DIAG CH2 (x0.9)", 0)
+    plot(ax[2], t, r["V(pgdc)"] / 3.3 * 0.8, "DC/DC PG (x0.8)", 1); ax[2].set_ylabel("logic")
+    finish(fig, ax, "time [ms]", "dc08_pdn_48v_12v.png")
+
+
 ALL = dict(tb01=tb01, tb02=tb02, tb03=tb03, tb04=tb04, tb05=tb05, tb06=tb06,
            tb07=tb07, tb08=tb08, tb09=tb09, tb10=tb10, tb11=tb11, tb12=tb12,
            tb13=tb13, tb14=tb14, tb15=tb15, tb16=tb16, tb17=tb17, tb18=tb18, tb19=tb19,
            tb20=tb20, tb21=tb21, tb22=tb22, tb23=tb23, tb24=tb24, tb25=tb25, tb26=tb26,
            tb27=tb27, tb28=tb28, tb29=tb29, tb30=tb30, tb31=tb31, tb32=tb32, tb33=tb33,
-           tb34=tb34, tb35=tb35, iv_b2=iv_b2, iv_h2=iv_h2, iv_h4=iv_h4)
+           tb34=tb34, tb35=tb35, iv_b2=iv_b2, iv_h2=iv_h2, iv_h4=iv_h4,
+           bat01=bat01, bat02=bat02, bat03=bat03, bat04=bat04, bat05=bat05, bat06=bat06, bat07=bat07,
+           dc01=dc01, dc02=dc02, dc03=dc03, dc04=dc04, dc05=dc05, dc06=dc06, dc07=dc07, dc08=dc08)
 
 if __name__ == "__main__":
     sel = sys.argv[1:] or list(ALL)

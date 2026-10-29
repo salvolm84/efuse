@@ -1,0 +1,206 @@
+* ============================================================================
+*  DCDC48_12_beh.lib  --  Behavioral LTspice model of a 700 W 48 V -> 12 V
+*                         automotive buck converter (averaged, for power-
+*                         distribution system simulation)
+*
+*  Status    : generic averaged model of a regulated, current-limited buck
+*              converter. Default values are engineering estimates for a
+*              typical 700 W 48/12 V DC/DC of a mild-hybrid vehicle, flagged
+*              "[EST]" (see README.md, section 15). Replace them with your converter's
+*              data.
+*  Simulator : LTspice (validated with LTspice 26.0.2; B-sources with if(),
+*              limit(); no idt(), no min()/max(), see the notes in the code)
+*
+*  Contents
+*    DCDC48_12     the converter                                        5 pins
+*    DC_LATCH / DC_DGL  helper primitives (SR latch, deglitch filter)
+*
+*  What is modeled (and why it matters at system level)
+*    * output regulation with a PI voltage loop (crossover FC) around an
+*      inner current loop (bandwidth FCI): load-step response, output
+*      impedance
+*    * output current limit (1.1 x PRATED/VSET), hiccup on a hard output
+*      short, dropout at low input voltage
+*    * power balance: the input draws (P_out + P_loss)/V_in, i.e. a constant-
+*      power load with negative incremental input resistance (input-filter
+*      and harness stability, current at low input voltage)
+*    * losses P0 + RLOSS*I^2 + KSW*V_in*I (efficiency vs load and V_in)
+*    * input and output capacitance (eFuse inrush, hold-up, ESR damping)
+*    * input UVLO and OVP with hysteresis, enable, soft-start, pre-biased
+*      start without reverse current (12 V battery on the output), power good
+*    * optional bidirectional operation (BIDIR=1: the converter can sink
+*      output current and feed power back to the 48 V side)
+*  Not modeled: switching ripple and EMC (averaged model), phase interleaving,
+*  thermal derating, output OVP, LIN/CAN setpoint control, remote sense.
+*
+*  Pins: VIN (48 V input)  VOUT (12 V output)  GND (common ground)
+*        EN   enable, logic > VTH_LOGIC (1.5 V) = on, 1 MOhm pull-down
+*        PG   power good, 3.3 V push-pull through 100 Ohm: high = running,
+*             soft-start finished and VOUT > 90 % of VSET
+*
+*  Parameter    default  [EST]   meaning
+*    VSET         14.0  V        output voltage setpoint (alternator-like)
+*    PRATED       700   W        rated output power
+*    ILIM         0 -> 1.1*PRATED/VSET = 55 A   output current limit
+*    VIN_ON       30    V        UVLO: start above
+*    VIN_OFF      26    V        UVLO: stop below
+*    VIN_OVP      60    V        input over-voltage: stop above
+*    VOVP_HYS     2     V        restart below VIN_OVP - VOVP_HYS
+*    T_SS         5m    s        soft-start ramp of the reference
+*    FC           3k    Hz       voltage-loop crossover (with COUT alone)
+*    FCI          30k   Hz       current-loop bandwidth
+*    COUT, ESR_OUT  2.2m F, 3m Ohm    output capacitance (internal)
+*    CIN, ESR_IN    470u F, 15m Ohm   input capacitance (internal)
+*    P0           6     W        fixed losses while running
+*    RLOSS        4m    Ohm      conduction losses, RLOSS*I^2
+*    KSW          5m    W/(V*A)  switching losses, KSW*V_in*I
+*    IQ_OFF       1m    A        input current when off
+*    DMAX, RDROP  0.95, 20m Ohm  dropout: VOUT <= DMAX*V_in - I*RDROP
+*    V_HIC        0.5   -        hiccup if in current limit and VOUT < V_HIC*VSET
+*    T_HIC_DET    1m    s        ... for this long
+*    T_HIC_OFF    50m   s        off time before the restart (soft-start)
+*    BIDIR        0     -        1 = bidirectional (sinks down to -ILIM)
+*    DCRUN        0     -        1 = running in the DC operating point (.ac);
+*                                0 = off at t = 0, soft-starts (default)
+*
+*  Internal nodes (probe as V(<inst>:<node>), referred to GND):
+*    il    averaged inductor (output) current [A]   vref  reference [V]
+*    icr   current command before the limits [A]    imax  upper limit [A]
+*    run   converter switching (0/1)   uvok  input above UVLO   ovp  input OVP
+*    hic   hiccup off-time active      h     hiccup timer
+*    tss   soft-start timer [s]
+*    ploss losses [W]
+* ============================================================================
+
+*  Integration method. The averaged control loop (current limit, soft-start,
+*  hiccup latch) makes LTspice's default trapezoidal integration ring and
+*  stall the time step after fast logic events, depending on what else is in
+*  the netlist. Gear integration (the usual cure for stiff behavioural models)
+*  removes this. Including this library therefore switches the whole
+*  simulation to Gear; delete the line to go back to the default (and expect
+*  occasional stalls).
+.options method=gear
+
+.subckt DCDC48_12 VIN VOUT GND EN PG
++ VSET=14.0 PRATED=700 ILIM=0
++ VIN_ON=30 VIN_OFF=26 VIN_OVP=60 VOVP_HYS=2
++ T_SS=5m FC=3k FCI=30k
++ COUT=2.2m ESR_OUT=3m CIN=470u ESR_IN=15m
++ P0=6 RLOSS=4m KSW=5m IQ_OFF=1m
++ DMAX=0.95 RDROP=20m
++ V_HIC=0.5 T_HIC_DET=1m T_HIC_OFF=50m
++ BIDIR=0 VTH_LOGIC=1.5 DCRUN=0
+
+.param ILIMV = {if(ILIM>0, ILIM, 1.1*PRATED/VSET)}
+*  PI voltage loop: with the plant 1/(s*COUT) the loop gain crosses 0 dB at
+*  FC; the integral zero sits at FC/4 (~70 deg phase margin incl. the
+*  current loop at FCI = 10*FC)
+.param KP   = {2*pi*FC*COUT}
+.param KI   = {KP*2*pi*FC/4}
+.param KAW  = {2*pi*FC}
+.param TAUI = {1/(2*pi*FCI)}
+
+* ---------------- input ---------------------------------------------------------
+Cin VIN GND {CIN} Rser={ESR_IN}
+*  power balance: P_in = VOUT*il + P_loss, drawn as a current from VIN
+Bpl ploss GND V=V(run,GND)*{P0} + {RLOSS}*V(il,GND)**2
++  + {KSW}*V(VIN,GND)*sqrt(V(il,GND)**2 + 1e-4)
+Bin VIN GND I=(V(VOUT,GND)*V(il,GND) + V(ploss,GND))/limit(V(VIN,GND), 5, 1e6)
++  + {IQ_OFF}*(1 - V(run,GND))*limit(V(VIN,GND)/5, 0, 1)
+*  input voltage as seen by the controller (10 us filter)
+Bvi vin_i GND V=V(VIN,GND)
+Rvi vin_i vinf 1k
+Cvi vinf GND 10n
+
+* ---------------- enable, UVLO, OVP, hiccup -----------------------------------
+Ren EN GND 1Meg
+Ben en_l GND V=V(EN,GND)>{VTH_LOGIC}
+Buvs uv_s GND V=V(vinf,GND)>{VIN_ON}
+Buvr uv_r GND V=V(vinf,GND)<{VIN_OFF}
+Xuv uv_s uv_r uvok GND DC_LATCH
+Bovs ov_s GND V=V(vinf,GND)>{VIN_OVP}
+Bovr ov_r GND V=V(vinf,GND)<{VIN_OVP-VOVP_HYS}
+Xov ov_s ov_r ovp GND DC_LATCH
+*  hiccup: in current limit with the output collapsed (fault) the timer h
+*  (normalized 1 F) ramps up at 1/T_HIC_DET; at h = 1 the off latch sets and
+*  h ramps down at 1/T_HIC_OFF; at h = 0 the latch resets and the converter
+*  restarts with soft-start. Without a fault h decays to 0. Each threshold is
+*  crossed by a state moving monotonically through it: a deglitch filter
+*  driven back by its own result raced at the threshold and stalled LTspice.
+*  Fault detection is disabled in the DC operating point (time = 0).
+Bhs hic_c GND V=time>0 & V(run,GND)>0.5 & V(icr,GND)>V(imax,GND)-0.01*{ILIMV}
++  & V(VOUT,GND)<{V_HIC*VSET}
+Ch  h GND 1 Rpar=1T
+Bh  GND h I=if(V(hic,GND)>0.5, -1/{T_HIC_OFF}, if(V(hic_c,GND)>0.5, 1/{T_HIC_DET},
++  -V(h,GND)/{T_HIC_DET}))
+Bhss hic_s GND V=V(h,GND)>1
+Bhsr hic_r GND V=V(h,GND)<0
+Xhl hic_s hic_r hic GND DC_LATCH
+*  DCRUN=0: the converter is off in the DC operating point and soft-starts at
+*  t = 0 (as at key-on). DCRUN=1: already running in the operating point
+*  (needed for .ac, where time = 0). See README.md, section 15.8.
+Brun run GND V=V(en_l,GND)>0.5 & V(uvok,GND)>0.5 & V(ovp,GND)<0.5 & V(hic,GND)<0.5
++  & (time>0 | {DCRUN}>0.5)
+
+* ---------------- soft-start reference ------------------------------------------
+*  timer tss (1 V = 1 s) on a normalized 1 F capacitor: rises at 1 V/s while
+*  running and settles at 2*T_SS; discharges in ~0.1 ms when stopped. With
+*  DCRUN=1 the DC operating point starts with the ramp finished.
+*  (No lower clamp on the rate: an equilibrium exactly on a kink of limit()
+*  stalls the time-step control.)
+Ctss tss GND 1 Rpar=1T
+Btss GND tss I=if(time<=0, (V(run,GND)*2*{T_SS} - V(tss,GND))*1k,
++  if(V(run,GND)>0.5, limit((2*{T_SS} - V(tss,GND))/(0.1*{T_SS}), -1e3, 1),
++  -V(tss,GND)/(0.02*{T_SS})))
+Bref vref GND V=V(run,GND)*{VSET}*limit(V(tss,GND)/{T_SS}, 0, 1)
+
+* ---------------- voltage loop (PI with back-calculation anti-windup) -----------
+*  current limits: 0 .. ILIM (BIDIR: -ILIM .. ILIM), reduced in dropout
+Bimx imax GND V=V(run,GND)*limit(({DMAX}*V(VIN,GND) - V(VOUT,GND))/{RDROP}, 0, {ILIMV})
+Bimn imin GND V=-{BIDIR}*V(run,GND)*{ILIMV}
+Bicr icr GND V={KP}*(V(vref,GND) - V(VOUT,GND)) + V(xi,GND)
+*  limit() rather than min()/max() or a smooth clamp: those variants made
+*  the DC operating point fail or the transient stall (LTspice 26)
+Bicl icl GND V=limit(V(icr,GND), V(imin,GND), V(imax,GND))
+*  integrator state xi [A] on a normalized 1 F capacitor. Stopped: xi decays
+*  to 0 (otherwise the back-calculation would hold it as the balance of two
+*  ~1e6 A/s terms, very sensitive to the operating point)
+Cxi xi GND 1 Rpar=1T
+Bxi GND xi I=if(V(run,GND)>0.5, {KI}*(V(vref,GND) - V(VOUT,GND))
++  + {KAW}*(V(icl,GND) - V(icr,GND)), -{KAW}*V(xi,GND))
+
+* ---------------- current loop and power stage (averaged) -----------------------
+Cil il GND 1 Rpar=1T
+Bil GND il I=(V(icl,GND) - V(il,GND))/{TAUI}
+Bo  GND VOUT I=V(il,GND)
+Cout VOUT GND {COUT} Rser={ESR_OUT}
+*  internal pre-load: feedback divider, control supply, bleeder (140 mA at
+*  14 V). It also keeps the current command away from the 0 A clamp at no
+*  load, where the time-step control otherwise stalls.
+Rfb VOUT GND 100
+
+* ---------------- power good ------------------------------------------------------
+Bpg pg_o GND V=3.3*(V(run,GND)>0.5 & V(tss,GND)>{T_SS} & V(VOUT,GND)>{0.9*VSET})
+Rpg pg_o PG 100
+.ends DCDC48_12
+
+
+* ----------------------------------------------------------------------------
+*  Helper primitives (logic levels 0/1 V referred to local GND)
+* ----------------------------------------------------------------------------
+*  Set-dominant SR latch, reset in the DC operating point unless S is active
+.subckt DC_LATCH S R Q GND
+Bl GND Q I=if(V(S,GND)>0.5, 1-V(Q,GND), if(V(R,GND)>0.5 | time<=0, -V(Q,GND),
++  if(V(Q,GND)>0.5, 1-V(Q,GND), -V(Q,GND))))
+Cl Q GND 100n
+Rl Q GND 1T
+.ends DC_LATCH
+
+*  Deglitch filter: first-order filter + comparator, tau = T/ln2 (a step on IN
+*  sets OUT after T)
+.subckt DC_DGL IN OUT GND T=1u
+Bi i GND V=V(IN,GND)>0.5
+Rt i t 1
+Ct t GND {T/ln(2)} Rpar=1T
+Bo OUT GND V=V(t,GND)>0.5
+.ends DC_DGL

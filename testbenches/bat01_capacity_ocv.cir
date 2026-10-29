@@ -1,0 +1,95 @@
+* bat01_capacity_ocv.cir
+* ---------------------------------------------------------------------------
+* Capacity, open-circuit voltage and state of charge over a full cycle, for a
+* 12 V class (70 Ah) and a 48 V class (10 Ah) battery with default values.
+*   0 .. 8700 s  pulsed OCV test (GITT-like): nine 1C discharge pulses of
+*                360 s (10 % of the capacity each), each followed by a 600 s
+*                rest. The voltage at the end of each rest is the OCV.
+*   8700 s       1C discharge until the terminal voltage reaches the cut-off
+*                (12 V: 10.5 V, 48 V: 36 V) -> delivered capacity
+*   9900 s       CC-CV charge: 1C up to 14.4 V / 53 V, then constant voltage
+* Expected: rest voltages = OCV table, SOC steps of exactly 10 %, delivered
+* capacity ~ rated, charge current tapers off at the end-of-charge knee.
+* ---------------------------------------------------------------------------
+.include ../models/BATTERY_beh.lib
+
+* ---- 12 V class
+X12 p12 0 soc12 BATTERY VNOM=12 SOC0=1
+C12 p12 0 1m Rser=0.1
+* ---- 48 V class
+X48 p48 0 soc48 BATTERY VNOM=48 SOC0=1
+C48 p48 0 1m Rser=0.1
+
+* ---- test sequencer
+* pulse: 1 during the nine discharge pulses
+Vpul pul 0 PULSE(0 1 60 1m 1m 360 960 9)
+* full discharge window (until cut-off), charge window
+Vful ful 0 PWL(0 0 8700 0 8700.001 1)
+Vchg chg 0 PWL(0 0 9900 0 9900.001 1)
+* cut-off latches (stop the full discharge when V < cut-off). The tester
+* measures through a 10 ms filter, so the us dip at the current step
+* (L_INT against the fixture capacitor ESR) does not end the test.
+Rf12 p12 f12 1k
+Cf12 f12 0 10u
+Rf48 p48 f48 1k
+Cf48 f48 0 10u
+Bco12 co12_s 0 V=V(ful)>0.5 & V(f12)<10.5
+Bco48 co48_s 0 V=V(ful)>0.5 & V(f48)<36
+Xco12 co12_s 0 co12 0 BAT_LATCH
+Xco48 co48_s 0 co48 0 BAT_LATCH
+* discharge: 1C = 70 A / 10 A
+Bd12 p12 0 I=70*(V(pul)>0.5 | (V(ful)>0.5 & V(co12)<0.5 & V(chg)<0.5))
+Bd48 p48 0 I=10*(V(pul)>0.5 | (V(ful)>0.5 & V(co48)<0.5 & V(chg)<0.5))
+* CC-CV charger
+Bc12 0 p12 I=V(chg)*limit((14.4-V(p12))/10m, 0, 70)
+Bc48 0 p48 I=V(chg)*limit((53-V(p48))/10m, 0, 10)
+
+.save V(p12) V(p48) V(soc12) V(soc48) V(x12:s) V(x48:s) V(x12:ocv) V(x48:ocv)
+.save I(x12:Vi) I(x48:Vi) V(co12) V(co48)
+* rest voltages / SOC after each 10 % step
+.meas tran vr12_1 find V(p12) at 1019
+.meas tran vr48_1 find V(p48) at 1019
+.meas tran sr12_1 find V(x12:s) at 1019
+.meas tran vr12_2 find V(p12) at 1979
+.meas tran vr48_2 find V(p48) at 1979
+.meas tran sr12_2 find V(x12:s) at 1979
+.meas tran vr12_3 find V(p12) at 2939
+.meas tran vr48_3 find V(p48) at 2939
+.meas tran sr12_3 find V(x12:s) at 2939
+.meas tran vr12_4 find V(p12) at 3899
+.meas tran vr48_4 find V(p48) at 3899
+.meas tran sr12_4 find V(x12:s) at 3899
+.meas tran vr12_5 find V(p12) at 4859
+.meas tran vr48_5 find V(p48) at 4859
+.meas tran sr12_5 find V(x12:s) at 4859
+.meas tran vr12_6 find V(p12) at 5819
+.meas tran vr48_6 find V(p48) at 5819
+.meas tran sr12_6 find V(x12:s) at 5819
+.meas tran vr12_7 find V(p12) at 6779
+.meas tran vr48_7 find V(p48) at 6779
+.meas tran sr12_7 find V(x12:s) at 6779
+.meas tran vr12_8 find V(p12) at 7739
+.meas tran vr48_8 find V(p48) at 7739
+.meas tran sr12_8 find V(x12:s) at 7739
+.meas tran vr12_9 find V(p12) at 8699
+.meas tran vr48_9 find V(p48) at 8699
+.meas tran sr12_9 find V(x12:s) at 8699
+* full discharge
+.meas tran tco12 find time when V(co12)=0.5 rise=1
+.meas tran tco48 find time when V(co48)=0.5 rise=1
+.meas tran ah12 integ I(x12:Vi) from 0 to 9900
+.meas tran ah48 integ I(x48:Vi) from 0 to 9900
+.meas tran s12_co find V(x12:s) at 9899
+.meas tran s48_co find V(x48:s) at 9899
+* charge
+.meas tran soc12_end find V(soc12) at 15000
+.meas tran soc48_end find V(soc48) at 15000
+.meas tran s12_end find V(x12:s) at 15000
+.meas tran s48_end find V(x48:s) at 15000
+.meas tran ich12_end find -I(x12:Vi) at 15000
+.meas tran ich48_end find -I(x48:Vi) at 15000
+.meas tran tcv12 find time when V(p12)=14.39 rise=1 td=9900
+.meas tran tcv48 find time when V(p48)=52.99 rise=1 td=9900
+.tran 0 15000 0 2
+.options plotwinsize=0
+.end

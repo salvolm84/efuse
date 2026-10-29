@@ -1,0 +1,44 @@
+* dc04_short_overload.cir
+* ---------------------------------------------------------------------------
+* Output short and overload of the 48/12 V DC/DC (defaults, VIN = 48 V).
+* A: 2 Ohm load; hard short (5 mOhm) at the output from 10 ms to 150 ms.
+*    Expected: current limit 55 A, VOUT < 50 % -> hiccup after T_HIC_DET =
+*    1 ms, off for T_HIC_OFF = 50 ms, soft-start retry into the short (trips
+*    again ~1 ms later), normal restart after the short is removed.
+* B: deeply discharged 12 V battery (SOC 10 %) on the output: the converter
+*    stays in current limit (55 A) without hiccup, because VOUT > 50 %.
+* ---------------------------------------------------------------------------
+.include ../models/DCDC48_12_beh.lib
+.include ../models/BATTERY_beh.lib
+Vin vin 0 48
+Ven en 0 3.3
+* ---- A
+XA vin oa 0 en pga DCDC48_12
+RA oa 0 2
+* short: behavioral conductance (5 mOhm when on), 1 us transitions
+Vsc sc 0 PWL(0 0 10m 0 10.001m 1 150m 1 150.001m 0)
+BSA oa 0 I=V(oa)*(1u + V(sc)/5m)
+* ---- B
+XB vin ob 0 en pgb DCDC48_12
+Lbb ob bb 0.3u Rser=1m
+XbB bb 0 socb BATTERY VNOM=12 SOC0=0.1
+.save V(oa) V(xa:il) V(xa:hic) V(xa:run) V(pga) I(BSA) V(ob) V(xb:il) V(xb:hic) I(Lbb) V(xbb:s) I(Vin)
+.meas tran ia_sc avg V(xa:il) from 10.2m to 10.8m
+.meas tran va_sc avg V(oa) from 10.2m to 10.8m
+.meas tran t_off1 find time when V(xa:run)=0.5 fall=1
+.meas tran dt_off1 param t_off1-10m
+.meas tran t_on2 find time when V(xa:run)=0.5 rise=1 td=11m
+.meas tran t_off2 find time when V(xa:run)=0.5 fall=2
+.meas tran t_on3 find time when V(xa:run)=0.5 rise=2 td=11m
+.meas tran dt_offtime param t_on2-t_off1
+.meas tran dt_period param t_on3-t_on2
+.meas tran ia_avg avg V(xa:il) from t_on2 to t_on3
+.meas tran va_end find V(oa) at 249m
+.meas tran tpga_rec find time when V(pga)=1.65 rise=1 td=150m
+.meas tran ib_avg avg V(xb:il) from 20m to 250m
+.meas tran vb_avg avg V(ob) from 20m to 250m
+.meas tran hicb_max max V(xb:hic)
+.meas tran ibat_b avg -I(Lbb) from 20m to 250m
+.tran 0 250m 0 5u
+.options plotwinsize=0
+.end

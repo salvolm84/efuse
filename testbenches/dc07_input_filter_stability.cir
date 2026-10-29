@@ -1,0 +1,53 @@
+* dc07_input_filter_stability.cir
+* ---------------------------------------------------------------------------
+* Input-filter / harness stability of the 48/12 V DC/DC (negative input
+* resistance of a regulated converter, Middlebrook). 25 A load (0.56 Ohm),
+* 48 V source behind a feed of R_s = 10 mOhm and L_s; disturbance: +10 A load
+* step at 10 ms.
+* A: L_s = 2 uH, CIN = 470 uF electrolytic (ESR 15 mOhm)          -> stable
+* B: L_s = 10 uH (long feed), CIN = 22 uF ceramic (ESR 2 mOhm)     -> unstable:
+*    oscillation at ~1/(2 pi sqrt(L C)) = 10.7 kHz grows until the converter
+*    drops out on its UVLO
+* C: as B, plus an R-C damper (220 uF + 0.68 Ohm ~ sqrt(L_s/C))     -> stable
+* Expected: eigenvalues of the linearized filter + constant-power load
+* (computed in tools/validate.py).
+* ---------------------------------------------------------------------------
+.include ../models/DCDC48_12_beh.lib
+Ven en 0 3.3
+.model SLD SW(Ron=1m Roff=1Meg Vt=0.5 Vh=-0.2)
+Vst st 0 PWL(0 0 10m 0 10.001m 1)
+* ---- A
+VsA sa 0 48
+LsA sa ia 2u Rser=10m
+XA ia oa 0 en pga DCDC48_12
+RA oa 0 0.56
+SA oa da st 0 SLD
+RdA da 0 1.4
+* ---- B
+VsB sb 0 48
+LsB sb ib 10u Rser=10m
+XB ib ob 0 en pgb DCDC48_12 CIN=22u ESR_IN=2m
+RB ob 0 0.56
+SB ob db st 0 SLD
+RdB db 0 1.4
+* ---- C
+VsC sc 0 48
+LsC sc ic 10u Rser=10m
+XC ic oc 0 en pgc DCDC48_12 CIN=22u ESR_IN=2m
+Cdmp ic dmp 220u
+Rdmp dmp 0 0.68
+RC oc 0 0.56
+SC oc dc st 0 SLD
+RdC dc 0 1.4
+.save V(ia) V(ib) V(ic) V(oa) V(ob) V(oc) I(LsA) I(LsB) I(LsC) V(xb:run) V(xb:uvok)
+.meas tran vpp_a pp V(ia) from 25m to 30m
+.meas tran vpp_b pp V(ib) from 8m to 9.9m
+.meas tran vpp_c pp V(ic) from 25m to 30m
+.meas tran vpp_b2 pp V(ib) from 10m to 30m
+.meas tran vmin_b min V(ib) from 10m to 30m
+.meas tran uvb_min min V(xb:uvok) from 10m to 30m
+.meas tran vout_b min V(ob) from 10m to 30m
+.meas tran vout_c min V(oc) from 10m to 30m
+.tran 0 30m 0 0.5u
+.options plotwinsize=0
+.end

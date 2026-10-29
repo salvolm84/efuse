@@ -1,0 +1,39 @@
+* bat03_impedance_ac.cir
+* ---------------------------------------------------------------------------
+* Small-signal output impedance Z(f) = V(p)/I_ac of the 12 V and 48 V class
+* batteries (default values, 50 % SOC, 25 degC), 100 uHz .. 10 MHz.
+* Expected (analytic, see README.md, section 14.6):
+*   Z = R0' + R1'/(1+jw TAU1 fs) + R2'/(1+jw TAU2 fs) + dOCV/dSOC/(jw Q)
+*       + jwL_INT || 100 Ohm
+*   - below ~1 mHz the battery is a huge capacitor Q/(dOCV/dSOC)
+*   - ~0.1 Hz .. 1 kHz: resistive plateaus R0'+R1' then R0'
+*   - above ~1 kHz the internal inductance takes over
+* ---------------------------------------------------------------------------
+.include ../models/BATTERY_beh.lib
+X12 p12 0 soc12 BATTERY VNOM=12 SOC0=0.5
+I12 0 p12 0 AC 1
+X48 p48 0 soc48 BATTERY VNOM=48 SOC0=0.5
+I48 0 p48 0 AC 1
+.save V(p12) V(p48)
+.meas AC z12_1m   find mag(V(p12)) at 1m
+.meas AC z12_10m  find mag(V(p12)) at 10m
+.meas AC z12_100m find mag(V(p12)) at 100m
+.meas AC z12_1    find mag(V(p12)) at 1
+.meas AC z12_10   find mag(V(p12)) at 10
+.meas AC z12_100  find mag(V(p12)) at 100
+.meas AC z12_1k   find mag(V(p12)) at 1k
+.meas AC z12_10k  find mag(V(p12)) at 10k
+.meas AC z12_100k find mag(V(p12)) at 100k
+.meas AC z12_1meg find mag(V(p12)) at 1meg
+.meas AC z48_1m   find mag(V(p48)) at 1m
+.meas AC z48_10m  find mag(V(p48)) at 10m
+.meas AC z48_100m find mag(V(p48)) at 100m
+.meas AC z48_1    find mag(V(p48)) at 1
+.meas AC z48_10   find mag(V(p48)) at 10
+.meas AC z48_100  find mag(V(p48)) at 100
+.meas AC z48_1k   find mag(V(p48)) at 1k
+.meas AC z48_10k  find mag(V(p48)) at 10k
+.meas AC z48_100k find mag(V(p48)) at 100k
+.meas AC z48_1meg find mag(V(p48)) at 1meg
+.ac dec 50 100u 10meg
+.end

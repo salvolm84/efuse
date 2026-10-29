@@ -1,0 +1,48 @@
+* dc02_load_transient.cir
+* ---------------------------------------------------------------------------
+* Load-step response of the 48/12 V DC/DC (defaults, VIN = 48 V).
+* A: output capacitance only (COUT 2.2 mF), 5 A base load (2.8 Ohm),
+*    +25 A step at 8 ms (25 us rise), released at 10 ms (start-up 0..5 ms)
+* B: as A, +45 A step (close to the 55 A current limit)
+* C: with a 12 V battery (70 Ah, SOC 80 %) on the output through 1 mOhm +
+*    0.3 uH: the battery's OCV (12.6 V) is below VSET, so the converter runs
+*    in current limit and charges it; the +25 A step is taken by the battery
+* Expected: A/B: dip and overshoot of the linear loop (FC 3 kHz, PI zero at
+* FC/4), ~ dI/(2 pi FC COUT); C: il stays at I_LIM, the 12 V net moves only
+* by dI x R_battery.
+* ---------------------------------------------------------------------------
+.include ../models/DCDC48_12_beh.lib
+.include ../models/BATTERY_beh.lib
+Vin vin 0 48
+Ven en 0 3.3
+* ---- A
+XA vin oa 0 en pga DCDC48_12
+RA oa 0 2.8
+IA oa 0 PWL(0 0 8m 0 8.025m 25 10m 25 10.025m 0)
+* ---- B
+XB vin ob 0 en pgb DCDC48_12
+RB ob 0 2.8
+IB ob 0 PWL(0 0 8m 0 8.045m 45 10m 45 10.045m 0)
+* ---- C
+XC vin oc 0 en pgc DCDC48_12
+RC oc 0 2.8
+IC oc 0 PWL(0 0 8m 0 8.025m 25 10m 25 10.025m 0)
+Lbc oc bc 0.3u Rser=1m
+XbC bc 0 socc BATTERY VNOM=12 SOC0=0.8
+.save V(oa) V(ob) V(oc) V(bc) V(xa:il) V(xb:il) V(xc:il) I(Lbc) V(pga) V(xb:icr)
+* (start-up 0..6 ms; events at 8 ms / 10 ms)
+.meas tran va0 find V(oa) at 7.9m
+.meas tran va_min min V(oa) from 8m to 9m
+.meas tran va_max max V(oa) from 10m to 11m
+.meas tran ta_set find time when V(oa)=13.986 rise=1 td=8.03m
+.meas tran vb_min min V(ob) from 8m to 9m
+.meas tran ilb_max max V(xb:il) from 8m to 9m
+.meas tran vc0 find V(oc) at 7.9m
+.meas tran vc1 find V(oc) at 9.9m
+.meas tran ilc0 find V(xc:il) at 7.9m
+.meas tran ilc1 find V(xc:il) at 9.9m
+.meas tran ibc0 find -I(Lbc) at 7.9m
+.meas tran ibc1 find -I(Lbc) at 9.9m
+.tran 0 12m 0 1u
+.options plotwinsize=0
+.end

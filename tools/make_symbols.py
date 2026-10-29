@@ -1,4 +1,4 @@
-"""Generate the LTspice symbols (.asy) for the behavioral eFuse models.
+"""Generate the LTspice symbols (.asy) for the behavioral models (eFuse, battery, DC/DC).
 Writes identical copies to symbols/ (canonical) and schematics/ (so the demo
 schematics find them next to the .asc files)."""
 import os
@@ -61,9 +61,34 @@ ntc = asy("NTC10K_ST", "10k NTC thermistor (fit to VNF1048F NTC thresholds); T =
           (-48, -32, 48, 32), ntc_pins, "", ["TEXT 0 0 Center 1 NTC 10k", "LINE Normal -40 24 40 -24"])
 ntc = ntc.replace("SYMATTR SpiceLine \n", "")
 
+bat_pins = [("P", 0, -80, "TOP"), ("N", 0, 80, "BOTTOM"), ("SOC", 80, 0, "RIGHT")]
+bat = asy("BATTERY",
+          "Behavioral automotive battery (12/24/48 V class): OCV(SOC), R0 + 2 RC + L, charge counting. Needs .include BATTERY_beh.lib",
+          (-64, -64, 64, 64), bat_pins, "VNOM=12 SOC0=0.8 TBAT=25",
+          ["LINE Normal -32 -24 32 -24", "LINE Normal -16 -8 16 -8", "LINE Normal -32 8 32 8",
+           "LINE Normal -16 24 16 24", "TEXT 40 -40 Left 1 +", "TEXT 0 44 Center 1 BATTERY"])
+
+bms_pins = [("P", 0, -96, "TOP"), ("N", 0, 96, "BOTTOM"), ("SOC", 112, -32, "RIGHT"),
+            ("EN", -112, 0, "LEFT"), ("FLT", 112, 32, "RIGHT")]
+bms = asy("BATTERY_BMS",
+          "Battery pack with BMS: BATTERY + disconnect switch, OV/UV/OC/SC protection, pre-charge. Needs .include BATTERY_beh.lib",
+          (-96, -80, 96, 80), bms_pins, "VNOM=48 SOC0=0.8 TBAT=25 T_PRE=0",
+          ["LINE Normal -32 -40 32 -40", "LINE Normal -16 -24 16 -24", "LINE Normal -32 -8 32 -8",
+           "LINE Normal -16 8 16 8", "TEXT 0 36 Center 2 Battery + BMS"])
+
+dc_pins = [("VIN", -128, -32, "LEFT"), ("VOUT", 128, -32, "RIGHT"), ("GND", 0, 96, "BOTTOM"),
+           ("EN", -128, 32, "LEFT"), ("PG", 128, 32, "RIGHT")]
+dcdc = asy("DCDC48_12",
+           "700 W 48/12 V buck converter, averaged behavioral model (regulation, current limit, hiccup, UVLO/OVP, losses). Needs .include DCDC48_12_beh.lib",
+           (-112, -80, 112, 80), dc_pins, "VSET=14 PRATED=700 DCRUN=0",
+           ["TEXT 0 -24 Center 2 48V -> 12V", "TEXT 0 8 Center 1 DC/DC 700 W", "LINE Normal -64 40 64 -40"])
+
 for d in ("symbols", "schematics"):
     os.makedirs(os.path.join(ROOT, d), exist_ok=True)
     open(os.path.join(ROOT, d, "VNF1048F.asy"), "w").write(vnf)
     open(os.path.join(ROOT, d, "EFUSE48_MOD.asy"), "w").write(mod)
     open(os.path.join(ROOT, d, "NTC10K_ST.asy"), "w").write(ntc)
+    open(os.path.join(ROOT, d, "BATTERY.asy"), "w").write(bat)
+    open(os.path.join(ROOT, d, "BATTERY_BMS.asy"), "w").write(bms)
+    open(os.path.join(ROOT, d, "DCDC48_12.asy"), "w").write(dcdc)
 print("symbols written")

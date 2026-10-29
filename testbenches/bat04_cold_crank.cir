@@ -1,0 +1,67 @@
+* bat04_cold_crank.cir
+* ---------------------------------------------------------------------------
+* 12 V class battery (70 Ah, defaults) at engine start.
+* A: cold cranking amps (CCA) test, SAE J537 style: 700 A for 30 s at
+*    -18 degC from full charge; the battery passes if V(30 s) >= 7.2 V.
+* B..D: engine crank at +25 / -18 / -30 degC, SOC 80 %. Same starter in all
+*    three cases (the stimulus), so only the battery changes:
+*    cables 1.5 mOhm + 1 uH, armature 6 mOhm, back-EMF E(t) that builds up
+*    with the engine speed (60 ms) and dips at every compression (10 Hz).
+*    t = 0.1 s solenoid closes (locked rotor -> inrush), t = 1.1 s starter off.
+* Expected: inrush and voltage dip follow OCV and R0'(T) (divider with the
+* starter circuit); the cold battery dips much deeper.
+* ---------------------------------------------------------------------------
+.include ../models/BATTERY_beh.lib
+
+* ---- A: CCA test
+XA pa 0 soca BATTERY VNOM=12 SOC0=1 TBAT=-18
+CA pa 0 1m Rser=0.1
+IA pa 0 PWL(0 0 1 0 1.001 700 31 700 31.001 0)
+
+* ---- B..D: crank. Starter circuit: cable (1 uH, 1.5 mOhm) - solenoid
+*      switch (0.1 mOhm) - armature 6 mOhm - back-EMF
+Bemf emf 0 V=if(time>0.1 & time<1.1, 9.5*(1-exp(-(time-0.1)/60m))*(1+0.15*sin(2*pi*10*(time-0.1))), 0)
+Vst st 0 PWL(0 0 0.1 0 0.1001 1 1.1 1 1.1001 0)
+.model SST SW(Ron=0.1m Roff=1k Vt=0.5 Vh=-0.2)
+XB pb 0 socb BATTERY VNOM=12 SOC0=0.8 TBAT=25
+CB pb 0 1m Rser=0.1
+LcB pb mb 1u Rser=1.5m
+SB mb ab st 0 SST
+RaB ab eb 6m
+BmB eb 0 V=V(emf)
+XC pc 0 socc BATTERY VNOM=12 SOC0=0.8 TBAT=-18
+CC pc 0 1m Rser=0.1
+LcC pc mc 1u Rser=1.5m
+SC mc ac st 0 SST
+RaC ac ec 6m
+BmC ec 0 V=V(emf)
+XD pd 0 socd BATTERY VNOM=12 SOC0=0.8 TBAT=-30
+CD pd 0 1m Rser=0.1
+LcD pd md 1u Rser=1.5m
+SD md ad st 0 SST
+RaD ad ed 6m
+BmD ed 0 V=V(emf)
+
+.save V(pa) V(pb) V(pc) V(pd) I(LcB) I(LcC) I(LcD) V(emf) V(soca) V(socb)
+.save I(xa:Vi) V(xb:ocv) V(xc:ocv) V(xd:ocv)
+.meas tran vcca find V(pa) at 31
+.meas tran ocv_b find V(xb:ocv) at 0.099
+.meas tran ocv_c find V(xc:ocv) at 0.099
+.meas tran ocv_d find V(xd:ocv) at 0.099
+.meas tran ipk_b max I(LcB) from 0.1 to 0.12
+.meas tran ipk_c max I(LcC) from 0.1 to 0.12
+.meas tran ipk_d max I(LcD) from 0.1 to 0.12
+.meas tran vmin_b min V(pb) from 0.1 to 0.12
+.meas tran vmin_c min V(pc) from 0.1 to 0.12
+.meas tran vmin_d min V(pd) from 0.1 to 0.12
+.meas tran vcr_b avg V(pb) from 0.5 to 1.0
+.meas tran vcr_c avg V(pc) from 0.5 to 1.0
+.meas tran vcr_d avg V(pd) from 0.5 to 1.0
+.meas tran icr_b avg I(LcB) from 0.5 to 1.0
+.meas tran icr_c avg I(LcC) from 0.5 to 1.0
+.meas tran icr_d avg I(LcD) from 0.5 to 1.0
+.meas tran vrec_b find V(pb) at 1.6
+.meas tran vrec_d find V(pd) at 1.6
+.tran 0 32 0 1m
+.options plotwinsize=0
+.end

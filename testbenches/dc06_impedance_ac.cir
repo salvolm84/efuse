@@ -1,0 +1,41 @@
+* dc06_impedance_ac.cir
+* ---------------------------------------------------------------------------
+* Small-signal impedances of the 48/12 V DC/DC (defaults, DCRUN=1 so the
+* converter is running in the operating point), 25 A resistive load
+* (0.56 Ohm), VIN = 48 V.
+* Zout: 1 A AC current injected at the output, input from an ideal source.
+* Zin : 1 A AC current injected at the input; the 48 V source feeds through a
+*       1 kH choke (an AC open circuit above ~1 Hz).
+* Expected (linear model of the loop, README.md, section 15.5):
+*   Zout = 1/(Y_Cout + 1/R_load' + (KP + KI/s)/(1 + s TAUI))  -> 0 at DC,
+*          peak near the crossover FC
+*   Zin  = 1/(Y_Cin + Y_cpl),  Y_cpl = -P_in/VIN^2 + KSW*il/VIN  (negative
+*          resistance, ~ -6.4 Ohm at 25 A)
+* ---------------------------------------------------------------------------
+.include ../models/DCDC48_12_beh.lib
+Ven en 0 3.3
+* ---- Zout
+Vin1 vin1 0 48
+X1 vin1 out1 0 en pg1 DCDC48_12 DCRUN=1
+Rl1 out1 0 0.56
+Iz1 0 out1 0 AC 1
+* ---- Zin
+Vin2 vs2 0 48
+Lch vs2 vin2 1k
+X2 vin2 out2 0 en pg2 DCDC48_12 DCRUN=1
+Rl2 out2 0 0.56
+Iz2 0 vin2 0 AC 1
+.save V(out1) V(vin2)
+.meas AC zo_10   find mag(V(out1)) at 10
+.meas AC zo_100  find mag(V(out1)) at 100
+.meas AC zo_1k   find mag(V(out1)) at 1k
+.meas AC zo_3k   find mag(V(out1)) at 3k
+.meas AC zo_10k  find mag(V(out1)) at 10k
+.meas AC zo_100k find mag(V(out1)) at 100k
+.meas AC zi_10   find mag(V(vin2)) at 10
+.meas AC zi_100  find mag(V(vin2)) at 100
+.meas AC zi_1k   find mag(V(vin2)) at 1k
+.meas AC zi_10k  find mag(V(vin2)) at 10k
+.meas AC zr_10   find re(V(vin2)) at 10
+.ac dec 50 1 1meg
+.end

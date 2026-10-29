@@ -1,0 +1,40 @@
+* bat02_pulse_temperature.cir
+* ---------------------------------------------------------------------------
+* Pulse resistance test (HPPC-like) at 50 % SOC, swept over temperature.
+*   12 V class (70 Ah) and 48 V class (10 Ah) battery, default values
+*   t = 1 s   100 A discharge pulse for 10 s (10 us edges), then 60 s rest
+*   .step TB = -30, -18, 0, 25, 45 degC
+* Expected:
+*   R0 (step 0.5 ms after the edge)  = R0 * FT(T) * (1 + KR_SOC*0.5^2)
+*                                      (+ 2.5 % of R1, RC1 has started)
+*   R10s (after 10 s)                = R0' + R1' + R2'*(1-exp(-10/TAU2/fs))
+*                                      + OCV drop of the 0.4 % SOC removed
+*   FT(T) = exp(1200*(1/(T+273.15) - 1/298.15))
+* ---------------------------------------------------------------------------
+.include ../models/BATTERY_beh.lib
+.param TB=25
+.step param TB list -30 -18 0 25 45
+
+X12 p12 0 soc12 BATTERY VNOM=12 SOC0=0.5 TBAT={TB}
+C12 p12 0 100u Rser=0.1
+X48 p48 0 soc48 BATTERY VNOM=48 SOC0=0.5 TBAT={TB}
+C48 p48 0 100u Rser=0.1
+Ip12 p12 0 PWL(0 0 1 0 1.00001 100 11 100 11.00001 0)
+Ip48 p48 0 PWL(0 0 1 0 1.00001 100 11 100 11.00001 0)
+
+.save V(p12) V(p48) V(soc12) V(soc48) I(x12:Vi) I(x48:Vi)
+.meas tran v12_0  find V(p12) at 0.999
+.meas tran v12_s  find V(p12) at 1.0005
+.meas tran v12_10 find V(p12) at 10.999
+.meas tran v12_r  find V(p12) at 70
+.meas tran v48_0  find V(p48) at 0.999
+.meas tran v48_s  find V(p48) at 1.0005
+.meas tran v48_10 find V(p48) at 10.999
+.meas tran v48_r  find V(p48) at 70
+.meas tran r0_12  param (v12_0-v12_s)/100
+.meas tran r10_12 param (v12_0-v12_10)/100
+.meas tran r0_48  param (v48_0-v48_s)/100
+.meas tran r10_48 param (v48_0-v48_10)/100
+.tran 0 71 0 20m
+.options plotwinsize=0
+.end

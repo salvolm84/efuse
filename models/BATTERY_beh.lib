@@ -1,0 +1,295 @@
+* ============================================================================
+*  BATTERY_beh.lib  --  Behavioral LTspice model of an automotive battery
+*                       (12 V / 24 V / 48 V class) for power-distribution
+*                       system simulation
+*
+*  Status    : generic, chemistry-agnostic equivalent-circuit model. Default
+*              values are engineering estimates for a typical battery of each
+*              voltage class, flagged "[EST]" (see README.md, section 14). Replace
+*              them with the data of the battery you actually use.
+*  Simulator : LTspice (validated with LTspice 26.0.2; uses B-sources with
+*              if(), table(), limit(), sgn(); no idt(), see "state of charge")
+*
+*  Contents
+*    BATTERY       battery: OCV(SOC) + Thevenin impedance + charge counting  3 pins
+*    BATTERY_BMS   battery pack with BMS: BATTERY + disconnect switch,
+*                  protections (OV, UV, overcurrent, short circuit),
+*                  pre-charge, enable input and fault output                 5 pins
+*    BAT_LATCH / BAT_DGL  helper primitives (SR latch, deglitch filter)
+*
+*  What is modeled (and why it matters at system level)
+*    * open-circuit voltage as a function of state of charge (bus voltage
+*      window, energy available)
+*    * state of charge by charge counting (long drive / key-off cycles)
+*    * end-of-discharge collapse and end-of-charge voltage rise (the battery
+*      cannot deliver or absorb charge without limit)
+*    * output impedance: R0 (ohmic), two RC pairs (polarization, ms and s
+*      time scales) and the internal/terminal inductance L_INT (load steps,
+*      cranking dips, short-circuit current and di/dt)
+*    * temperature and SOC dependence of the resistances (cold crank)
+*    * BATTERY_BMS: pack disconnect switch with protections and pre-charge
+*  Not modeled on purpose: chemistry-specific effects (OCV hysteresis, gassing,
+*  Peukert, plating, aging), cell balancing, thermal dynamics of the pack.
+*
+*  Node voltages used as signals (probe with V(<inst>:<node>)), all referred
+*  to the battery negative N:
+*      s     raw state of charge (1 V = 100 %), may go slightly below 0 /
+*            above 1 in the end-of-discharge / end-of-charge regions
+*      ocv   open-circuit voltage [V]
+*      cell  voltage at the cells, after R0 and the RC pairs [V]
+*  BATTERY_BMS adds (ref. to N): fl (fault latch), on, m (main switch
+*  command), pre (pre-charge), x (switch state 0..1), vm (BMS voltage),
+*  ov/uv/oc/sc (deglitched trips), Xc:... (the cells)
+*  The SOC pin is s clamped to 0..1 (what a battery sensor would report).
+* ============================================================================
+
+
+* ----------------------------------------------------------------------------
+*  BATTERY  -- battery equivalent circuit
+*
+*  Pins: P (positive terminal)  N (negative terminal)  SOC (0..1 V, ref. to N)
+*
+*  P --L_INT-- [I sense] --R0-- (R1||C1) -- (R2||C2) -- OCV(s) -- N
+*  with C1 = TAU1/R1, C2 = TAU2/R2
+*
+*  Voltage class (VNOM) selects the defaults of every parameter left at 0:
+*    VNOM < 36 V : "12 V class" (scaled by VNOM/12, so VNOM=24 is two 12 V
+*                  batteries in series)
+*    VNOM >= 36 V: "48 V class" (scaled by VNOM/48)
+*
+*  Parameter    12 V class   48 V class   meaning
+*    CAP_AH       70           10         capacity [Ah]
+*    VOC_0        11.70        40.0       OCV at SOC = 0     [V]
+*    VOC_100      12.90        52.0       OCV at SOC = 100 % [V]
+*    VOC_EOC      15.00        55.0       OCV at SOC = 100 % + DSOC_END [V]
+*    R0           2.0m         15m        ohmic resistance @ 25 degC, SOC 100 %
+*    R1           0.8m         5m         fast polarization R (TAU1)
+*    R2           0.7m         5m         slow polarization R (TAU2)
+*    L_INT        0.2u         1u         internal + terminal inductance [H]
+*  Common: TAU1 = 20 ms, TAU2 = 20 s, DSOC_END = 0.02, TK_R = 1200 K,
+*          KR_SOC = 0.5, ETA_CHG = 1, OCV_SHAPE = 1 (generic curve)
+*
+*  Resistance scaling (applied to R0, R1, R2; TAU1/TAU2 are kept):
+*    R(T, SOC) = R25 * exp(TK_R*(1/(TBAT+273.15) - 1/298.15))
+*                    * (1 + KR_SOC*(1 - SOC)^2)
+* ----------------------------------------------------------------------------
+.subckt BATTERY P N SOC
++ VNOM=12 SOC0=0.8 TBAT=25
++ CAP_AH=0 VOC_0=0 VOC_100=0 VOC_EOC=0 DSOC_END=0.02 OCV_SHAPE=1
++ R0=0 R1=0 R2=0 TAU1=20m TAU2=20 L_INT=0
++ TK_R=1200 KR_SOC=0.5 ETA_CHG=1
+
+* ---------------- class defaults ---------------------------------------------
+.param C48  = {VNOM>=36}
+.param KV   = {if(C48, VNOM/48, VNOM/12)}
+.param CAP  = {if(CAP_AH>0,  CAP_AH,  if(C48, 10, 70))}
+.param V0   = {if(VOC_0>0,   VOC_0,   KV*if(C48, 40.0, 11.70))}
+.param V100 = {if(VOC_100>0, VOC_100, KV*if(C48, 52.0, 12.90))}
+.param VEOC = {if(VOC_EOC>0, VOC_EOC, KV*if(C48, 55.0, 15.00))}
+.param FT   = {exp(TK_R*(1/(TBAT+273.15) - 1/298.15))}
+.param R0T  = {FT*if(R0>0, R0, KV*if(C48, 15m, 2.0m))}
+.param R1T  = {FT*if(R1>0, R1, KV*if(C48, 5m, 0.8m))}
+.param R2T  = {FT*if(R2>0, R2, KV*if(C48, 5m, 0.7m))}
+.param LB   = {max(if(L_INT>0, L_INT, KV*if(C48, 1u, 0.2u)), 1n)}
+.param QAS  = {CAP*3600}
+
+* ---------------- state of charge (charge counting) ---------------------------
+*  I(Vi) > 0 = discharge. Charging current is weighted by ETA_CHG.
+*  A 1 F capacitor integrates the normalized current. Bsi holds it at SOC0
+*  while time = 0, i.e. in the DC operating point (and therefore also in .ac:
+*  the SOC term Q/(dOCV/dSOC), relevant only below ~10..100 mHz, is not part
+*  of the small-signal impedance). idt() is avoided on purpose: it forces
+*  very small time steps in long simulations.
+Cs  s N 1 Rpar=1T
+Bs  N s I=-I(Vi)*if(I(Vi)<0, {ETA_CHG}, 1)/{QAS}
+Bsi N s I=if(time<=0, ({SOC0}-V(s,N))*1k, 0)
+Bsc SOC N V=limit(V(s,N), 0, 1)
+Bsl sl N V=limit(V(s,N), 0, 1)
+Bfs fs N V=1 + {KR_SOC}*(1 - limit(V(s,N), 0, 1))**2
+
+* ---------------- open-circuit voltage ----------------------------------------
+*  Normalized generic curve g(SOC): steeper near empty and full, flat in the
+*  middle (OCV_SHAPE=0: straight line). It passes through the points
+*    SOC 0 .05 .1 .2 .3 .4 .5 .6 .7 .8 .9 .95 1
+*    g   0 .18 .30 .43 .51 .57 .62 .67 .72 .78 .87 .93 1
+*  with monotone cubic (PCHIP) interpolation, generated by tools/bat_ocv.py.
+*  A piecewise-linear table() is avoided: its slope steps stall the time-step
+*  control when the SOC creeps across a breakpoint (e.g. SOC0 = 0.1, 0.8).
+*  Below SOC 0 the OCV collapses linearly to 0 V over DSOC_END; above 100 % it rises linearly to VOC_EOC at
+*  100 % + DSOC_END (and keeps rising), so a constant-voltage charger sees
+*  the current taper off.
+Bg  g N V=if({OCV_SHAPE}>0.5, if(V(sl,N)<0.05,
++  0+(V(sl,N)-0)*(4.2000000000000002+(V(sl,N)-0)*(-9.5999999999999908+(V(sl,N)-0)*(-47.99999999999968))),
++  if(V(sl,N)<0.1,
++  0.17999999999999999+(V(sl,N)-0.05)*(2.8799999999999999+(V(sl,N)-0.05)*(-6.0819875776397581+(V(sl,N)-0.05)*(-70.360248447204995))),
++  if(V(sl,N)<0.2,
++  0.29999999999999999+(V(sl,N)-0.1)*(1.7440993788819874+(V(sl,N)-0.1)*(-5.7867494824016559+(V(sl,N)-0.1)*(13.457556935817781))),
++  if(V(sl,N)<0.3,
++  0.42999999999999999+(V(sl,N)-0.2)*(0.99047619047619073+(V(sl,N)-0.2)*(-2.6666666666666612+(V(sl,N)-0.2)*(7.6190476190475289))),
++  if(V(sl,N)<0.4,
++  0.51000000000000001+(V(sl,N)-0.3)*(0.68571428571428539+(V(sl,N)-0.3)*(-1.1688311688311865+(V(sl,N)-0.3)*(3.1168831168832489))),
++  if(V(sl,N)<0.5,
++  0.56999999999999995+(V(sl,N)-0.4)*(0.54545454545454553+(V(sl,N)-0.4)*(-0.90909090909089851+(V(sl,N)-0.4)*(4.5454545454544997))),
++  if(V(sl,N)<0.6, 0.62+(V(sl,N)-0.5)*(0.50000000000000056+(V(sl,N)-0.5)*(0+(V(sl,N)-0.5)*(0))),
++  if(V(sl,N)<0.7,
++  0.67000000000000004+(V(sl,N)-0.6)*(0.5+(V(sl,N)-0.6)*(-0.4545454545454698+(V(sl,N)-0.6)*(4.5454545454546329))),
++  if(V(sl,N)<0.8,
++  0.71999999999999997+(V(sl,N)-0.7)*(0.54545454545454519+(V(sl,N)-0.7)*(-0.10909090909090303+(V(sl,N)-0.7)*(6.5454545454545094))),
++  if(V(sl,N)<0.9,
++  0.78000000000000003+(V(sl,N)-0.8)*(0.71999999999999997+(V(sl,N)-0.8)*(2.1483870967741807+(V(sl,N)-0.8)*(-3.4838709677418107))),
++  if(V(sl,N)<0.95,
++  0.87+(V(sl,N)-0.9)*(1.0451612903225818+(V(sl,N)-0.9)*(4.347394540943041+(V(sl,N)-0.9)*(-25.012406947892416))),
++  0.93000000000000005+(V(sl,N)-0.95)*(1.2923076923076928+(V(sl,N)-0.95)*(2.3076923076922395+(V(sl,N)-0.95)*(-3.076923076922883)))))))))))))), V(sl,N))
+Bocv ocv N V=if(V(s,N)<0, {V0}*max(0, 1 + V(s,N)/{DSOC_END}),
++  if(V(s,N)>1, {V100} + ({VEOC}-{V100})*(V(s,N)-1)/{DSOC_END},
++  {V0} + ({V100}-{V0})*V(g,N)))
+
+* ---------------- impedance ----------------------------------------------------
+*  The two polarization voltages are state variables u1, u2 on normalized
+*  1 F capacitors (du/dt = (I*R*fs - u)/TAU), i.e. an RC pair R || TAU/R,
+*  without the 10..10000 F physical capacitors that would make the time-step
+*  control stiff. Total drop OCV -> cells: I*R0' + u1 + u2.
+Cu1 u1 N 1 Rpar=1T
+Bu1 N u1 I=(I(Vi)*{R1T}*V(fs,N) - V(u1,N))/{TAU1}
+Cu2 u2 N 1 Rpar=1T
+Bu2 N u2 I=(I(Vi)*{R2T}*V(fs,N) - V(u2,N))/{TAU2}
+Bz  ocv cell V=I(Vi)*{R0T}*V(fs,N) + V(u1,N) + V(u2,N)
+Vi  cell n5 0
+Lb  n5 P {LB} Rser=1n Rpar=100
+.ends BATTERY
+
+
+* ----------------------------------------------------------------------------
+*  BATTERY_BMS -- battery pack with BMS-controlled disconnect switch
+*
+*  Pins: P N SOC EN FLT
+*    EN   close command (logic, ref. to N, > VTH_LOGIC = 1.5 V: closed).
+*         EN low resets the fault latch; if the fault persists the pack
+*         trips again after the deglitch time.
+*    FLT  fault output, 3.3 V push-pull (100 Ohm) ref. to N, high = latched
+*         protection trip
+*
+*  P_cells --L_INT-- bp --[switch, RSW_ON]--+-- P
+*                         [R_PRE, T_PRE]---+
+*
+*  Protections (latched; BMS voltage = V(bp,N) through a 1 ms RC filter, i.e.
+*  the cell voltage seen by the BMS ADC). Each condition goes through a
+*  first-order deglitch filter: a condition that persists trips after exactly
+*  T_xx, shorter repeated pulses add up partially; a condition already true
+*  in the DC operating point trips at t = 0:
+*    OV   V > V_OV  for T_OV              (overcharge)
+*    UV   V < V_UV  for T_UV              (deep discharge)
+*    OC   |I| > I_OC for T_OC             (overload, both directions)
+*    SC   I > I_SC  for T_SC              (short circuit, discharge)
+*  Switch: conductance moves between RSW_ON and RSW_OFF within T_SW
+*  (log-linear in the switch state x, first-order with tau = T_SW/5),
+*  bidirectional active clamp at V_CLAMP across the switch (1 mOhm dynamic
+*  resistance; absorbs the inductive energy when breaking a short).
+*  Pre-charge: when EN rises, the pack first connects through R_PRE for
+*  T_PRE, then closes the main switch (T_PRE=0: no pre-charge). With EN high
+*  already at t = 0 the pack starts connected (bus assumed charged).
+*  Re-arm: EN low clears the fault latch; the next EN rising edge re-closes.
+*
+*  Parameter    12 V class   48 V class
+*    V_OV         15.0         54.0         [V]
+*    V_UV         10.5         36.0         [V]
+*    I_OC         800          350          [A]
+*    I_SC         2500         1000         [A]
+*    RSW_ON       0.5m         1m           [Ohm]
+*    V_CLAMP      30           80           [V]
+*  Common: T_OV = 100 ms, T_UV = 1 s, T_OC = 1 s, T_SC = 100 us,
+*          T_SW = 10 us, RSW_OFF = 10 MegOhm, R_PRE = 10 Ohm, T_PRE = 0
+*  Voltage defaults scale like the BATTERY ones (VNOM/12, VNOM/48).
+* ----------------------------------------------------------------------------
+.subckt BATTERY_BMS P N SOC EN FLT
++ VNOM=48 SOC0=0.8 TBAT=25
++ CAP_AH=0 VOC_0=0 VOC_100=0 VOC_EOC=0 DSOC_END=0.02 OCV_SHAPE=1
++ R0=0 R1=0 R2=0 TAU1=20m TAU2=20 L_INT=0
++ TK_R=1200 KR_SOC=0.5 ETA_CHG=1
++ V_OV=0 V_UV=0 I_OC=0 I_SC=0 RSW_ON=0 V_CLAMP=0
++ T_OV=100m T_UV=1 T_OC=1 T_SC=100u T_SW=10u RSW_OFF=10Meg R_PRE=10 T_PRE=0
++ VTH_LOGIC=1.5
+
+.param C48  = {VNOM>=36}
+.param KV   = {if(C48, VNOM/48, VNOM/12)}
+.param VOV  = {if(V_OV>0,    V_OV,    KV*if(C48, 54.0, 15.0))}
+.param VUV  = {if(V_UV>0,    V_UV,    KV*if(C48, 36.0, 10.5))}
+.param IOC  = {if(I_OC>0,    I_OC,    if(C48, 350, 800))}
+.param ISC  = {if(I_SC>0,    I_SC,    if(C48, 1000, 2500))}
+.param RON  = {if(RSW_ON>0,  RSW_ON,  KV*if(C48, 1m, 0.5m))}
+.param VCL  = {if(V_CLAMP>0, V_CLAMP, KV*if(C48, 80, 30))}
+
+* ---------------- cells -------------------------------------------------------
+Xc bp N SOC BATTERY VNOM={VNOM} SOC0={SOC0} TBAT={TBAT} CAP_AH={CAP_AH}
++ VOC_0={VOC_0} VOC_100={VOC_100} VOC_EOC={VOC_EOC} DSOC_END={DSOC_END}
++ OCV_SHAPE={OCV_SHAPE} R0={R0} R1={R1} R2={R2} TAU1={TAU1} TAU2={TAU2}
++ L_INT={L_INT} TK_R={TK_R} KR_SOC={KR_SOC} ETA_CHG={ETA_CHG}
+
+* ---------------- measurements ------------------------------------------------
+*  pack current (> 0 = discharge) and filtered cell voltage
+Vsw bp bs 0
+Bvm vm_i N V=V(bp,N)
+Rvm vm_i vm 1k
+Cvm vm N 1u
+
+* ---------------- protections -------------------------------------------------
+Bov ov_r N V=V(vm,N)>{VOV}
+Buv uv_r N V=V(vm,N)<{VUV}
+Boc oc_r N V=abs(I(Vsw))>{IOC}
+Bsc sc_r N V=I(Vsw)>{ISC}
+Xdov ov_r ov N BAT_DGL T={T_OV}
+Xduv uv_r uv N BAT_DGL T={T_UV}
+Xdoc oc_r oc N BAT_DGL T={T_OC}
+Xdsc sc_r sc N BAT_DGL T={T_SC}
+
+* ---------------- control logic -----------------------------------------------
+Ren EN N 1Meg
+Ben cmd N V=V(EN,N)>{VTH_LOGIC}
+Bfs flt_s N V=V(ov,N)>0.5 | V(uv,N)>0.5 | V(oc,N)>0.5 | V(sc,N)>0.5
+Bfr flt_r N V=V(cmd,N)<0.5
+Xfl flt_s flt_r fl N BAT_LATCH
+*  on = commanded and no fault; main switch closes T_PRE after on
+Bon on N V=V(cmd,N)>0.5 & V(fl,N)<0.5
+Xdpre on pre_done N BAT_DGL T={if(T_PRE>0, T_PRE, 1m)}
+Bmain m N V=V(on,N)>0.5 & ({T_PRE}<=0 | V(pre_done,N)>0.5)
+Bpre pre N V=V(on,N)>0.5 & V(m,N)<0.5
+*  switch state x: first-order response to m with tau = T_SW/5 (state on a
+*  normalized 1 F capacitor), so the switch is fully on (R < 1.2*RSW_ON) or
+*  off T_SW after the command. A saturated (linear) ramp was tried and
+*  rejected: it stalls the time-step control. In the DC operating point
+*  x = m, so a pack with EN high at t = 0 starts connected.
+Cx x N 1 Rpar=1T
+Bx N x I=(V(m,N)-V(x,N))*if(time<=0, 1k, 5/{T_SW})
+
+* ---------------- disconnect switch, clamp, pre-charge path ------------------
+Bsw bs P I=V(bs,P)*(1/({RON}*({RSW_OFF}/{RON})**(1-V(x,N))) + V(pre,N)/{R_PRE})
++  + sgn(V(bs,P))*max(abs(V(bs,P))-{VCL}, 0)/1m
+
+* ---------------- fault output -------------------------------------------------
+Bflt flt_o N V=3.3*(V(fl,N)>0.5)
+Rflt flt_o FLT 100
+.ends BATTERY_BMS
+
+
+* ----------------------------------------------------------------------------
+*  Helper primitives (logic levels 0/1 V referred to local GND)
+* ----------------------------------------------------------------------------
+*  Set-dominant SR latch. Regenerative hold (Q snaps to 0 or 1 in ~0.1 us);
+*  forced to reset in the DC operating point (time = 0) unless S is active,
+*  so the DC solution is unique.
+.subckt BAT_LATCH S R Q GND
+Bl GND Q I=if(V(S,GND)>0.5, 1-V(Q,GND), if(V(R,GND)>0.5 | time<=0, -V(Q,GND),
++  if(V(Q,GND)>0.5, 1-V(Q,GND), -V(Q,GND))))
+Cl Q GND 100n
+Rl Q GND 1T
+.ends BAT_LATCH
+
+*  Deglitch filter: first-order filter + comparator, tau = T/ln2, so OUT
+*  goes high T after IN steps high (shorter pulses charge it partially, as an
+*  RC/ADC filter in a real BMS would). Not stiff, no idt().
+.subckt BAT_DGL IN OUT GND T=1u
+Bi i GND V=V(IN,GND)>0.5
+Rt i t 1
+Ct t GND {T/ln(2)} Rpar=1T
+Bo OUT GND V=V(t,GND)>0.5
+.ends BAT_DGL

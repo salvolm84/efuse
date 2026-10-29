@@ -1,0 +1,87 @@
+* bat06_bms_protection.cir
+* ---------------------------------------------------------------------------
+* 48 V class battery pack with BMS (BATTERY_BMS, defaults): pre-charge and
+* the four protections. Five independent packs, each with its own scenario:
+* A  pre-charge: EN at 0.1 s into a 10 mF bus, R_PRE = 10 Ohm, T_PRE = 0.5 s
+*    -> pre-charge current <= OCV/R_PRE, small step when the main switch closes
+* B  no pre-charge: same 10 mF bus -> the closing inrush (~2 kA, tau ~ 0.2 ms)
+*    exceeds I_SC for more than T_SC: the pack trips its own short-circuit
+*    protection
+* C  overcurrent: 0.1 Ohm load (~400 A > I_OC = 350 A) from 1 s to 2.5 s
+*    -> trip at 1 s + T_OC. EN low 3.0 s / high 3.5 s re-arms and re-closes.
+*    A second overload of 0.8 s (< T_OC) at 4.0 s does not trip.
+* D  under-voltage: SOC0 = 10 %, ~100 A load from 1 s -> the cell voltage
+*    reaches V_UV = 36 V near empty -> trip T_UV = 1 s later
+* E  over-voltage: SOC0 = 95 %, faulty charger (56 V CV, 50 A) from 1 s ->
+*    cell voltage exceeds V_OV = 54 V just past full charge -> trip after
+*    T_OV = 0.1 s
+* ---------------------------------------------------------------------------
+.include ../models/BATTERY_beh.lib
+.model SLD SW(Ron=0.1m Roff=1Meg Vt=0.5 Vh=-0.2)
+Vh hi 0 3.3
+
+* ---- A: pre-charge
+VenA ena 0 PWL(0 0 0.1 0 0.1001 3.3)
+XA pa 0 soca ena flta BATTERY_BMS VNOM=48 SOC0=0.8 T_PRE=0.5 R_PRE=10
+CA pa 0 10m Rser=5m
+RblA pa 0 1k
+* ---- B: no pre-charge
+XB pb 0 socb ena fltb BATTERY_BMS VNOM=48 SOC0=0.8
+CB pb 0 10m Rser=5m
+RblB pb 0 1k
+* ---- C: overcurrent, re-arm, short overload
+VenC enc 0 PWL(0 3.3 3.0 3.3 3.0001 0 3.5 0 3.5001 3.3)
+VldC ldc 0 PWL(0 0 1 0 1.0001 1 2.5 1 2.5001 0 4.0 0 4.0001 1 4.8 1 4.8001 0)
+XC pc 0 socc enc fltc BATTERY_BMS VNOM=48 SOC0=0.8
+CC pc 0 1m Rser=5m
+RblC pc 0 1k
+SC pc lc ldc 0 SLD
+RC lc 0 0.1
+* ---- D: under-voltage
+VldD ldd 0 PWL(0 0 1 0 1.0001 1)
+XD pd 0 socd hi fltd BATTERY_BMS VNOM=48 SOC0=0.1
+CD pd 0 1m Rser=5m
+RblD pd 0 1k
+SD pd ld ldd 0 SLD
+RD ld 0 0.45
+* ---- E: over-voltage (charger: 56 V CV, 50 A CC, from 1 s)
+XE pe 0 soce hi flte BATTERY_BMS VNOM=48 SOC0=0.95
+CE pe 0 1m Rser=5m
+RblE pe 0 1k
+BchE 0 pe I=if(time>1, limit((56-V(pe))/10m, 0, 50), 0)
+
+.save V(pa) V(pb) V(pc) V(pd) V(pe) V(flta) V(fltb) V(fltc) V(fltd) V(flte)
+.save I(xa:Vsw) I(xb:Vsw) I(xc:Vsw) I(xd:Vsw) I(xe:Vsw) V(ena) V(enc) V(ldc)
+.save V(xa:xc:ocv) V(xa:pre) V(xa:m) V(xd:vm) V(xe:vm) V(xd:xc:s) V(xe:xc:s) V(socd) V(soce)
+* A
+.meas tran ipre_pk max I(xa:Vsw) from 0.1 to 0.59
+.meas tran iclose_pk max I(xa:Vsw) from 0.599 to 0.7
+.meas tran va_close find V(pa) at 0.5999
+.meas tran ocva find V(xa:xc:ocv) at 0.09
+.meas tran flta_max max V(flta)
+* B
+.meas tran ib_pk max I(xb:Vsw) from 0.1 to 0.11
+.meas tran tb_flt find time when V(fltb)=1.65 rise=1
+.meas tran vb_end find V(pb) at 0.2
+* C
+.meas tran tc_flt find time when V(fltc)=1.65 rise=1
+.meas tran dt_oc param tc_flt-1.0001
+.meas tran ic_ol avg I(xc:Vsw) from 1.1 to 1.9
+.meas tran fltc_rearm find V(fltc) at 3.9
+.meas tran vc_rearm find V(pc) at 3.9
+.meas tran fltc_end find V(fltc) at 5
+.meas tran ic_ol2 avg I(xc:Vsw) from 4.1 to 4.7
+* D
+.meas tran td_flt find time when V(fltd)=1.65 rise=1
+.meas tran sd_flt find V(xd:xc:s) when V(fltd)=1.65 rise=1
+.meas tran td_uv find time when V(xd:vm)=36 fall=1
+.meas tran id_end find I(xd:Vsw) at 59
+.meas tran vd_end find V(xd:vm) at 59
+* E
+.meas tran te_flt find time when V(flte)=1.65 rise=1
+.meas tran se_flt find V(xe:xc:s) when V(flte)=1.65 rise=1
+.meas tran te_ov find time when V(xe:vm)=54 rise=1
+.meas tran ie_end find I(xe:Vsw) at 59
+.tran 0 60 0 5m
+.options plotwinsize=0
+.end

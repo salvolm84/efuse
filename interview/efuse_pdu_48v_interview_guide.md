@@ -1,8 +1,8 @@
 # Interview guide: eFuse-based 48 V automotive PDU (HW engineer)
 
 A question bank for assessing a hardware engineer's knowledge of eFuse-based
-power distribution units (PDUs) for 48 V automotive systems. It covers both
-design and validation.
+power distribution units (PDUs) for 48 V automotive systems, including the
+battery the PDU is connected to. It covers both design and validation.
 
 ## How to use this guide
 
@@ -23,9 +23,12 @@ design and validation.
 * **Simulation support.** Every question ends with a **Simulation** block: the test
   bench that reproduces the concept, its plot, the key simulated numbers, and a
   prompt for showing the waveform to the candidate. Benches tb01–tb14 are
-  described in the README; tb15–tb35 were written for this guide. The map below
-  lists them. The numbers come from a behavioural model with typical values (see
-  the README, section 11). Use them to check a candidate's reasoning and orders of
+  described in the README; tb15–tb35 were written for this guide; bat01–bat07
+  (12 V battery, 48 V pack with BMS) are described in
+  [README section 14](../README.md#14-automotive-battery-model) and dc01–dc08 (700 W 48/12 V DC/DC) in
+  [README section 15](../README.md#15-dcdc-converter-model-48-v-to-12-v-700-w). The map below lists them. The numbers come
+  from behavioural models with typical values (see the README, section 11,
+  sections 14.9 and 15.7). Use them to check a candidate's reasoning and orders of
   magnitude, not as pass/fail limits.
 
 Suggested format, 90–120 min:
@@ -45,7 +48,9 @@ A scoring sheet is at the end.
 |---|---|---|
 | A1 | tb15 | 1 kW at 12 V vs 48 V: current, wire loss, short current |
 | A2 | tb06, tb25 | 48 V supply profile; bus overshoot when a short is interrupted |
-| A3 | tb10 | selectivity: one channel shorted, the other rides through |
+| A3 | tb10, bat07 | selectivity: one channel shorted, the other rides through; the pack BMS does not trip |
+| A4 | bat02, bat03, bat05 | battery/pack impedance vs temperature and frequency; short at the pack terminals |
+| A5 | bat07 | the pack opens while the generator feeds the bus: 48 V load dump |
 | B1 | tb03, tb04, tb16 | I²t curve, RMS response, thermal memory vs wire temperature |
 | B2 | tb02/03/05/07, tb17 | time scales of the layers; latch-off vs current limiting |
 | B3 | tb02, tb18, tb19, tb25 | the first 20 µs; effect of harness L and of turn-off speed |
@@ -54,11 +59,14 @@ A scoring sheet is at the end.
 | B6 | tb09, tb21 | avalanche vs freewheel vs zener clamp |
 | C1 | tb22, tb23 | linear-mode pulse and SOA; parallel FETs do not share |
 | C2 | tb24 | reverse current: single FET vs back-to-back |
-| C3 | tb25 | bus capacitance, TVS and its placement, freewheel |
+| C3 | tb25, bat07 | bus capacitance, TVS and its placement, freewheel; TVS energy at a battery disconnect |
+| C4 | dc01, dc02, dc04, dc05, dc08 | the 48/12 V DC/DC as a channel load: constant power, inrush, UVLO, current limit, 12 V battery |
+| C5 | dc06, dc07 | negative input resistance; harness + input filter stability, damping |
 | D1 | tb26 | hard switch-on vs dV/dt control into 1 mF |
 | D2 | tb27, tb13 | half-energy rule for R = 1…100 Ω |
 | D3 | tb11, tb13, tb28 | dV/dt window, methods, bypass + AUTO-ON |
 | D4 | tb12, tb14 | hand-over point, supervision and fault energy |
+| D5 | bat06 | pack pre-charge onto a 10 mF bus: full, shortened, none (SC trip) |
 | E1 | tb23, tb07 | junction vs NTC: fast pulse vs slow heating |
 | E2 | tb25, tb20 | TVS loop inductance, copper in the Kelvin path |
 | F1 | tb29 | 48 V to 12 V cross-short, low and high impedance |
@@ -74,6 +82,8 @@ A scoring sheet is at the end.
 | J1 | tb34 | cold start-up: which protection fired |
 | J2 | tb25 | controller over-stress while the FET survives |
 | J3, J4 | tb04, tb14 | PWM RMS trip; DC/DC hiccup without an eFuse fault |
+| J6 | bat04 | 12 V crank at +25 / −18 / −30 °C, CCA test |
+| J7 | dc07 | DC/DC input oscillating on a long feed with ceramic-only input capacitance |
 
 To regenerate everything:
 
@@ -189,6 +199,10 @@ voltage profile) and [`tb25`](../testbenches/tb25_supply_clamp.cir) (the follow-
   (tb10 in this repository).
 * "What is the benefit of resettable protection for the wiring?" A smaller margin
   between fuse and wire, so lighter wire, and no service visit for a nuisance trip.
+* "Selectivity also has an upstream side. What must not trip?" The battery pack's
+  own short-circuit protection (BMS, pyrofuse). Its threshold and delay must sit
+  above anything a branch short makes it see. Most of a branch short's first
+  microseconds come from the bus capacitance, not from the pack.
 
 **Simulation:** [`tb10`](../testbenches/tb10_zonal_system.cir), two channels on one bus, short on channel 2.
 
@@ -201,6 +215,112 @@ voltage profile) and [`tb25`](../testbenches/tb25_supply_clamp.cir) (the follow-
   and what would make it drop out?" Expected: its input capacitance bridges a
   20 µs dip. A slower trip (longer harness, VDS-only or firmware protection, see
   G3), a weaker battery or a smaller input capacitor would break the selectivity.
+* [`bat07`](../testbenches/bat07_pdn_48v.cir) repeats the bench with the 48 V
+  pack model (SOC 80 %) instead of the ideal source: CH2 trips in 8.9 µs, the bus
+  dips to 34.1 V, and the pack current peaks at only **83 A** while 327 A flows
+  into the short. The pack's BMS (I_SC 1 kA for 100 µs) does not trip.
+* *Ask:* "Where do the other 240 A come from?" Expected: the bus and input
+  capacitors next to the PDU. The pack sits behind 2 µH of main harness and
+  cannot deliver that di/dt.
+
+### A4. What does the 48 V battery look like from the PDU, and which battery do you design for? (L2)
+
+**Expected answer**
+* Not an ideal voltage source:
+  * an **open-circuit voltage that depends on SOC**, roughly 40–52 V for a
+    48 V pack, inside the 36–52 V operating range;
+  * an **internal resistance**: an instant ohmic part plus polarization that
+    builds up over ms and s;
+  * an **internal inductance** (cells, busbars, fuse, contactor), ~1 µH;
+  * for a pack, its own **BMS and disconnect switch**.
+* The resistance rises strongly when **cold** (×2 at −18 °C, ×2.5 at −30 °C)
+  and at **low SOC**.
+* Two worst cases, used for different things:
+  * **strong battery** (warm, full): the largest short current and di/dt. Size
+    the FET, HSC, TVS and harness for it.
+  * **weak battery** (cold, low SOC): the deepest bus dips at load steps and
+    shorts. Check the UV ride-through and the selectivity with it.
+* Above a few kHz the source impedance is inductive. This matters for DC/DC
+  input-filter stability and for how fast a short current rises.
+
+**Follow-ups**
+* "Why can't you validate the HSC with a lab supply alone?" Its current limit
+  and slow control loop (ms) replace the battery's low impedance; the short
+  current then depends on the output capacitors. Use a battery, a capacitor
+  bank or a low-impedance battery emulator (see H1).
+* "Your tb10-style simulation uses an ideal source with 20 mΩ. Good enough?"
+  For µs events, roughly yes. For a cold crank, a long overload or a pack
+  disconnect, no: you need the SOC, the polarization and the BMS.
+
+**Red flags:** treats the battery as an ideal source; designs the short-circuit
+protection for a cold, weak battery; has never thought about the pack's own
+protection.
+
+**Simulation:** [`bat02`](../testbenches/bat02_pulse_temperature.cir) (100 A
+pulse at 50 % SOC vs temperature),
+[`bat03`](../testbenches/bat03_impedance_ac.cir) (|Z(f)|) and
+[`bat05`](../testbenches/bat05_short_circuit.cir) (terminal short), 48 V pack
+defaults.
+
+![bat02](../docs/img/bat02_pulse_temperature.png)
+
+| 48 V pack, 50 % SOC | +25 °C | −18 °C | −30 °C |
+|---|---|---|---|
+| R0 (step 0.5 ms after the edge) | 17.0 mΩ | 33.5 mΩ | 42.3 mΩ |
+| R after 10 s | 26.7 mΩ | 51.0 mΩ | 63.8 mΩ |
+| instant drop at a 100 A step | 1.7 V | 3.4 V | 4.2 V |
+
+* |Z| is 22.5 mΩ at 0.1 Hz, 16.9 mΩ at 100 Hz, and becomes inductive above
+  R0/(2π·L) ≈ 2.7 kHz (629 mΩ at 100 kHz).
+* A bolted short at the full pack's terminals (1 µH external) rises at ~26 A/µs
+  and reaches 2.2 kA by the time the BMS opens (100 µs after crossing 1 kA).
+* *Show bat02 and ask:* "Which of these curves do you use to size the TVS, and
+  which to check that the DC/DC rides through a branch short?" Expected: the
+  +25/+45 °C battery for the energy and peak current, the −30 °C one for the dips.
+
+### A5. The 48 V pack opens while the starter-generator is charging it. What happens on the bus? (L2–L3)
+
+**Expected answer**
+* The bus loses its stiffest element. The generator's excess current (generator
+  minus loads) now charges only the bus capacitance:
+  dV/dt = ΔI/C_bus, hundreds of V/ms with a few hundred µF.
+* The generator's voltage regulation is far too slow (ms) to stop it. Within
+  ~100 µs only passive or hardware measures can act: the TVS / active clamps, the
+  bus capacitance, and a fast hardware de-excitation or phase short of the
+  machine.
+* This is the 48 V "load dump". The standard's over-voltage range (~58 V, < 60 V)
+  and the 70 V absolute maximum of parts such as the VNF1048F are at stake.
+* Mitigations:
+  * BSG fast de-excitation or an active short circuit of the machine;
+  * TVS sized for the full excess current until the generator has stopped,
+    not only for a harness kick;
+  * more bus capacitance;
+  * BMS pre-warning over the network before a planned opening;
+  * a contactor-opening strategy coordinated with the generator.
+
+**Follow-ups**
+* "After the clamp, the bus oscillates. Why?" The generator now regulates a
+  small capacitance alone, with a regulator designed for the battery's
+  impedance: the loop is underdamped.
+* "Who else opens the battery path?" A blown pyrofuse or main fuse, a loose
+  terminal, or a BMS reacting to a cell fault.
+
+**Red flags:** expects the generator control to handle it; sizes the TVS only for
+a short interruption; says the battery "just stops charging".
+
+**Simulation:** [`bat07`](../testbenches/bat07_pdn_48v.cir). The BSG feeds 60 A
+from 25 ms and its regulator reacts with a 5 ms lag; the BMS opens the pack at 35 ms.
+
+![bat07](../docs/img/bat07_pdn_48v.png)
+
+* Before the disconnect the pack absorbs 40 A at a 50.2 V bus.
+* After it, the bus passes 58 V in **124 µs** (~60 V/ms ≈ 40 A into ~0.7 mF),
+  and the TVS clamps it at **70.0 V** with 38 A. Then the generator-only bus
+  oscillates: 70 → 41 → 66 V.
+* *Show the plot and ask:* "The regulator reacted. Why did it not help, and what
+  has to act in the first 100 µs?" Expected: ΔI/C is far faster than any
+  regulation loop. Only the clamp, the capacitance or a hardware de-excitation
+  are fast enough.
 
 ---
 
@@ -579,6 +699,11 @@ single-FET channel and on a back-to-back channel.
 * "What if the TVS is too low?" It conducts on normal over-voltage
   ranges (e.g. 54 V operation) and overheats. The standoff must exceed the max
   operating voltage including tolerance.
+* "Which event sizes the TVS energy in a 48 V system?" Often not the short
+  interruption (tens of mJ to a few J of harness energy) but a battery
+  disconnect with the generator running. Then the TVS carries the generator's
+  excess current until it has stopped (A5, bat07: 38 A at 70 V, for several
+  ms).
 
 **Simulation:** [`tb25`](../testbenches/tb25_supply_clamp.cir), the tb02 short (≈340 A interrupted)
 with the input protection varied.
@@ -601,6 +726,107 @@ with the input protection varied.
 * *Ask:* "The TVS breaks down at 64 V. Why does VBAT reach 82 V, and what would
   you change first?" Expected: more bulk capacitance (it acts first), a
   lower-resistance TVS, or a tighter loop.
+
+### C4. The 48/12 V DC/DC is the biggest load on one of your channels. What does the channel see from it? (L2)
+
+**Expected answer**
+* **A constant-power load.** I_in = P_in/V_in: 700 W is ~15 A at 48 V but
+  ~20 A at 36 V and ~28 A at 26 V. The current *rises* when the 48 V bus dips.
+  Size the channel's INOM and the wire for the lowest operating voltage, not
+  for the nominal one.
+* **A big input capacitance** (hundreds of µF): the eFuse's dV/dt or pre-charge
+  has to handle it (D1–D4). The converter must not start before its input is up,
+  which is what its UVLO with hysteresis is for (e.g. on at 30 V, off at 26 V),
+  or it hiccups on its own pre-charge (J4).
+* **Stand-by behaviour.** The converter's off-state input current vs the eFuse's
+  OUT bias current. If the converter draws less than the eFuse leaks, the "off"
+  input charges up, and a bleeder is needed.
+* **The 12 V side.** The output is current-limited (~1.1 × rated). With a
+  discharged 12 V battery the converter sits in its current limit, charging the
+  battery, and the 12 V battery takes the 12 V load steps. A hard 12 V short
+  makes it hiccup. The 48 V input then sees short bursts at full power.
+
+**Follow-ups**
+* "Your DC/DC has OVP at 60 V. Is that good for the 48 V network?" It protects
+  the converter, but it also removes ~700 W of load at the moment of an
+  over-voltage. During a battery disconnect (A5) that makes the bus rise further.
+* "How does a 12 V load step reach the 48 V side?" Only through the converter's
+  loop. With the converter in current limit it does not reach it at all.
+
+**Red flags:** treats the DC/DC as a resistor; sizes the channel at 700 W/48 V;
+has not thought about the converter starting during the eFuse ramp.
+
+**Simulation:** [`dc01`](../testbenches/dc01_efficiency.cir) (efficiency, input
+current), [`dc05`](../testbenches/dc05_input_transients.cir) (UVLO, OVP,
+constant power), [`dc02`](../testbenches/dc02_load_transient.cir) (12 V load
+steps) and [`dc08`](../testbenches/dc08_pdn_48v_12v.cir) (the whole chain).
+
+![dc08](../docs/img/dc08_pdn_48v_12v.png)
+
+| Quantity | Simulated |
+|---|---|
+| efficiency at 700 W (36 / 48 / 54 V) | 96.3 / 95.9 / 95.7 % |
+| input current at 700 W (36 / 48 / 54 V) | 20.2 / 15.2 / 13.6 A |
+| 392 W load: input current at 36 V vs 54 V | 11.34 A vs 7.61 A |
+| UVLO off / on, OVP trip / restart | 25.99 / 30.01 V, 60.01 / 57.99 V |
+| dc08: eFuse inrush into the converter's 470 µF / start at | 57 A / 31.0 V on the ramp |
+| dc08: converter in current limit, 12 V battery charging | 55 A, 44.7 A |
+| dc08: +40 A on the 12 V net | battery charging drops to 2.9 A; the converter stays at 55 A |
+| dc08: 48 V branch short | the DC/DC input stays ≥ 43.4 V; the 12 V net moves 0.5 mV |
+
+* *Show dc08 and ask:* "The 12 V load stepped by 40 A, but the DC/DC current
+  did not move. Where did the 40 A come from?" Expected: the converter was
+  already in current limit charging the battery. The battery's charging current
+  dropped from 44.7 A to 2.9 A.
+
+### C5. Why can a regulated DC/DC oscillate with its input filter or harness, and how do you check it? (L2–L3)
+
+**Expected answer**
+* Below its loop bandwidth a regulated converter draws constant power, so its
+  incremental input resistance is **negative**: dV/dI = −V²/P (−3.3 Ω for
+  700 W at 48 V).
+* The source inductance (harness, filter L) and the input capacitance form an
+  LC resonance. Its only damping is the series resistances and the capacitor
+  ESR. When the negative conductance P/V² outweighs that damping, the
+  resonance grows into an oscillation.
+* **Middlebrook criterion:** the source's output impedance (looking back from
+  the converter) must stay well below |Z_in| = V²/P at all frequencies,
+  especially at the filter resonance. Simple check:
+  R_s·C + ESR·C > L·P/V².
+* Fixes: a damping network (series R–C across the input, R ≈ √(L/C),
+  C_d ≥ 4·C), an electrolytic with enough ESR instead of ceramics only, less
+  source inductance, or a lower-Q filter. Check at the minimum input voltage
+  and full power, where P/V² is largest.
+
+**Follow-ups**
+* "Why does it work on the bench and oscillate in the car?" The bench supply
+  with short cables is stiff. The car adds metres of harness (µH) and maybe a
+  filter.
+* "Can you see this in a transient simulation with a resistive load model of
+  the converter?" No. A resistor has positive incremental resistance. You need
+  a constant-power or regulated model.
+
+**Red flags:** thinks more ceramic capacitance always helps; has never heard of
+negative input resistance.
+
+**Simulation:** [`dc06`](../testbenches/dc06_impedance_ac.cir) (Z_in(f), Z_out(f))
+and [`dc07`](../testbenches/dc07_input_filter_stability.cir) (three input set-ups,
+25 A load).
+
+![dc07](../docs/img/dc07_input_filter_stability.png)
+
+| Set-up | Eigenvalue (linearized) | Simulated |
+|---|---|---|
+| 2 µH feed, 470 µF electrolytic (15 mΩ) | Re = −6091 s⁻¹, stable | no ripple |
+| 10 µH feed, 22 µF ceramic (2 mΩ) | Re = +2968 s⁻¹ at 10.7 kHz, **unstable** | 30 V p-p on the input, OVP trips, 12 V output collapses to ~6 V |
+| the same + 220 µF / 0.68 Ω damper | Re = −7359 s⁻¹, stable | no ripple |
+
+* dc06 gives Re(Z_in) = −6.17 Ω at 10 Hz for 350 W: the negative resistance,
+  in parallel with the input capacitor.
+* *Show dc07 case B and ask:* "Nothing in the circuit is faulty. What is
+  oscillating, and what single part would you add?" Expected: harness L with
+  the ceramic C, undamped by the negative input resistance. Add an R–C damper,
+  or an electrolytic with ESR.
 
 ---
 
@@ -738,6 +964,54 @@ faults).
   (100 ms, 9.8 J). A DC/DC that is not gated by power-good hiccups on its own
   UVLO. Every fault case puts ~2.5× the nominal 4 J into the resistor.
 * *Ask:* "Which case sizes the pre-charge resistor?"
+
+### D5. The 48 V pack closes onto the vehicle bus. Why does the pack need its own pre-charge, and how do you size it? (L2)
+
+**Expected answer**
+* All the 48 V loads' input capacitors (BSG inverter, DC/DC, PDU) add up to
+  several mF.
+* Closing the pack's switch onto a discharged bus gives
+  I ≈ OCV/(R_pack + R_switch + ESR), around **2 kA**, with τ = R·C of a few
+  hundred µs. That is long enough to trip the pack's own short-circuit
+  protection, or to weld a contactor.
+* Pre-charge through a resistor:
+  * the peak current is OCV/R_PRE;
+  * τ = R_PRE·C_bus, and the main switch closes after 3–5 τ;
+  * the step at closing is ΔV/R_loop;
+  * the resistor takes ½·C·V² (half-energy rule, D2): ~12 J for 10 mF at 49 V.
+* Supervision:
+  * close on a voltage-difference criterion, not only on a timer, so the bus
+    capacitance tolerance and any load on the bus are covered;
+  * abort on a timeout (a short on the bus, or a load that keeps the bus low);
+  * check the resistor's pulse rating for a pre-charge into a fault.
+
+**Follow-ups**
+* "A load of 1 Ω is already on during pre-charge with 10 Ω. What happens?" The
+  bus stalls at OCV·1/(1 + 10) ≈ 4.5 V, so the loads must stay off (or be gated
+  by the pre-charge power-good) until the main switch is closed.
+
+**Red flags:** closes the contactor directly onto mF; does not know the energy
+in the resistor is fixed; uses a timer with no voltage check.
+
+**Simulation:** [`bat06`](../testbenches/bat06_bms_protection.cir), cases A/B
+(10 mF bus, 10 Ω pre-charge, BMS I_SC 1 kA / 100 µs).
+
+![bat06](../docs/img/bat06_bms_protection.png)
+
+| Pre-charge | Bus when the main switch closes | Closing current | Result |
+|---|---|---|---|
+| 0.5 s (5 τ) | 99.3 % of OCV | 28 A | ok |
+| 0.25 s (2.5 τ) | 92 % of OCV | 156 A | ok, 5× the closing step |
+| none | 0 V | **1.74 kA** | the pack's SC protection trips after 174 µs; bus left at 19 V |
+
+* The same bench covers the other BMS protections: an overload trip after exactly
+  T_OC, a re-arm through EN, under-voltage at the end of discharge, and
+  over-voltage from a faulty charger.
+* *Ask:* "Without pre-charge the pack tripped its own protection. Would raising
+  T_SC to 300 µs be a fix?" Expected: it removes the trip (verified: the
+  1.7 kA inrush is then accepted), but at the cost of a slower reaction to a
+  real short, and the contactor and capacitors still see the inrush. Pre-charge
+  is the fix.
 
 ---
 
@@ -1007,7 +1281,10 @@ x is tb03, repeated pulses and thermal memory tb16, PWM tb04, a realistic short
 with harness inductance tb18, 48 V supply profile tb06, and fault injection
 tb14/tb35. tb18 is the argument for a defined harness in the short-circuit
 set-up: the same channel trips at 7 or 17 µs and peaks at 445 or 175 A
-depending only on L.
+depending only on L. For the "defined battery/supply impedance" of the
+follow-up, bat02/bat03/bat05 give the pack's resistance, |Z(f)| and terminal
+short current, and bat07 is the PDU fed by the pack model instead of an ideal
+source.
 
 ### H2. Measuring a short-circuit event: what equipment and what pitfalls? (L2)
 
@@ -1265,6 +1542,63 @@ on, so it logged nothing.
   sneak path. The cracked sense line needs an independent measurement or a sense
   self-test.
 
+### J6. "Some 12 V ECUs reset during engine start on cold mornings, never in summer."
+
+**Expected reasoning**
+* At the starter's inrush (locked rotor) the battery and the starter circuit
+  form a divider: V_min ≈ OCV·R_starter/(R_battery + R_starter). The battery's
+  internal resistance roughly **doubles at −18 °C** and is ~2.5× at −30 °C, so
+  the dip is much deeper on the same car.
+* Low SOC adds to it: lower OCV, higher resistance. So do short trips in winter
+  and a quiescent-current drain overnight.
+* The ECUs that reset are those whose reset threshold or supply design does not
+  cover the starting profile (ISO 16750-2 / LV 124 starting pulse); check the
+  hold-up capacitance and the regulator dropout.
+* In a 48 V vehicle: does the BSG start the engine (no 12 V dip) or the 12 V
+  starter (cold start)? Does the 48/12 V DC/DC support the 12 V net during the crank?
+* **Method**: log the 12 V voltage at the battery and at the ECU, the battery
+  SOC and temperature at −30 °C, and compare the minimum with the ECU's reset
+  threshold.
+
+**Simulation:** [`bat04`](../testbenches/bat04_cold_crank.cir), 12 V battery
+(70 Ah defaults, SOC 80 %) with the same starter at three temperatures, plus a
+700 A / 30 s CCA test at −18 °C.
+
+![bat04](../docs/img/bat04_cold_crank.png)
+
+| | +25 °C | −18 °C | −30 °C |
+|---|---|---|---|
+| minimum voltage at the inrush | 9.95 V | 8.27 V | 7.59 V |
+| inrush peak | 1294 A | 1074 A | 986 A |
+| average voltage while cranking | 11.77 V | 11.29 V | 11.11 V |
+
+* The CCA test ends at 8.14 V after 30 s (pass criterion ≥ 7.2 V), so this is a
+  healthy battery. The cold dip is a battery-physics effect, not a defect.
+* *Show the plot and ask:* "Same starter, same battery. Why is the dip 2.4 V
+  deeper at −30 °C, and why is the cold inrush current *lower*?" Expected: R0
+  is ×2.5, and the higher source resistance also limits the current.
+
+### J7. "On the prototype harness the 48/12 V DC/DC keeps dropping its 12 V output. On the lab supply it is perfect."
+
+**Expected reasoning**
+* The difference is the source: the lab supply with short cables vs metres of
+  vehicle harness (µH), maybe a new EMC filter, maybe a smaller input capacitor
+  on the prototype.
+* Suspect an **input-filter oscillation** (C5): measure the converter's input
+  voltage with enough bandwidth. A sinusoid at 1/(2π√(L·C)), here ~10 kHz,
+  growing with load is the signature. Its peaks can trip the converter's OVP
+  or its valleys its UVLO, which shows up as "the output drops".
+* Confirm by adding a temporary damper (R–C across the input) or bulk
+  electrolytic capacitance; the oscillation disappears.
+* Fix permanently: damping network, input capacitor with ESR, shorter or
+  lower-inductance feed. Then re-check at the lowest input voltage and full load.
+
+**Simulation:** [`dc07`](../testbenches/dc07_input_filter_stability.cir) case B
+(plot in C5). The oscillation starts during the soft-start, as the drawn power
+(and with it the negative conductance) grows, and settles at 30 V p-p on the
+48 V input. The 60 V OVP cycling holds the 12 V output near 6 V. The same
+converter on a 2 µH feed with 470 µF (case A) is clean.
+
 ---
 
 ## K. Quick-fire checks (5 min, any level)
@@ -1281,6 +1615,15 @@ on, so it logged nothing.
 | What does an NTC on the FET pad actually measure? | PCB/pad temperature with a lag, not Tj | tb23, tb07 |
 | Parallel FETs during inrush: do they share current? | No, not in linear mode | tb22 |
 | Does a larger pre-charge resistor reduce the energy dissipated? | No, ½CV² regardless; only the time and the peak power change | tb27 |
+| Bolted short on a full 12 V battery, 2 mΩ internal + 1 mΩ cable? | 12.9 V / 3 mΩ ≈ 4 kA | bat05 (4.2 kA) |
+| Battery resistance at −18 °C compared with 25 °C? | roughly ×2 | bat02 (×1.97) |
+| Above what frequency does a 17 mΩ / 1 µH pack look inductive? | R/(2πL) ≈ 2.7 kHz | bat03 |
+| Pre-charge of 10 mF through 10 Ω: τ, and when to close? | 0.1 s; after 3–5 τ (0.3–0.5 s) | bat06 |
+| Battery opens; 40 A excess into 0.7 mF of bus: dV/dt? | ≈ 57 V/ms | bat07 (58 V in 124 µs) |
+| Incremental input resistance of a 700 W converter at 48 V? | −V²/P ≈ −3.3 Ω | dc06 (−6.4 Ω at 350 W) |
+| Input current of a 700 W, 95 % converter at 26 V? | 700/0.95/26 ≈ 28 A | dc05 (constant power) |
+| Resonance of 10 µH with 22 µF? | 1/(2π√(LC)) ≈ 10.7 kHz | dc07 |
+| A 700 W / 14 V DC/DC charges a 12 V battery at 12.6 V: what current? | its current limit (~1.1 × 50 A = 55 A), not (14 − 12.6)/R | dc02, dc08 |
 
 ---
 
@@ -1291,10 +1634,10 @@ numbers, 3 = can lead and teach it).
 
 | Area | Sections | Score (0–3) | Notes |
 |---|---|---|---|
-| 48 V system and standards | A | | |
+| 48 V system, standards and the battery source | A | | |
 | eFuse principles and protections | B | | |
-| Power stage, FET, SOA | C | | |
-| Inrush and pre-charge | D | | |
+| Power stage, FET, SOA; DC/DC as a load, input-filter stability | C | | |
+| Inrush and pre-charge (channel and pack) | D | | |
 | Thermal and layout | E | | |
 | System faults (48/12 V short, ground, stuck-on) | F | | |
 | Functional safety and firmware interaction | G | | |
@@ -1303,7 +1646,7 @@ numbers, 3 = can lead and teach it).
 | Debug reasoning | J | | |
 
 **Guidance**
-* **Junior / L1** (~10–15 points): solid on A, B, D1 and the quick-fire section; needs help in the exercise.
+* **Junior / L1** (~10–15 points): solid on A1–A3, B, D1 and the quick-fire section; needs help in the exercise.
 * **Designer / L2** (~16–23 points): scores ≥ 2 in B, C, D and H; finishes the exercise
   through step 7 with little help.
 * **Expert / L3** (≥ 24 points): ≥ 2 everywhere, 3 in at least three areas; brings up

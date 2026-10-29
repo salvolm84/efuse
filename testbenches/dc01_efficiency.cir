@@ -1,0 +1,27 @@
+* dc01_efficiency.cir
+* ---------------------------------------------------------------------------
+* 700 W 48/12 V DC/DC (DCDC48_12, defaults): steady-state regulation, input
+* current and efficiency over load and input voltage.
+*   .step VI = 36, 48, 54 V  x  IL = 2.5 ... 50 A. The converter soft-starts at
+*   t = 0 (5 ms); the load is ramped in from 6 ms to 6.5 ms, measured at 9..10 ms.
+* Expected (loss model): P_loss = P0 + RLOSS*il^2 + KSW*VIN*il with
+* il = IL + VOUT/100 Ohm (internal pre-load); eta = VOUT*IL / P_in;
+* VOUT = VSET exactly (integrating loop).
+* ---------------------------------------------------------------------------
+.include ../models/DCDC48_12_beh.lib
+.param VI=48 IL=25
+.step param VI list 36 48 54
+.step param IL list 2.5 5 10 20 30 40 50
+Vin vin 0 {VI}
+Ven en 0 3.3
+X1 vin out 0 en pg DCDC48_12
+Iload out 0 PWL(0 0 6m 0 6.5m {IL})
+.save V(vin) V(out) I(Vin) I(Iload) V(x1:il) V(x1:ploss) V(pg)
+.meas tran pin avg -V(vin)*I(Vin) from 9m to 10m
+.meas tran pout avg V(out)*I(Iload) from 9m to 10m
+.meas tran vout avg V(out) from 9m to 10m
+.meas tran iin avg -I(Vin) from 9m to 10m
+.meas tran eta param pout/pin
+.tran 0 10m 0 10u
+.options plotwinsize=0
+.end

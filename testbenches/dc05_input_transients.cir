@@ -1,0 +1,35 @@
+* dc05_input_transients.cir
+* ---------------------------------------------------------------------------
+* 48 V input profile applied to the 48/12 V DC/DC (defaults, 0.5 Ohm load =
+* 28 A = 392 W, output capacitance only):
+*   48 V -> 36 V (flat) -> ramp to 20 V at 1 V/ms (UVLO off at 26 V)
+*   -> ramp up to 48 V (UVLO on at 30 V, soft-start) -> 54 V (flat)
+*   -> ramp to 64 V at 1 V/ms (OVP at 60 V) -> back to 54 V (restart at 58 V)
+* Expected: thresholds 26 / 30 V and 60 / 58 V; while running the input
+* current follows P_in/VIN (constant-power load): I(36 V)/I(54 V) ~ 1.5.
+* ---------------------------------------------------------------------------
+.include ../models/DCDC48_12_beh.lib
+Vin vin 0 PWL(0 48 5m 48 6m 36 12m 36 28m 20 32m 20 60m 48 70m 48 71m 54 76m 54
++ 86m 64 90m 64 100m 54 110m 54)
+Ven en 0 3.3
+X1 vin out 0 en pg DCDC48_12
+Rl out 0 0.5
+.save V(vin) V(out) I(Vin) V(x1:run) V(x1:uvok) V(x1:ovp) V(pg) V(x1:il) V(x1:ploss)
+.meas tran v_uvoff find V(vin) when V(x1:uvok)=0.5 fall=1
+.meas tran v_uvon find V(vin) when V(x1:uvok)=0.5 rise=1 td=30m
+.meas tran v_ovp find V(vin) when V(x1:ovp)=0.5 rise=1
+.meas tran v_ovr find V(vin) when V(x1:ovp)=0.5 fall=1
+.meas tran iin36 avg -I(Vin) from 10m to 11m
+
+.meas tran iin54 avg -I(Vin) from 74m to 75m
+.meas tran pl36 avg V(x1:ploss) from 10m to 11m
+.meas tran pl54 avg V(x1:ploss) from 74m to 75m
+.meas tran il36 avg V(x1:il) from 10m to 11m
+.meas tran vo36 avg V(out) from 10m to 11m
+.meas tran vout_uv min V(out) from 22m to 42m
+.meas tran vout_rec avg V(out) from 66m to 70m
+.meas tran vout_ov min V(out) from 82m to 96m
+.meas tran vout_end avg V(out) from 105m to 110m
+.tran 0 110m 0 5u
+.options plotwinsize=0
+.end

@@ -22,6 +22,9 @@ PINS = {
                  (144, -48), (144, -16), (0, 176), (144, 48), (-144, 48), (-144, 80),
                  (-144, 112), (144, 80)],
     "NTC10K_ST": [(-64, 0), (64, 0), (0, -48), (0, 48)],
+    "BATTERY": [(0, -80), (0, 80), (80, 0)],
+    "BATTERY_BMS": [(0, -96), (0, 96), (112, -32), (-112, 0), (112, 32)],
+    "DCDC48_12": [(-128, -32), (128, -32), (0, 96), (-128, 32), (128, 32)],
 }
 
 
@@ -188,6 +191,101 @@ def app_discrete():
     s.save("app_vnf1048f_discrete.asc")
 
 
+def demo_battery():
+    """12 V battery with a starter-like load and a 48 V pack with BMS (pre-charge, load, short)."""
+    s = Sch(1900, 1000)
+    y = 224
+    # --- 12 V: battery, terminal cap, cable, starter (locked rotor 8 mOhm, then 40 mOhm)
+    b12 = s.part("BATTERY", 112, 320, name="U1", line="VNOM=12 SOC0=0.8 TBAT=-18")
+    s.gnd(b12[1]); s.flag(b12[2], "soc12")
+    c12 = s.part("cap", 240, y, name="C12", value="1m", line="Rser=0.1"); s.gnd(c12[1])
+    lc = s.part("ind", 384, 208, "R90", "Lcab", "1u")
+    s.wire(b12[0], (112, y), c12[0]); s.wire(c12[0], lc[1]); s.flag(b12[0], "v12")
+    rlr = s.part("res", 416, 208, name="Rlr", value="8m"); s.wire(lc[0], rlr[0])
+    slr = s.part("sw", 416, 304, name="Slr", value="SST"); s.wire(rlr[1], slr[0]); s.gnd(slr[1])
+    s.flag(slr[2], "st1"); s.gnd(slr[3])
+    rrun = s.part("res", 528, 208, name="Rrun", value="40m"); s.wire(rlr[0], rrun[0])
+    srun = s.part("sw", 528, 304, name="Srun", value="SST"); s.wire(rrun[1], srun[0]); s.gnd(srun[1])
+    s.flag(srun[2], "st2"); s.gnd(srun[3])
+    s.flag(lc[0], "starter")
+    # --- 48 V: pack with BMS, harness, bus, load, short
+    b48 = s.part("BATTERY_BMS", 1008, 336, name="U2", line="VNOM=48 SOC0=0.8 T_PRE=0.3 R_PRE=10")
+    s.gnd(b48[1]); s.flag(b48[2], "soc48"); s.flag(b48[3], "en"); s.flag(b48[4], "flt")
+    lh = s.part("ind", 1152, 208, "R90", "Lharn", "2u")
+    s.wire(b48[0], (1008, y), lh[1]); s.flag(b48[0], "vpack")
+    cb = s.part("cap", 1184, y, name="Cbus", value="10m", line="Rser=5m"); s.gnd(cb[1])
+    s.wire(lh[0], cb[0]); s.flag(cb[0], "bus")
+    rld = s.part("res", 1312, 208, name="Rload", value=1); s.wire(cb[0], rld[0])
+    sld = s.part("sw", 1312, 304, name="Sload", value="SLD"); s.wire(rld[1], sld[0]); s.gnd(sld[1])
+    s.flag(sld[2], "ld"); s.gnd(sld[3])
+    rsc = s.part("res", 1440, 208, name="Rsc", value="5m"); s.wire(rld[0], rsc[0])
+    ssc = s.part("sw", 1440, 304, name="Ssc", value="SLD"); s.wire(rsc[1], ssc[0]); s.gnd(ssc[1])
+    s.flag(ssc[2], "sc"); s.gnd(ssc[3])
+    srcs = [("Vst1", "st1", "PWL(0 0 0.1 0 0.1001 1 0.13 1 0.1301 0)"),
+            ("Vst2", "st2", "PWL(0 0 0.13 0 0.1301 1 0.6 1 0.6001 0)"),
+            ("Ven", "en", "PWL(0 0 10m 0 10.01m 3.3)"),
+            ("Vld", "ld", "PWL(0 0 0.5 0 0.5001 1)"),
+            ("Vsc", "sc", "PWL(0 0 0.8 0 0.8001 1)")]
+    for k, (nm, net, val) in enumerate(srcs):
+        p = s.part("voltage", 96 + 320 * k, 592, name=nm, value=val)
+        s.flag(p[0], net); s.gnd(p[1])
+    s.text(32, -40, "Battery models: 12 V BATTERY at -18 degC with a starter load (locked rotor 0.1 s, cranking "
+                    "to 0.6 s) | 48 V BATTERY_BMS: EN 10 ms, pre-charge 0.3 s, 48 A load 0.5 s, short 0.8 s", 2)
+    s.text(32, 0, "Probe: V(u1:s) raw SOC, V(u1:ocv) | V(u2:fl) fault latch, V(u2:x) switch state, "
+                  "V(u2:pre) pre-charge, I(u2:Vsw) pack current", 1)
+    s.text(32, 776, ".include ../models/BATTERY_beh.lib", 2, True)
+    s.text(32, 808, ".model SST SW(Ron=0.1m Roff=1k Vt=0.5 Vh=-0.2)", 2, True)
+    s.text(32, 840, ".model SLD SW(Ron=0.1m Roff=1Meg Vt=0.5 Vh=-0.2)", 2, True)
+    s.text(32, 872, ".tran 0 1 0 1m", 2, True)
+    s.text(800, 776, ".meas tran v12min min V(v12) from 0.1 to 0.13", 1, True)
+    s.text(800, 800, ".meas tran t_flt find time when V(flt)=1.65 rise=1", 1, True)
+    s.text(800, 824, ".meas tran dt_flt param t_flt-0.8001", 1, True)
+    s.text(800, 848, ".meas tran fltpre max V(flt) from 0 to 0.79", 1, True)
+    s.text(800, 872, ".options plotwinsize=0", 1, True)
+    s.text(800, 896, ".save V(v12) V(starter) V(soc12) V(vpack) V(bus) V(soc48) V(flt) V(en) I(Lcab) I(Lharn) "
+                     "V(u1:s) V(u1:ocv) V(u2:fl) V(u2:x) V(u2:pre) I(u2:Vsw)", 1, True)
+    s.save("demo_battery.asc")
+
+
+def demo_dcdc():
+    """48 V source + feed -> DCDC48_12 -> 12 V battery and a switched 12 V load."""
+    s = Sch(1500, 900)
+    y = 224
+    vs = s.part("voltage", 48, 240, name="V48", value=48); s.gnd(vs[1])
+    lf = s.part("ind", 208, 208, "R90", "Lfeed", "2u", line="Rser=10m")
+    s.wire(vs[0], (48, y), lf[1]); s.flag(lf[0], "vin")
+    rb = s.part("res", 288, 208, name="Rbl", value="4.7k"); s.wire(lf[0], rb[0]); s.gnd(rb[1])
+    u = s.part("DCDC48_12", 528, 256, name="U1", line="VSET=14 PRATED=700")
+    s.wire(lf[0], (304, y), u[0]); s.gnd(u[2]); s.flag(u[3], "en"); s.flag(u[4], "pg")
+    lh = s.part("ind", 768, 208, "R90", "Lh12", "0.5u", line="Rser=2m")
+    s.wire(u[1], lh[1]); s.flag(u[1], "v12"); s.flag(lh[0], "b12")
+    b12 = s.part("BATTERY", 880, 304, name="U2", line="VNOM=12 SOC0=0.6")
+    s.wire(lh[0], (880, y), b12[0]); s.gnd(b12[1]); s.flag(b12[2], "soc12")
+    rl = s.part("res", 992, 208, name="Rbase", value="1.4"); s.wire((880, y), rl[0]); s.gnd(rl[1])
+    rp = s.part("res", 1104, 208, name="Rptc", value="0.3"); s.wire(rl[0], rp[0])
+    sp = s.part("sw", 1104, 304, name="Sptc", value="SLD"); s.wire(rp[1], sp[0]); s.gnd(sp[1])
+    s.flag(sp[2], "ptc"); s.gnd(sp[3])
+    srcs = [("Ven", "en", "PWL(0 0 1m 0 1.01m 3.3)"), ("Vptc", "ptc", "PWL(0 0 20m 0 20.01m 1 40m 1 40.01m 0)")]
+    for k, (nm, net, val) in enumerate(srcs):
+        p = s.part("voltage", 96 + 320 * k, 592, name=nm, value=val); s.flag(p[0], net); s.gnd(p[1])
+    s.text(32, -40, "700 W 48/12 V DC/DC: EN at 1 ms (soft-start onto the pre-biased 12 V battery, "
+                    "then current limit), 40 A PTC load 20..40 ms", 2)
+    s.text(32, 0, "Probe: V(u1:il) inductor current, V(u1:vref), V(u1:run), V(u1:ploss) | V(u2:s) 12 V battery SOC", 1)
+    s.text(32, 776, ".include ../models/DCDC48_12_beh.lib", 2, True)
+    s.text(32, 808, ".include ../models/BATTERY_beh.lib", 2, True)
+    s.text(32, 840, ".model SLD SW(Ron=0.1m Roff=1Meg Vt=0.5 Vh=-0.2)", 2, True)
+    s.text(32, 872, ".tran 0 60m 0 5u", 2, True)
+    s.text(704, 776, ".meas tran il_cl avg V(u1:il) from 10m to 19m", 1, True)
+    s.text(704, 800, ".meas tran iin avg -I(Lfeed) from 10m to 19m", 1, True)
+    s.text(704, 824, ".meas tran v12_ptc avg V(b12) from 30m to 39m", 1, True)
+    s.text(704, 848, ".options plotwinsize=0", 1, True)
+    s.text(704, 872, ".save V(vin) V(v12) V(b12) V(pg) V(soc12) I(Lfeed) I(Lh12) V(u1:il) V(u1:vref) V(u1:run) "
+                     "V(u1:ploss)", 1, True)
+    s.save("demo_dcdc.asc")
+
+
 if __name__ == "__main__":
     demo_module()
     app_discrete()
+    demo_battery()
+    demo_dcdc()

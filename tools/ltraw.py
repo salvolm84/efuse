@@ -27,6 +27,13 @@ class LTRaw:
         k = lines.index("Variables:")
         self.names = [lines[k + 1 + j].split("\t")[2] for j in range(nvar)]
         self.idx = {n.lower(): j for j, n in enumerate(self.names)}
+        if binary and "complex" in flags:  # .ac: every variable is complex double
+            arr = np.frombuffer(body[: npts * nvar * 16], dtype="<c16").reshape(npts, nvar).copy()
+            arr[:, 0] = arr[:, 0].real
+            self.data = arr
+            self.bounds = [(0, npts)]
+            self.nsteps = 1
+            return
         if binary:
             if "double" in flags:
                 arr = np.frombuffer(body[: npts * nvar * 8], dtype="<f8").reshape(npts, nvar)
@@ -67,6 +74,14 @@ def meas_log(path):
     txt = open(path, "rb").read()
     txt = txt.decode("utf-16-le") if txt[1:2] == b"\x00" else txt.decode("latin-1")
     for line in txt.splitlines():
+        # .ac results are printed as "=(<mag>dB,<phase>°)": stored as the signed
+        # real value |x|*cos(phase) (= |x| for mag(), sign kept for re())
+        m = re.match(r"^\s*([A-Za-z_]\w*):\s.*?=\(([-+0-9.eE]+)dB,([-+0-9.eE]+)", line)
+        if m:
+            import math
+            val = 10 ** (float(m.group(2)) / 20) * math.cos(math.radians(float(m.group(3))))
+            out.setdefault(m.group(1).lower(), []).append(val)
+            continue
         m = re.match(r"^\s*([A-Za-z_]\w*):\s.*?=\s*([-+0-9.eE]+)", line)
         if m:
             out.setdefault(m.group(1).lower(), []).append(float(m.group(2)))

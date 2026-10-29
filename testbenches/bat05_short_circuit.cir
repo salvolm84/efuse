@@ -1,0 +1,50 @@
+* bat05_short_circuit.cir
+* ---------------------------------------------------------------------------
+* Bolted short circuit at the battery terminals, full charge, 25 degC.
+* A: 12 V class BATTERY (no protection). Short = 1 mOhm + 0.5 uH (cable),
+*    closed at t = 1 ms.
+*    Expected: initial di/dt = OCV/(L_INT+0.5u) = 18.4 A/us, current settles
+*    with L/R ~ 0.23 ms to OCV/(R0'+R1'(1-exp(-t/TAU1))+1 mOhm) ~ 4.2 kA and
+*    then slowly decreases as the polarization builds up.
+* B: 48 V class BATTERY_BMS, 470 uF bus capacitance at the pack terminals,
+*    short = 1 mOhm + 1 uH closed at t = 1 ms.
+*    Expected: pack current rises at ~ OCV/(L_INT+1u) = 26 A/us, crosses
+*    I_SC = 1000 A after ~50 us, the BMS opens the switch T_SC = 100 us later
+*    (10 us ramp). The clamp limits the switch voltage to V_CLAMP = 80 V while
+*    the inductive energy is absorbed; FLT goes high.
+* ---------------------------------------------------------------------------
+.include ../models/BATTERY_beh.lib
+.model SSC SW(Ron=0.1m Roff=1Meg Vt=0.5 Vh=-0.2)
+Vsc g 0 PWL(0 0 1m 0 1.0001m 1)
+
+* ---- A: 12 V
+XA pa 0 soca BATTERY VNOM=12 SOC0=1
+SA pa sa g 0 SSC
+LA sa 0 0.5u Rser=0.9m
+
+* ---- B: 48 V pack with BMS
+VenB enb 0 3.3
+XB pb 0 socb enb fltb BATTERY_BMS VNOM=48 SOC0=1
+CB pb 0 470u Rser=10m
+SB pb sb g 0 SSC
+LB sb 0 1u Rser=0.9m
+
+.save V(pa) I(LA) I(xa:Vi) V(xa:ocv) V(pb) V(fltb) I(LB) I(xb:Vsw) V(xb:bs) V(xb:x) V(xb:sc_r) V(xb:fl)
+.meas tran ia_2us find I(LA) at 1.0021m
+.meas tran ia_3ms find I(LA) at 3m
+.meas tran ia_pk max I(LA) from 1m to 6m
+.meas tran ia_6ms find I(LA) at 6m
+.meas tran va_3ms find V(pa) at 3m
+.meas tran ocva find V(xa:ocv) at 0.9m
+.meas tran ib_2us find I(xb:Vsw) at 1.0021m
+.meas tran tsc find time when I(xb:Vsw)=1000 rise=1
+.meas tran tflt find time when V(xb:fl)=0.5 rise=1
+.meas tran dt_sc param tflt-tsc
+.meas tran ib_pk max I(xb:Vsw) from 1m to 2m
+.meas tran vsw_max max (V(xb:bs)-V(pb)) from 1m to 2m
+.meas tran e_cl integ (V(xb:bs)-V(pb))*I(xb:Vsw) from 1.1m to 2m
+.meas tran ib_end find I(xb:Vsw) at 3m
+.meas tran fltb_end find V(fltb) at 3m
+.tran 0 6m 0 0.2u
+.options plotwinsize=0
+.end
