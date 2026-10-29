@@ -18,8 +18,9 @@ calculations. The system benches that combine the devices are
 (48 V pack → eFuse PDU, load dump) and
 [dc08](#dc08-two-voltage-system-dc08_pdn_48v_12vcir)
 (48 V pack → eFuse → DC/DC → 12 V battery and loads). An
-[interview guide](interview/efuse_pdu_48v_interview_guide.md) for 48 V PDU
-hardware engineers uses the benches, one simulation per question.
+[interview guide](interview/pdn_48v_12v_interview_guide.md) for hardware
+engineers working on 48 V / 12 V power distribution (eFuse PDU, batteries,
+DC/DC) uses the benches, one simulation per question.
 
 **The 48 V eFuse** (sections 1–13) is a detailed **behavioral model of a 48 V
 automotive electronic fuse**, using the STMicroelectronics **VNF1048F** as the
@@ -358,7 +359,7 @@ efuse/
 │   └── demo_dcdc.asc             48 V feed -> DC/DC -> 12 V battery + switched load
 ├── testbenches/                  tb01..tb35 (eFuse, section 10), bat01..bat07 (battery), dc01..dc08 (DC/DC)
 ├── interview/
-│   └── efuse_pdu_48v_interview_guide.md   question bank with a simulation per question
+│   └── pdn_48v_12v_interview_guide.md      48 V / 12 V power distribution question bank, a simulation per question
 ├── docs/
 │   ├── img/                      result plots (generated)
 │   └── VALIDATION.md             pass/fail report vs datasheet and hand calculations (generated)
@@ -1924,7 +1925,7 @@ and let the MCU retry every 200 ms: the resistor energy accumulates.
 ### Interview companion benches (tb15–tb35)
 
 These benches were written for the
-[interview guide](interview/efuse_pdu_48v_interview_guide.md): each one isolates the
+[interview guide](interview/pdn_48v_12v_interview_guide.md): each one isolates the
 concept behind a question. The guide has the plots, the simulated numbers and the
 prompts. They use the same model and common setup as tb01–tb14, are checked by
 `tools/validate.py`, and are plotted by `tools/plot_results.py`. Some use the bare

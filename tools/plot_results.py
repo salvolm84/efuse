@@ -362,7 +362,7 @@ def tb14():
 
 # ---------------------------------------------------------------------------
 # Interview companion benches (tb15..tb35) and post-processed figures (iv_*).
-# See interview/efuse_pdu_48v_interview_guide.md.
+# See interview/pdn_48v_12v_interview_guide.md.
 # ---------------------------------------------------------------------------
 def ifet(r, k=0, pre="x1:"):
     """FET current from the 1 mOhm shunt drop (unlike I(Lh), it stops at turn-off)."""

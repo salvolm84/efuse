@@ -1,14 +1,32 @@
-# Interview guide: eFuse-based 48 V automotive PDU (HW engineer)
+# Interview guide: 48 V / 12 V automotive power distribution (HW engineer)
 
-A question bank for assessing a hardware engineer's knowledge of eFuse-based
-power distribution units (PDUs) for 48 V automotive systems, including the
-battery the PDU is connected to. It covers both design and validation.
+A question bank for assessing a hardware engineer's knowledge of automotive
+power distribution in a 48 V / 12 V vehicle. It covers design and validation
+of the network and of its main devices:
+
+* the **eFuse-based power distribution unit (PDU)** and its channels, the core
+  of the guide;
+* the **48 V battery pack** (with its BMS) and the **12 V battery** that feed
+  and buffer the network;
+* the **48 V → 12 V DC/DC converter** that links the two voltage levels.
+
+| Topic | Questions |
+|---|---|
+| 48 V system, zonal architecture, standards | A1–A3 |
+| eFuse and PDU: protection, power stage, inrush, thermal, faults, safety, validation | B–H (except C4, C5, D5), I, J1–J5 |
+| Batteries: source impedance, cold crank, pack disconnect (load dump), pack pre-charge | A4, A5, D5, J6 |
+| DC/DC converter: the converter as a load, input-filter stability | C4, C5, J7 |
+
+Pick the questions that match the role: a PDU designer should cover B–H in
+depth, while a candidate for battery integration or DC/DC work should get the
+battery or converter questions plus the system ones (A, F).
 
 ## How to use this guide
 
 * **Levels.** Each question has a level:
   * **L1, fundamentals.** Every candidate for the role should answer these.
-  * **L2, designer.** Has designed or owned an eFuse channel or PDU.
+  * **L2, designer.** Has designed or owned an eFuse channel, a PDU, a battery
+    integration or a DC/DC converter in a vehicle network.
   * **L3, expert.** Can lead the architecture, the safety concept and the validation strategy.
 * **Drill down.** Ask the main question open-ended first. Then use the
   *follow-ups* to see whether the knowledge goes beyond the first answer. The
@@ -36,7 +54,7 @@ Suggested format, 90–120 min:
 | Part | Content | Time |
 |---|---|---|
 | 1 | Background and a project the candidate owned (they drive it, you drill) | 15 min |
-| 2 | Technical questions, sections A–H (pick per level) | 45–60 min |
+| 2 | Technical questions, sections A–H (pick per level and role, see the topic table) | 45–60 min |
 | 3 | Design exercise (section I) | 20–30 min |
 | 4 | Debug scenarios (section J) | 10–15 min |
 
@@ -95,7 +113,7 @@ python3 tools/plot_results.py               # plots in docs/img/
 
 ---
 
-## A. 48 V system context
+## A. 48 V system context and the energy source
 
 ### A1. Why 48 V, and what changes compared with 12 V? (L1)
 
@@ -598,7 +616,7 @@ VS), [`tb19`](../testbenches/tb19_turnoff_speed.cir) (fast turn-off path) and
 
 ---
 
-## C. Power stage and component selection
+## C. Power stage, components and loads
 
 ### C1. How do you choose the MOSFET for a 48 V, 30 A channel? (L2)
 
@@ -1634,9 +1652,9 @@ numbers, 3 = can lead and teach it).
 
 | Area | Sections | Score (0–3) | Notes |
 |---|---|---|---|
-| 48 V system, standards and the battery source | A | | |
+| 48 V system, standards, batteries as the source | A | | |
 | eFuse principles and protections | B | | |
-| Power stage, FET, SOA; DC/DC as a load, input-filter stability | C | | |
+| Power stage, FET, SOA; the DC/DC as a load, input-filter stability | C | | |
 | Inrush and pre-charge (channel and pack) | D | | |
 | Thermal and layout | E | | |
 | System faults (48/12 V short, ground, stuck-on) | F | | |
@@ -1654,5 +1672,5 @@ numbers, 3 = can lead and teach it).
 
 Things that weigh more than the score: whether the candidate **estimates with numbers**,
 **states assumptions** and **asks for missing data** (wire curve, C tolerance,
-battery impedance), and whether they treat validation as part of the design,
+battery impedance, the converter's input capacitance and power), and whether they treat validation as part of the design,
 not as an afterthought.
