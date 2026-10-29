@@ -45,6 +45,8 @@ against hand calculations.
 
 ## Contents
 
+**Getting started:** [using the models in a new LTspice simulation](#using-the-models-in-a-new-ltspice-simulation)
+
 **48 V eFuse**
 
 1. [How an eFuse works: an intuitive guide](#1-how-an-efuse-works-an-intuitive-guide)
@@ -72,6 +74,247 @@ against hand calculations.
 **Common**
 
 16. [References](#16-references)
+
+---
+
+## Using the models in a new LTspice simulation
+
+This section is a step-by-step recipe for using the models in a simulation of
+your own, from a schematic or from a netlist. The common steps come first,
+then a checklist for each device, then an example that combines all three.
+The fastest start is often to copy the closest test bench (`testbenches/*.cir`)
+or demo schematic (`schematics/*.asc`) and modify it.
+
+### Common steps in the schematic editor
+
+1. **Create a folder for your project** and save a new schematic there
+   (File → New Schematic, then File → Save As).
+2. **Make the symbols available.** Copy the symbols you need from `symbols/`
+   into the same folder as your schematic:
+
+   | Model | Symbol files |
+   |---|---|
+   | eFuse channel | `EFUSE48_MOD.asy` |
+   | bare eFuse controller | `VNF1048F.asy` (+ `NTC10K_ST.asy`) |
+   | battery | `BATTERY.asy` |
+   | battery pack with BMS | `BATTERY_BMS.asy` |
+   | DC/DC converter | `DCDC48_12.asy` |
+
+   LTspice lists the symbols next to the schematic at the top of the component
+   dialog. Alternatively, add the repository's `symbols/` folder to the symbol
+   search path in LTspice's settings.
+3. **Include the model libraries.** Place a SPICE directive (press `S`, or Edit →
+   SPICE Directive) with one `.include` per library you use, for example:
+
+   ```spice
+   .include ../models/VNF1048F_beh.lib
+   .include ../models/BATTERY_beh.lib
+   .include ../models/DCDC48_12_beh.lib
+   ```
+
+   * **Paths:** relative paths are resolved from the schematic's folder, which is
+     how the demo schematics use `../models/…`. An absolute path works too.
+   * **If you forget it:** the symbol only carries the subcircuit name. Without the
+     `.include`, LTspice reports an unknown subcircuit.
+4. **Place and wire the part.** Press `F2` and pick the symbol, then wire its
+   power pins.
+5. **Drive every logic input.** EN, BYP and CLR have only a 1 MΩ pull-down, so
+   give each one a defined level: a voltage source, usually `3.3` or a `PWL` for
+   events.
+6. **Set the parameters.** Right-click the symbol (Ctrl + right-click in some
+   versions) and edit its **SpiceLine** attribute, for example
+   `VNOM=48 SOC0=0.8 T_PRE=0.3`. Any parameter you do not write keeps its
+   default. The parameter tables are in sections [6.2](#62-parameters),
+   [14.5](#145-pins-parameters-and-internal-nodes) and
+   [15.4](#154-pins-parameters-and-internal-nodes).
+7. **Add the analysis.** Use Simulate → Configure Analysis, or a `.tran`
+   directive, with a maximum time step that fits the fastest event you want to
+   see (table below).
+   * **For `.meas` of fast events:** add `.options plotwinsize=0`, so that
+     LTspice does not compress the waveforms.
+8. **Run and probe.** Click a net to plot it.
+   * **Internal model states:** these are nodes named
+     `V(<instance>:<node>)`, for example `V(u1:xu:fd)` for the fuse state of
+     eFuse `U1` (LTspice 24+, lower case). Add them with Add Traces.
+   * **`.meas` on internal nodes:** list the nodes in a `.save` statement. A
+     `.save` line limits the saved data to what it lists, so include your other
+     traces as well.
+
+| Event you want to resolve | Maximum time step |
+|---|---|
+| short circuits, eFuse hard-short trip, BMS short-circuit trip | 0.2 … 1 µs |
+| eFuse start-up and pre-charge, DC/DC load steps | 1 … 5 µs |
+| engine crank, BMS timers, DC/DC hiccup, input transients | 5 µs … 1 ms |
+| charging and discharging over minutes to hours (battery alone) | 0.1 … 2 s |
+
+### Using a netlist instead of a schematic
+
+1. Write a `.cir` file with the same `.include` lines and the subcircuit
+   instances. Each instance line starts with `X`, followed by the nodes in pin
+   order, the subcircuit name and the parameters:
+
+   | Model | Pin order |
+   |---|---|
+   | `EFUSE48_MOD` | VBAT OUT GND EN BYP CLR DIAG CS TFET |
+   | `VNF1048F` | VS CP ISNS_P ISNS_N HS_GATE OUT NTC NTC_M GND DIAG OUTCTL BYPCTL CLR CS |
+   | `BATTERY` | P N SOC |
+   | `BATTERY_BMS` | P N SOC EN FLT |
+   | `DCDC48_12` | VIN VOUT GND EN PG |
+
+2. Open it in LTspice (File → Open, file type *Netlists*) and run it, or run it
+   in batch mode with `tools/run_ltspice.sh my.cir`, which prints the `.meas`
+   results and any convergence warnings.
+
+### eFuse channel (`EFUSE48_MOD`, or the bare `VNF1048F`)
+
+1. **Supply side.**
+   * **A source with impedance:** the battery model, or a source with R and
+     harness L.
+   * **Bus capacitance:** ≥ 100 µF with its ESR.
+   * **Optionally a TVS** (`TVS_58V`).
+
+   Without bus capacitance the energy of a hard-short interruption has no
+   realistic path ([8.3](#83-board-level-protection-seen-in-the-benches)).
+2. **Instance and thresholds.**
+
+   ```spice
+   X1 vbat out 0 en byp clr diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12 VDS_CODE=14 TNOM_CODE=0
+   ```
+
+   Choose the codes from the INOM, IHSC, VDS and tNOM you need
+   ([8.1](#81-choosing-the-thresholds) and the worked example in
+   [13](#13-designing-with-the-model-worked-example)).
+3. **Logic inputs and outputs.**
+   * **EN** (OUTCTL): 0 → 3.3 V turns the channel on.
+   * **BYP:** tie to 0, unless you simulate stand-by.
+   * **CLR:** tie to 0, and pulse it high to clear a latched fault.
+   * **DIAG:** already pulled up to 3.3 V inside the module.
+   * **CS** (current readback, V = I·RSENSE) and **TFET** (FET temperature in
+     °C): outputs that can stay unconnected.
+4. **Load side.**
+   * **Load harness:** add its L and R, then the load.
+   * **Freewheel diode:** an `SCH_100V` from GND to OUT for any inductive load
+     or long harness.
+   * **Converter that is off:** if OUT feeds a converter that is off, add the
+     bleeder your design has. The ~1.3 mA OUT bias current would otherwise
+     charge its input.
+5. **Probe.** Useful states are `fd` (fuse heat, 1 = trip), `hsht`, `fusel` and
+   `gcmd` (all `V(u1:xu:…)`, see [6.3](#63-internal-nodes-you-can-probe)).
+6. **Bare controller.** To use the bare controller with your own FET, shunt and
+   NTC, start from `schematics/app_vnf1048f_discrete.asc`.
+
+### Battery (`BATTERY`) and battery pack (`BATTERY_BMS`)
+
+1. **Pick the model.**
+   * **`BATTERY`:** an unprotected battery (12 V starter battery, or any
+     battery).
+   * **`BATTERY_BMS`:** a pack with a disconnect switch and protections (48 V
+     MHEV pack, 12 V lithium).
+2. **Set the class and the state.**
+   * **`VNOM`:** 12, 24 or 48. It selects every default.
+   * **`SOC0` and `TBAT`:** the initial state of charge and the temperature.
+   * **Your battery's data:** set `CAP_AH`, `R0`… if you have them. To fit them,
+     see [14.7](#147-fitting-the-parameters-to-a-real-battery).
+3. **Connect the pins.**
+   * **P and N:** N does not have to be ground.
+   * **SOC:** an output, 0…1 V; it can stay unconnected.
+4. **Pack only: drive EN and plan the closing.**
+   * **EN:** tie it to a 3.3 V source for a pack that is simply on; it is then
+     connected at t = 0. Use a `PWL` to open it, or to re-close it and clear a
+     fault.
+   * **FLT:** an output, 3.3 V = tripped.
+   * **Pre-charge:** if the pack closes onto several mF of bus capacitance, set
+     `T_PRE` and `R_PRE`.
+5. **Put real capacitance (with ESR) at the terminals.** Driving the battery
+   with an ideal current source alone rings numerically
+   ([14.10](#1410-numerical-notes)).
+6. **Probe.** Useful nodes are `V(u1:s)` (raw SOC), `V(u1:ocv)` and, for the pack,
+   `V(u1:x)` (switch state), `V(u1:fl)` (fault latch) and `I(u1:Vsw)` (pack
+   current).
+7. **Expected log messages.** With a `BATTERY_BMS` in the circuit, the LTspice
+   log may report "Direct Newton iteration failed" and "Gmin stepping failed"
+   before "Gmin stepping level 2 succeeded". These are LTspice's normal
+   fallbacks, not errors.
+
+### DC/DC converter (`DCDC48_12`)
+
+1. **Instance.**
+
+   ```spice
+   X1 vin vout 0 en pg DCDC48_12 VSET=14 PRATED=700
+   ```
+
+   The defaults are listed in [15.4](#154-pins-parameters-and-internal-nodes).
+2. **Input.** Feed it from the 48 V bus or from an eFuse output. The input
+   capacitance (470 µF) is already inside the model. Behind an eFuse, add a
+   bleeder (4.7 kΩ in dc08).
+3. **EN and start-up.** Tie EN to 3.3 V, or drive it with a `PWL`. The
+   converter is off at t = 0. It soft-starts as soon as EN is high and VIN is
+   above 30 V, so start your load events after ~6 ms.
+4. **Output.**
+   * **Typical load:** a 12 V battery model plus the 12 V loads.
+   * **Current-source loads:** do not connect an ideal DC current sink that is
+     already on at t = 0; ramp it in after the start-up, or use resistive loads.
+5. **Integration method.** Including the library switches the whole simulation
+   to Gear integration ([15.8](#158-numerical-notes)). Nothing else needs
+   changing.
+6. **AC analysis.** For `.ac`, set `DCRUN=1`, so that the converter is running in
+   the operating point (dc06).
+7. **Probe.** Useful nodes are `V(u1:il)` (output current), `V(u1:vref)`,
+   `V(u1:run)`, `V(u1:hic)` (hiccup) and `V(u1:ploss)` (losses).
+
+### Example: the three models together
+
+A minimal two-voltage network: a 48 V pack feeds an eFuse channel, which feeds
+the DC/DC, which charges a 12 V battery and supplies a 10 A load. Saved as
+`testbenches/my_pdn.cir`, it runs in about 5 s.
+
+```spice
+* my_pdn.cir - 48 V pack -> eFuse -> 48/12 V DC/DC -> 12 V battery + load
+.include ../models/VNF1048F_beh.lib
+.include ../models/BATTERY_beh.lib
+.include ../models/DCDC48_12_beh.lib
+
+Vlog v33 0 3.3                                   ; logic supply for the EN inputs
+
+* 48 V pack (connected from t = 0) and the main harness to the bus
+Xpack vpack 0 soc48 v33 flt48 BATTERY_BMS VNOM=48 SOC0=0.8
+Lmain vpack bus 2u Rser=5m
+Cbus bus 0 220u Rser=20m
+
+* eFuse channel feeding the DC/DC (EN at 1 ms; BYP and CLR not used)
+Ven en 0 PWL(0 0 1m 0 1.001m 3.3)
+Xfuse bus fout 0 en 0 0 diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=22 HSC_CODE=14
++ VDS_CODE=14 TNOM_CODE=2
+Lh1 fout dcin 1u Rser=10m
+Dfw 0 fout SCH_100V
+Rbl dcin 0 4.7k                                  ; bleeder for the eFuse OUT bias
+
+* 700 W DC/DC, always enabled: starts at its 30 V UVLO on the eFuse ramp
+Xdc dcin v12 0 v33 pg DCDC48_12
+
+* 12 V net: harness, battery, 10 A load
+Lh12 v12 b12 0.5u Rser=2m
+X12 b12 0 soc12 BATTERY VNOM=12 SOC0=0.7
+Rload b12 0 1.25
+
+.save V(bus) V(dcin) V(v12) V(b12) V(diag) V(pg) I(Lh1) I(Lh12) V(xdc:il)
+.meas tran i12 avg V(xdc:il) from 15m to 20m
+.meas tran vb12 avg V(b12) from 15m to 20m
+.tran 0 20m 0 1u
+.end
+```
+
+**Expected:**
+* After the eFuse turns on at 1 ms, the DC/DC starts on the rising input and
+  runs at its 55 A current limit (`i12` = 55 A).
+* The 12 V battery charges with the current that the 10 A load does not take,
+  and the 12 V net sits at ~12.66 V (`vb12`).
+
+[dc08](#dc08-two-voltage-system-dc08_pdn_48v_12vcir) is the full version, with
+a second eFuse channel, a 12 V load step and a 48 V branch short. In a
+schematic the circuit is the same: place the parts, add the three `.include`
+lines and the `.tran`, and set the parameters in each symbol's SpiceLine.
 
 ---
 
