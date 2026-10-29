@@ -1,0 +1,20 @@
+Copyright (c) 2026 Salvatore La Malfa. All rights reserved.
+
+This repository and all of its contents (models, symbols, schematics, test
+benches, tools, documentation and generated results) are proprietary. No part
+of it may be copied, modified, distributed, published or used, in whole or in
+part, without the prior written permission of the copyright holder.
+
+The contents are provided "as is", without warranty of any kind, express or
+implied. In no event shall the copyright holder be liable for any claim,
+damages or other liability arising from the use of the contents.
+
+Notices
+
+* The VNF1048F model (models/VNF1048F_beh.lib) is an independent, unofficial
+  behavioral model built from public STMicroelectronics documentation
+  (datasheet DS13084). STMicroelectronics did not provide, review or endorse it.
+* The reference parameter sets (models/REFERENCE_SETS_beh.lib) are fitted to
+  public data of products of Varta, A123 Systems and Toshiba. These
+  manufacturers did not provide, review or endorse them.
+* Product names are trademarks of their respective owners.

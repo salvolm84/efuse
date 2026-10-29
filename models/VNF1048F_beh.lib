@@ -9,7 +9,7 @@
 *              gives no number, an engineering estimate is used and flagged
 *              "[EST]" (see README.md, section "Assumptions").
 *  Simulator : LTspice (validated with LTspice 26.0.2; uses B-sources with
-*              idt(), if(), table(), boolean operators)
+*              if(), table(), boolean operators; no idt())
 *
 *  Contents
 *    VNF1048F        controller (the IC itself)                      14 pins
@@ -201,7 +201,9 @@ Xhs hsc_t rst hsht GND EF_LATCH
 *             makes the balance symmetric -> trips only if I_RMS > INOM)
 Bkx kx GND V=if({FUSE_MODE}>0.5, max(1, 32*(V(xa,GND)*V(xa,GND)-1)),
 +  pow(2, max(0, floor(log(max(32*(V(xa,GND)*V(xa,GND)-1), 1n))/log(2) + 1u))))
-Bfd GND fd I=if(V(xa,GND)>1, V(kx,GND)*(V(fd,GND)<1)/({TNOM}*{TOL_T}),
+*  (the fill rate goes smoothly to 0 between fd = 1 and 1.001 instead of a
+*   hard step at 1, so the state never rests on a discontinuity)
+Bfd GND fd I=if(V(xa,GND)>1, V(kx,GND)*limit((1.001-V(fd,GND))/1m, 0, 1)/({TNOM}*{TOL_T}),
 +  -{KCOOL}*32*(1-V(xa,GND)*V(xa,GND))*limit(V(fd,GND)/1m,0,1)/{TNOM} )
 +  - if(V(porlow,GND)>0.5, V(fd,GND)*1k, 0)
 Cfd fd GND 1
@@ -213,7 +215,12 @@ Bovc ovc GND V=(V(xa,GND)>1) | (V(fd,GND)>1m)
 
 * ---------------- external FET desaturation (Table 14, sec. 5.4) -------------
 *  VDS = V(ISNS_N) - V(OUT) ; blanked 960 us after HS turn-on
-Bton ton GND V=idt(1, 0, !(V(gcmd,GND)>0.5))
+*  blanking timer ton (1 V = 1 s) on a normalized 1 F capacitor: rises at
+*  1 V/s while the gate is commanded on, settles smoothly at 2*VDS_BLK,
+*  resets in ~1 us at turn-off; 0 in the DC operating point (no idt())
+Cton ton GND 1 Rpar=1T
+Bton GND ton I=if(time<=0, -V(ton,GND)*1k, if(V(gcmd,GND)>0.5,
++  limit((2*{VDS_BLK} - V(ton,GND))/(0.1*{VDS_BLK}), -1e3, 1), -V(ton,GND)*1Meg))
 Bvc vds_c GND V=(V(gcmd,GND)>0.5) & (V(ton,GND)>{VDS_BLK}) & (V(ISNS_N,OUT)>{VDSTH})
 Xvdd vds_c vds_t GND EF_DGL T={VDS_DGL+VDS_DLY}
 Xvds vds_t rst vdsmax GND EF_LATCH
@@ -260,17 +267,34 @@ Bdiag DIAG GND I=V(dlo,GND)*V(DIAG,GND)/200 + 1n*V(DIAG,GND)
 *                  |  NTC on drain pad, RT_REF=10k to NTC_M
 *    HS_GATE --RG_ON--+-- FET gate ;  D_off||RG_OFF (fast turn-off path)
 *                     +-- C_SLEW -- GND  (dV/dt / inrush control)
+*  All VNF1048F controller parameters are also accepted and passed through to
+*  the internal controller XU, with the same defaults (TAMB_IC = its TAMB).
 * ----------------------------------------------------------------------------
 .subckt EFUSE48_MOD VBAT OUT GND EN BYP CLR DIAG CS TFET
 + RSENSE=1m OVC_CODE=13 HSC_CODE=12 VDS_CODE=14 NTC_CODE=4 TNOM_CODE=0
 + VOC_MV=0 HSC_MV=0 VDS_MV=0 TNOM_S=0 FUSE_MODE=0 KCOOL=1 CPON=1
 + RG_ON=2.2k C_SLEW=47n RG_OFF=10 TAMB=25 RTHJC=0.6 RTHCA=20 CTHJ=0.02 CTHC=0.5
 + NPAR=1 TAMB_IC=25
++ VNTC_MV=0 TOL_T=1 T_SAMP=61u VCP_REG=14.5 ICP_MAX=30m RCP=10 VGS_ON=14
++ IG_SRC=0.2 IG_SNK=0.5 HSC_DLY=5u VDS_DGL=5u VDS_DLY=5u VDS_BLK=960u
++ VGU_DGL=8u UV_FLT=33u NTC_DGL=100u CP_FLT=60u BYP_DGL=5u VS_USD=4.5
++ VS_USD_HYS=0.1 VBYP_SAT=1.3 RBYP=7 IBYP_SAT=0.12 TTSD=175 TTSD_HYS=15
++ RTHJA=26 P_EXT=0 IQ_ON=8m IQ_STBY=150u IOUT_B=1.3m ISNSP_B=300u ISNSN_B=420u
++ CS_GERR=0 VTH_LOGIC=1.5
 Rsh VBAT drn {RSENSE}
 XU VBAT cp VBAT drn hsg OUT ntc ntcm GND DIAG EN BYP CLR CS VNF1048F
-+ OVC_CODE={OVC_CODE} HSC_CODE={HSC_CODE} VDS_CODE={VDS_CODE} NTC_CODE={NTC_CODE}
-+ TNOM_CODE={TNOM_CODE} VOC_MV={VOC_MV} HSC_MV={HSC_MV} VDS_MV={VDS_MV} TNOM_S={TNOM_S}
-+ FUSE_MODE={FUSE_MODE} KCOOL={KCOOL} CPON={CPON} TAMB={TAMB_IC}
++ OVC_CODE={OVC_CODE} HSC_CODE={HSC_CODE} VDS_CODE={VDS_CODE}
++ NTC_CODE={NTC_CODE} TNOM_CODE={TNOM_CODE} VOC_MV={VOC_MV} HSC_MV={HSC_MV}
++ VDS_MV={VDS_MV} VNTC_MV={VNTC_MV} TNOM_S={TNOM_S} FUSE_MODE={FUSE_MODE}
++ TOL_T={TOL_T} KCOOL={KCOOL} T_SAMP={T_SAMP} CPON={CPON} VCP_REG={VCP_REG}
++ ICP_MAX={ICP_MAX} RCP={RCP} VGS_ON={VGS_ON} IG_SRC={IG_SRC} IG_SNK={IG_SNK}
++ HSC_DLY={HSC_DLY} VDS_DGL={VDS_DGL} VDS_DLY={VDS_DLY} VDS_BLK={VDS_BLK}
++ VGU_DGL={VGU_DGL} UV_FLT={UV_FLT} NTC_DGL={NTC_DGL} CP_FLT={CP_FLT}
++ BYP_DGL={BYP_DGL} VS_USD={VS_USD} VS_USD_HYS={VS_USD_HYS}
++ VBYP_SAT={VBYP_SAT} RBYP={RBYP} IBYP_SAT={IBYP_SAT} TTSD={TTSD}
++ TTSD_HYS={TTSD_HYS} RTHJA={RTHJA} P_EXT={P_EXT} IQ_ON={IQ_ON}
++ IQ_STBY={IQ_STBY} IOUT_B={IOUT_B} ISNSP_B={ISNSP_B} ISNSN_B={ISNSN_B}
++ CS_GERR={CS_GERR} VTH_LOGIC={VTH_LOGIC} TAMB={TAMB_IC}
 *  supply decoupling / charge pump reservoir (Fig.16: CVS2=100n, CP=470n)
 Cvs VBAT GND 100n
 Ccp cp VBAT 470n
@@ -336,18 +360,25 @@ Vta ta GND {TAMB}
 *  Helper primitives (logic levels 0/1 V referred to local GND)
 * ----------------------------------------------------------------------------
 *  Set-dominant SR latch. State on a capacitor, regenerative hold (Q snaps to
-*  0 or 1 in ~10 ns). Starts at Q=0 (all node voltages start from 0).
+*  0 or 1 in ~10 ns). Forced to reset in the DC operating point (time = 0)
+*  unless S is active, so the DC solution is unique (a regenerative latch has
+*  two valid DC solutions and Newton may otherwise pick "set").
 .subckt EF_LATCH S R Q GND
-Bl GND Q I=if(V(S,GND)>0.5, 1-V(Q,GND), if(V(R,GND)>0.5, -V(Q,GND),
+Bl GND Q I=if(V(S,GND)>0.5, 1-V(Q,GND), if(V(R,GND)>0.5 | time<=0, -V(Q,GND),
 +  if(V(Q,GND)>0.5, 1-V(Q,GND), -V(Q,GND))))
 Cl Q GND 10n
 Rl Q GND 1T
 .ends EF_LATCH
 
-*  Deglitch filter: OUT goes high once IN has been continuously high for T
+*  Deglitch filter: first-order filter + comparator, tau = T/ln2, so OUT goes
+*  high T after IN steps high (shorter pulses charge it partially, as an RC
+*  or digital filter would). Replaces an idt() timer, which forces very small
+*  time steps in long simulations.
 .subckt EF_DGL IN OUT GND T=1u
-Bt t GND V=idt(1, 0, !(V(IN,GND)>0.5))
-Bo OUT GND V=V(t,GND)>{T}
+Bi i GND V=V(IN,GND)>0.5
+Rt i t 1
+Ct t GND {T/ln(2)} Rpar=1T
+Bo OUT GND V=V(t,GND)>0.5
 .ends EF_DGL
 
 

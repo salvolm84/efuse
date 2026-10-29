@@ -1,0 +1,76 @@
+* ============================================================================
+*  REFERENCE_SETS_beh.lib  --  Parameter sets of the battery and DC/DC models
+*                              fitted to public data of real products
+*
+*  Include it AFTER BATTERY_beh.lib and DCDC48_12_beh.lib. Each set is a
+*  wrapper subcircuit with the same pins as the base model. Values taken
+*  from a public source are marked [PUB], values fitted to a published
+*  criterion [FIT], the rest are engineering estimates [EST]. The products'
+*  manufacturers did not provide, review or endorse these sets.
+*  Validated in testbenches/ref01_reference_sets.cir (README.md, section 14.8
+*  and 15.6).
+* ============================================================================
+
+
+* ----------------------------------------------------------------------------
+*  BAT12_VARTA_E39 -- 12 V AGM starter battery, Varta Silver Dynamic AGM E39
+*  (ETN 570 901 076), datasheet "Silver Dynamic AGM" (Varta Automotive)
+*    [PUB] 12 V, 70 Ah, cold cranking current 760 A (EN 50342-1)
+*    [FIT] resistances: R0 2.32 mOhm, R1 0.93 mOhm, R2 0.81 mOhm @ 25 degC, so
+*          that 760 A at -18 degC from full charge holds 7.5 V after 10 s,
+*          the EN 50342-1 cold-cranking pass level (a battery that just meets
+*          its rating; the datasheet gives no internal resistance)
+*    [EST] OCV window 11.70 .. 12.90 V (lead-acid rest voltages), time
+*          constants, temperature/SOC factors: class defaults
+*  Pins: P N SOC
+* ----------------------------------------------------------------------------
+.subckt BAT12_VARTA_E39 P N SOC SOC0=0.8 TBAT=25
+X1 P N SOC BATTERY VNOM=12 SOC0={SOC0} TBAT={TBAT} CAP_AH=70
++ R0=2.32m R1=0.93m R2=0.81m
+.ends BAT12_VARTA_E39
+
+
+* ----------------------------------------------------------------------------
+*  BAT48_A123_8AH -- 48 V MHEV pack, A123 Systems "UltraPhosphate" 0.4 kWh,
+*  as characterised in S. D. Lee, J. Cherry, M. Safoutin, J. McDonald,
+*  M. Olechiw (US EPA), "Modeling and Validation of 48 V Mild Hybrid
+*  Lithium-Ion Battery Pack", SAE Technical Paper 2018-01-0433
+*    [PUB] LiFePO4, 14 cells in series, 8 Ah / 384 Wh; measured pack ohmic
+*          resistance 8 .. 10 mOhm; voltage kept within 36 .. 52 V in
+*          operation (used as V_UV / V_OV of the BMS)
+*    [FIT] R0 = 7 mOhm (at 100 % SOC): with the SOC factor at 50 % (x1.125)
+*          and the 1 mOhm BMS switch the pack terminals show ~9 mOhm
+*    [EST] OCV window 14 x 2.95 .. 3.40 V = 41.3 .. 47.6 V (LiFePO4 rest
+*          voltages, generic curve shape: the LiFePO4 plateau is flatter),
+*          end of charge 14 x 3.6 V, polarization R1/R2 3 mOhm each,
+*          L_INT 1 uH, BMS current thresholds
+*    Not represented: the paper's higher resistance in charge than in
+*          discharge (the model has one resistance for both directions)
+*  Pins: P N SOC EN FLT (BATTERY_BMS)
+* ----------------------------------------------------------------------------
+.subckt BAT48_A123_8AH P N SOC EN FLT SOC0=0.5 TBAT=25 T_PRE=0 R_PRE=10
+X1 P N SOC EN FLT BATTERY_BMS VNOM=48 SOC0={SOC0} TBAT={TBAT} CAP_AH=8
++ VOC_0=41.3 VOC_100=47.6 VOC_EOC=50.4 R0=7m R1=3m R2=3m L_INT=1u
++ V_OV=52 V_UV=36 I_OC=300 I_SC=800 T_PRE={T_PRE} R_PRE={R_PRE}
+.ends BAT48_A123_8AH
+
+
+* ----------------------------------------------------------------------------
+*  DCDC_TOSHIBA_RD210 -- 3 kW 48 V / 12 V converter, Toshiba reference design
+*  RD210 ("Automotive 3kW 48V-12V Bidirectional DC-DC Converter Reference
+*  Guide", RD210-RGUIDE-02), buck direction
+*    [PUB] input 24 .. 54 V (48 V typ.), output 12 V (11.85 .. 12.15 V),
+*          3 kW, 4 phases at 200 kHz, efficiency 91.3 % at 3 kW (48 -> 12 V)
+*    [FIT] losses: 285.9 W at 3 kW / 48 V split as P0 15 W, conduction
+*          RLOSS 2.73 mOhm (171 W at 250 A), switching KSW 8.33 mW/(V*A)
+*          (100 W at 48 V, 250 A)  -> 91.3 % at 3 kW by construction
+*    [EST] UVLO 26 / 23 V (operation down to 24 V), OVP 56 / 54 V,
+*          loop and capacitances (COUT 10 mF, CIN 2.2 mF), current limit
+*          1.1 x rated; the boost direction (BIDIR=1) is not characterised
+*  Pins: VIN VOUT GND EN PG
+* ----------------------------------------------------------------------------
+.subckt DCDC_TOSHIBA_RD210 VIN VOUT GND EN PG DCRUN=0
+X1 VIN VOUT GND EN PG DCDC48_12 VSET=12 PRATED=3000 VIN_ON=26 VIN_OFF=23
++ VIN_OVP=56 VOVP_HYS=2 P0=15 RLOSS=2.73m KSW=8.33m COUT=10m CIN=2.2m
++ DCRUN={DCRUN}
+.ends DCDC_TOSHIBA_RD210

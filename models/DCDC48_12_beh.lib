@@ -55,6 +55,7 @@
 *    RLOSS        4m    Ohm      conduction losses, RLOSS*I^2
 *    KSW          5m    W/(V*A)  switching losses, KSW*V_in*I
 *    IQ_OFF       1m    A        input current when off
+*    IOUT_OFF     100u  A        output (12 V side) current when off
 *    DMAX, RDROP  0.95, 20m Ohm  dropout: VOUT <= DMAX*V_in - I*RDROP
 *    V_HIC        0.5   -        hiccup if in current limit and VOUT < V_HIC*VSET
 *    T_HIC_DET    1m    s        ... for this long
@@ -78,7 +79,8 @@
 *  the netlist. Gear integration (the usual cure for stiff behavioural models)
 *  removes this. Including this library therefore switches the whole
 *  simulation to Gear; delete the line to go back to the default (and expect
-*  occasional stalls).
+*  occasional stalls). All eFuse checks also pass under Gear (README,
+*  "Numerical guidance"), but some eFuse netlists run much slower with it.
 .options method=gear
 
 .subckt DCDC48_12 VIN VOUT GND EN PG
@@ -86,7 +88,7 @@
 + VIN_ON=30 VIN_OFF=26 VIN_OVP=60 VOVP_HYS=2
 + T_SS=5m FC=3k FCI=30k
 + COUT=2.2m ESR_OUT=3m CIN=470u ESR_IN=15m
-+ P0=6 RLOSS=4m KSW=5m IQ_OFF=1m
++ P0=6 RLOSS=4m KSW=5m IQ_OFF=1m IOUT_OFF=100u
 + DMAX=0.95 RDROP=20m
 + V_HIC=0.5 T_HIC_DET=1m T_HIC_OFF=50m
 + BIDIR=0 VTH_LOGIC=1.5 DCRUN=0
@@ -174,10 +176,16 @@ Cil il GND 1 Rpar=1T
 Bil GND il I=(V(icl,GND) - V(il,GND))/{TAUI}
 Bo  GND VOUT I=V(il,GND)
 Cout VOUT GND {COUT} Rser={ESR_OUT}
-*  internal pre-load: feedback divider, control supply, bleeder (140 mA at
-*  14 V). It also keeps the current command away from the 0 A clamp at no
-*  load, where the time-step control otherwise stalls.
-Rfb VOUT GND 100
+*  internal pre-load while running: feedback divider, control supply, bleeder
+*  (140 mA at 14 V). It also keeps the current command away from the 0 A
+*  clamp at no load, where the time-step control otherwise stalls.
+*  When off, only IOUT_OFF flows (leakage of the output stage and divider),
+*  so a 12 V battery is not drained during key-off.
+Bfb VOUT GND I=V(run,GND)*V(VOUT,GND)/100 + {IOUT_OFF}*(1-V(run,GND))*limit(V(VOUT,GND), 0, 1)
+*  topology resistors (DC path to GND for LTspice's floating-node check;
+*  1.4 uA / 4.8 uA, negligible)
+Rtv VOUT GND 10Meg
+Rti VIN GND 10Meg
 
 * ---------------- power good ------------------------------------------------------
 Bpg pg_o GND V=3.3*(V(run,GND)>0.5 & V(tss,GND)>{T_SS} & V(VOUT,GND)>{0.9*VSET})

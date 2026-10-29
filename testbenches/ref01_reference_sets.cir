@@ -1,0 +1,52 @@
+* ref01_reference_sets.cir
+* ---------------------------------------------------------------------------
+* Reference parameter sets (models/REFERENCE_SETS_beh.lib) against the
+* public data they were taken from.
+* A  Varta Silver Dynamic AGM E39 (70 Ah, 760 A EN):
+*    A1 EN 50342-1 cold cranking test: -18 degC, full, 760 A -> V(10 s) >= 7.5 V
+*    A2 20 h capacity: 25 degC, 3.5 A (C/20) to 10.5 V -> >= 70 Ah
+* B  A123 UltraPhosphate 48 V 8 Ah (SAE 2018-01-0433):
+*    B1 1C (8 A) discharge from full to the 36 V BMS limit -> ~8 Ah
+*    B2 ohmic resistance from a 100 A pulse at 50 % SOC, 25 degC -> 8..10 mOhm
+* (the Toshiba RD210 DC/DC set is checked in ref02_reference_dcdc.cir)
+* ---------------------------------------------------------------------------
+.include ../models/BATTERY_beh.lib
+.include ../models/REFERENCE_SETS_beh.lib
+Vh hi 0 3.3
+
+* ---- A1: CCA test
+XA1 pa1 0 sa1 BAT12_VARTA_E39 SOC0=1 TBAT=-18
+CA1 pa1 0 1m Rser=0.1
+IA1 pa1 0 PWL(0 0 1 0 1.001 760 11 760 11.001 0)
+* ---- A2: C/20 capacity (cut-off latch at 10.5 V through a 10 ms filter)
+XA2 pa2 0 sa2 BAT12_VARTA_E39 SOC0=1
+CA2 pa2 0 1m Rser=0.1
+Rfa2 pa2 fa2 1k
+Cfa2 fa2 0 10u
+Bco2 co2_s 0 V=V(fa2)<10.5
+Xco2 co2_s 0 co2 0 BAT_LATCH
+BdA2 pa2 0 I=3.5*(V(co2)<0.5)*(time>1)
+
+* ---- B1: 1C capacity to the 36 V limit (the BMS opens the pack there)
+XB1 pb1 0 sb1 hi fb1 BAT48_A123_8AH SOC0=1
+CB1 pb1 0 1m Rser=0.1
+RB1 pb1 0 100k
+BdB1 pb1 0 I=8*(V(fb1)<1.65)*(time>1)*limit(V(pb1)/30, 0, 1)
+* ---- B2: 100 A pulse at 50 % SOC
+XB2 pb2 0 sb2 hi fb2 BAT48_A123_8AH SOC0=0.5
+CB2 pb2 0 100u Rser=0.1
+IB2 pb2 0 PWL(0 0 1 0 1.00001 100 11 100 11.00001 0)
+
+.save V(pa1) V(pa2) V(sa2) V(co2) V(pb1) V(fb1) V(sb1) V(pb2)
+.save I(xa2:x1:Vi) I(xb1:x1:Vsw)
+.meas tran va1_10 find V(pa1) at 11
+.meas tran tco2 find time when V(co2)=0.5 rise=1
+.meas tran ah_a2 integ I(xa2:x1:Vi) from 0 to 90000
+.meas tran tfb1 find time when V(fb1)=1.65 rise=1
+.meas tran ah_b1 integ I(xb1:x1:Vsw) from 0 to 90000
+.meas tran vb2_0 find V(pb2) at 0.999
+.meas tran vb2_s find V(pb2) at 1.0005
+.meas tran r0_b2 param (vb2_0-vb2_s)/100
+.tran 0 90000 0 20
+.options plotwinsize=0
+.end

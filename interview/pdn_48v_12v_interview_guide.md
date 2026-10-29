@@ -226,16 +226,16 @@ voltage profile) and [`tb25`](../testbenches/tb25_supply_clamp.cir) (the follow-
 
 ![tb10](../docs/img/tb10_zonal_system.png)
 
-* CH2 is isolated 9.0 µs after the short (318 A peak). The 48 V bus dips to
-  33.7 V for about 20 µs and overshoots to 50.6 V. The DC/DC on CH1 sees at least
-  42.4 V (UVLO 26 V), so it stays on, and CH1 logs no fault.
+* CH2 is isolated <!--v {m('tb10_zonal_system','dt_trip2')*1e6:.1f}-->9.1<!--/v--> µs after the short (<!--v {m('tb10_zonal_system','ipk2'):.0f}-->320<!--/v--> A peak). The 48 V bus dips to
+  <!--v {m('tb10_zonal_system','vbus_min'):.1f}-->33.6<!--/v--> V for about 20 µs and overshoots to <!--v {m('tb10_zonal_system','vbus_max'):.1f}-->50.6<!--/v--> V. The DC/DC on CH1 sees at least
+  <!--v {m('tb10_zonal_system','vdc_min'):.1f}-->42.3<!--/v--> V (UVLO 26 V), so it stays on, and CH1 logs no fault.
 * *Show the plot and ask:* "The bus fell to 34 V. Why did the DC/DC not drop out,
   and what would make it drop out?" Expected: its input capacitance bridges a
   20 µs dip. A slower trip (longer harness, VDS-only or firmware protection, see
   G3), a weaker battery or a smaller input capacitor would break the selectivity.
 * [`bat07`](../testbenches/bat07_pdn_48v.cir) repeats the bench with the 48 V
-  pack model (SOC 80 %) instead of the ideal source: CH2 trips in 8.9 µs, the bus
-  dips to 34.1 V, and the pack current peaks at only **83 A** while 327 A flows
+  pack model (SOC 80 %) instead of the ideal source: CH2 trips in <!--v {m('bat07_pdn_48v','dt_trip2')*1e6:.1f}-->9.0<!--/v--> µs, the bus
+  dips to <!--v {m('bat07_pdn_48v','vbus_min'):.1f}-->34.1<!--/v--> V, and the pack current peaks at only **<!--v {m('bat07_pdn_48v','ibat_pk'):.0f}-->83<!--/v--> A** while <!--v {m('bat07_pdn_48v','ipk2'):.0f}-->328<!--/v--> A flows
   into the short. The pack's BMS (I_SC 1 kA for 100 µs) does not trip.
 * *Ask:* "Where do the other 240 A come from?" Expected: the bus and input
   capacitors next to the PDU. The pack sits behind 2 µH of main harness and
@@ -284,11 +284,11 @@ defaults.
 
 | 48 V pack, 50 % SOC | +25 °C | −18 °C | −30 °C |
 |---|---|---|---|
-| R0 (step 0.5 ms after the edge) | 17.0 mΩ | 33.5 mΩ | 42.3 mΩ |
-| R after 10 s | 26.7 mΩ | 51.0 mΩ | 63.8 mΩ |
-| instant drop at a 100 A step | 1.7 V | 3.4 V | 4.2 V |
+| R0 (step 0.5 ms after the edge) | <!--v {m('bat02_pulse_temperature','r0_48',3)*1e3:.1f}-->17.0<!--/v--> mΩ | <!--v {m('bat02_pulse_temperature','r0_48',1)*1e3:.1f}-->33.5<!--/v--> mΩ | <!--v {m('bat02_pulse_temperature','r0_48')*1e3:.1f}-->42.3<!--/v--> mΩ |
+| R after 10 s | <!--v {m('bat02_pulse_temperature','r10_48',3)*1e3:.1f}-->26.6<!--/v--> mΩ | <!--v {m('bat02_pulse_temperature','r10_48',1)*1e3:.1f}-->50.9<!--/v--> mΩ | <!--v {m('bat02_pulse_temperature','r10_48')*1e3:.1f}-->63.8<!--/v--> mΩ |
+| instant drop at a 100 A step | <!--v {m('bat02_pulse_temperature','v48_0',3)-m('bat02_pulse_temperature','v48_s',3):.1f}-->1.7<!--/v--> V | <!--v {m('bat02_pulse_temperature','v48_0',1)-m('bat02_pulse_temperature','v48_s',1):.1f}-->3.4<!--/v--> V | <!--v {m('bat02_pulse_temperature','v48_0',0)-m('bat02_pulse_temperature','v48_s',0):.1f}-->4.2<!--/v--> V |
 
-* |Z| is 22.5 mΩ at 0.1 Hz, 16.9 mΩ at 100 Hz, and becomes inductive above
+* |Z| is <!--v {m('bat03_impedance_ac','z48_100m')*1e3:.1f}-->22.5<!--/v--> mΩ at 0.1 Hz, <!--v {m('bat03_impedance_ac','z48_100')*1e3:.1f}-->16.9<!--/v--> mΩ at 100 Hz, and becomes inductive above
   R0/(2π·L) ≈ 2.7 kHz (629 mΩ at 100 kHz).
 * A bolted short at the full pack's terminals (1 µH external) rises at ~26 A/µs
   and reaches 2.2 kA by the time the BMS opens (100 µs after crossing 1 kA).
@@ -331,8 +331,8 @@ from 25 ms and its regulator reacts with a 5 ms lag; the BMS opens the pack at 3
 
 ![bat07](../docs/img/bat07_pdn_48v.png)
 
-* Before the disconnect the pack absorbs 40 A at a 50.2 V bus.
-* After it, the bus passes 58 V in **124 µs** (~60 V/ms ≈ 40 A into ~0.7 mF),
+* Before the disconnect the pack absorbs <!--v {u(m('bat07_pdn_48v','ibat_chg')*-1,'.0f')}-->40<!--/v--> A at a <!--v {m('bat07_pdn_48v','vbus_chg'):.1f}-->50.2<!--/v--> V bus.
+* After it, the bus passes 58 V in **<!--v {m('bat07_pdn_48v','dt_58')*1e6:.0f}-->124<!--/v--> µs** (~60 V/ms ≈ 40 A into ~0.7 mF),
   and the TVS clamps it at **70.0 V** with 38 A. Then the generator-only bus
   oscillates: 70 → 41 → 66 V.
 * *Show the plot and ask:* "The regulator reacted. Why did it not help, and what
@@ -474,10 +474,10 @@ speed) and [`tb25`](../testbenches/tb25_supply_clamp.cir) (where the energy goes
 
 | load-harness L | current crosses IHSC | HSHT latch | peak current | VBAT peak | FET energy |
 |---|---|---|---|---|---|
-| 0.5 µH | 1.4 µs | 6.8 µs | 445 A | 66.4 V | 14 mJ |
-| 1 µH (tb02) | 2.6 µs | 8.0 µs | 341 A | 64.4 V | 18 mJ |
-| 2 µH | 5.0 µs | 10.5 µs | 252 A | 62.1 V | 21 mJ |
-| 5 µH | 12.0 µs | 17.4 µs | 175 A | 60.2 V | 21 mJ |
+| 0.5 µH | <!--v {m('tb18_short_di_dt','dt_x')*1e6:.1f}-->1.4<!--/v--> µs | <!--v {m('tb18_short_di_dt','dt_trip')*1e6:.1f}-->6.9<!--/v--> µs | <!--v {m('tb18_short_di_dt','ipk'):.0f}-->446<!--/v--> A | <!--v {m('tb18_short_di_dt','vbatpk'):.1f}-->66.5<!--/v--> V | <!--v {m('tb18_short_di_dt','e_fet')*1e3:.0f}-->14<!--/v--> mJ |
+| 1 µH (tb02) | <!--v {m('tb18_short_di_dt','dt_x',1)*1e6:.1f}-->2.6<!--/v--> µs | <!--v {m('tb18_short_di_dt','dt_trip',1)*1e6:.1f}-->8.1<!--/v--> µs | <!--v {m('tb18_short_di_dt','ipk',1):.0f}-->342<!--/v--> A | <!--v {m('tb18_short_di_dt','vbatpk',1):.1f}-->64.5<!--/v--> V | <!--v {m('tb18_short_di_dt','e_fet',1)*1e3:.0f}-->18<!--/v--> mJ |
+| 2 µH | <!--v {m('tb18_short_di_dt','dt_x',2)*1e6:.1f}-->5.0<!--/v--> µs | <!--v {m('tb18_short_di_dt','dt_trip',2)*1e6:.1f}-->10.5<!--/v--> µs | <!--v {m('tb18_short_di_dt','ipk',2):.0f}-->252<!--/v--> A | <!--v {m('tb18_short_di_dt','vbatpk',2):.1f}-->62.1<!--/v--> V | <!--v {m('tb18_short_di_dt','e_fet',2)*1e3:.0f}-->21<!--/v--> mJ |
+| 5 µH | <!--v {m('tb18_short_di_dt','dt_x',3)*1e6:.1f}-->12.0<!--/v--> µs | <!--v {m('tb18_short_di_dt','dt_trip',3)*1e6:.1f}-->17.5<!--/v--> µs | <!--v {m('tb18_short_di_dt','ipk',3):.0f}-->175<!--/v--> A | <!--v {m('tb18_short_di_dt','vbatpk',3):.1f}-->60.3<!--/v--> V | <!--v {m('tb18_short_di_dt','e_fet',3)*1e3:.0f}-->21<!--/v--> mJ |
 
 * The current keeps rising after the latch, for the ~5 µs the driver needs to
   pull the gate down to the plateau. The peak sits at the real turn-off, 2–4×
@@ -488,10 +488,10 @@ speed) and [`tb25`](../testbenches/tb25_supply_clamp.cir) (where the energy goes
 
 | turn-off path | peak current | off after the latch | VBAT peak | FET energy | Tj peak |
 |---|---|---|---|---|---|
-| fast path, RG_OFF 10 Ω | 341 A | 6 µs | 64 V | 0.018 J | 37 °C |
-| RG_OFF 100 Ω | 462 A | 34 µs | **85 V** | 0.18 J | 46 °C |
-| RG_OFF 1 kΩ | 836 A | 193 µs | 65 V | 3.2 J | 196 °C |
-| no fast path (through RG_ON + C_SLEW) | 1.1 kA | 522 µs | 52 V | 8.4 J | 448 °C |
+| fast path, RG_OFF 10 Ω | <!--v {m('tb19_turnoff_speed','ipk'):.0f}-->342<!--/v--> A | <!--v {m('tb19_turnoff_speed','dt_off')*1e6:.0f}-->6<!--/v--> µs | <!--v {m('tb19_turnoff_speed','vbatpk'):.0f}-->65<!--/v--> V | <!--v {m('tb19_turnoff_speed','e_fet'):.3f}-->0.018<!--/v--> J | <!--v {m('tb19_turnoff_speed','tjpk'):.0f}-->37<!--/v--> °C |
+| RG_OFF 100 Ω | <!--v {m('tb19_turnoff_speed','ipk',1):.0f}-->462<!--/v--> A | <!--v {m('tb19_turnoff_speed','dt_off',1)*1e6:.0f}-->34<!--/v--> µs | **<!--v {m('tb19_turnoff_speed','vbatpk',1):.0f}-->85<!--/v--> V** | <!--v {m('tb19_turnoff_speed','e_fet',1):.2f}-->0.18<!--/v--> J | <!--v {m('tb19_turnoff_speed','tjpk',1):.0f}-->46<!--/v--> °C |
+| RG_OFF 1 kΩ | <!--v {m('tb19_turnoff_speed','ipk',2):.0f}-->836<!--/v--> A | <!--v {m('tb19_turnoff_speed','dt_off',2)*1e6:.0f}-->193<!--/v--> µs | <!--v {m('tb19_turnoff_speed','vbatpk',2):.0f}-->65<!--/v--> V | <!--v {m('tb19_turnoff_speed','e_fet',2):.1f}-->3.2<!--/v--> J | <!--v {m('tb19_turnoff_speed','tjpk',2):.0f}-->196<!--/v--> °C |
+| no fast path (through RG_ON + C_SLEW) | <!--v {m('tb19_turnoff_speed','ipk',3)/1e3:.1f}-->1.1<!--/v--> kA | <!--v {m('tb19_turnoff_speed','dt_off',3)*1e6:.0f}-->522<!--/v--> µs | <!--v {m('tb19_turnoff_speed','vbatpk',3):.0f}-->52<!--/v--> V | <!--v {m('tb19_turnoff_speed','e_fet',3):.1f}-->8.4<!--/v--> J | <!--v {m('tb19_turnoff_speed','tjpk',3):.0f}-->448<!--/v--> °C |
 
 * The follow-up "what happens with a slow turn-off" has a non-obvious answer:
   a little slower (100 Ω) raises the peak current *and* still switches it off
@@ -730,12 +730,12 @@ with the input protection varied.
 
 | input protection | VBAT peak | TVS peak current | FET VDS peak | OUT minimum |
 |---|---|---|---|---|
-| 100 µF + TVS (tb02) | 64.5 V | 2 A | 67 V | −3.5 V |
-| 100 µF, no TVS | 64.5 V | – | 67 V | −3.5 V |
-| 22 µF, no TVS | **98.6 V** | – | 100 V (avalanche) | −2.5 V |
-| 22 µF + TVS | 81.7 V | 114 A | 84 V | −2.5 V |
-| 22 µF + TVS behind 300 nH | 86.2 V | 121 A | 88 V | −2.5 V |
-| 100 µF + TVS, no freewheel | 70.0 V | 37 A | 100 V (avalanche) | **−56.9 V** |
+| 100 µF + TVS (tb02) | <!--v {m('tb25_supply_clamp','vbatpk'):.1f}-->64.6<!--/v--> V | <!--v {m('tb25_supply_clamp','itvs'):.0f}-->2<!--/v--> A | <!--v {m('tb25_supply_clamp','vdspk'):.0f}-->67<!--/v--> V | <!--v {u(m('tb25_supply_clamp','voutmin'),'.1f')}-->−3.5<!--/v--> V |
+| 100 µF, no TVS | <!--v {m('tb25_supply_clamp','vbatpk',1):.1f}-->64.6<!--/v--> V | – | <!--v {m('tb25_supply_clamp','vdspk',1):.0f}-->67<!--/v--> V | <!--v {u(m('tb25_supply_clamp','voutmin',1),'.1f')}-->−3.5<!--/v--> V |
+| 22 µF, no TVS | **<!--v {m('tb25_supply_clamp','vbatpk',2):.1f}-->98.6<!--/v--> V** | – | <!--v {m('tb25_supply_clamp','vdspk',2):.0f}-->100<!--/v--> V (avalanche) | <!--v {u(m('tb25_supply_clamp','voutmin',2),'.1f')}-->−2.5<!--/v--> V |
+| 22 µF + TVS | <!--v {m('tb25_supply_clamp','vbatpk',3):.1f}-->81.8<!--/v--> V | <!--v {m('tb25_supply_clamp','itvs',3):.0f}-->115<!--/v--> A | <!--v {m('tb25_supply_clamp','vdspk',3):.0f}-->84<!--/v--> V | <!--v {u(m('tb25_supply_clamp','voutmin',3),'.1f')}-->−2.5<!--/v--> V |
+| 22 µF + TVS behind 300 nH | <!--v {m('tb25_supply_clamp','vbatpk',4):.1f}-->86.2<!--/v--> V | <!--v {m('tb25_supply_clamp','itvs',4):.0f}-->121<!--/v--> A | <!--v {m('tb25_supply_clamp','vdspk',4):.0f}-->88<!--/v--> V | <!--v {u(m('tb25_supply_clamp','voutmin',4),'.1f')}-->−2.5<!--/v--> V |
+| 100 µF + TVS, no freewheel | <!--v {m('tb25_supply_clamp','vbatpk',5):.1f}-->70.0<!--/v--> V | <!--v {m('tb25_supply_clamp','itvs',5):.0f}-->38<!--/v--> A | <!--v {m('tb25_supply_clamp','vdspk',5):.0f}-->100<!--/v--> V (avalanche) | **<!--v {u(m('tb25_supply_clamp','voutmin',5),'.1f')}-->−56.9<!--/v--> V** |
 
 * With 100 µF the capacitor takes the harness energy and the TVS is nearly
   idle. With 22 µF the TVS clamps, but at ~110 A its dynamic resistance puts VS
@@ -783,14 +783,14 @@ steps) and [`dc08`](../testbenches/dc08_pdn_48v_12v.cir) (the whole chain).
 
 | Quantity | Simulated |
 |---|---|
-| efficiency at 700 W (36 / 48 / 54 V) | 96.3 / 95.9 / 95.7 % |
-| input current at 700 W (36 / 48 / 54 V) | 20.2 / 15.2 / 13.6 A |
-| 392 W load: input current at 36 V vs 54 V | 11.34 A vs 7.61 A |
-| UVLO off / on, OVP trip / restart | 25.99 / 30.01 V, 60.01 / 57.99 V |
-| dc08: eFuse inrush into the converter's 470 µF / start at | 57 A / 31.0 V on the ramp |
-| dc08: converter in current limit, 12 V battery charging | 55 A, 44.7 A |
-| dc08: +40 A on the 12 V net | battery charging drops to 2.9 A; the converter stays at 55 A |
-| dc08: 48 V branch short | the DC/DC input stays ≥ 43.4 V; the 12 V net moves 0.5 mV |
+| efficiency at 700 W (36 / 48 / 54 V) | <!--v {100*m('dc01_efficiency','pout',18)/m('dc01_efficiency','pin',18):.1f}-->96.3<!--/v--> / <!--v {100*m('dc01_efficiency','pout',19)/m('dc01_efficiency','pin',19):.1f}-->95.9<!--/v--> / <!--v {100*m('dc01_efficiency','pout',20)/m('dc01_efficiency','pin',20):.1f}-->95.7<!--/v--> % |
+| input current at 700 W (36 / 48 / 54 V) | <!--v {m('dc01_efficiency','iin',18):.1f}-->20.2<!--/v--> / <!--v {m('dc01_efficiency','iin',19):.1f}-->15.2<!--/v--> / <!--v {m('dc01_efficiency','iin',20):.1f}-->13.5<!--/v--> A |
+| 392 W load: input current at 36 V vs 54 V | <!--v {m('dc05_input_transients','iin36'):.2f}-->11.34<!--/v--> A vs <!--v {m('dc05_input_transients','iin54'):.2f}-->7.61<!--/v--> A |
+| UVLO off / on, OVP trip / restart | <!--v {m('dc05_input_transients','v_uvoff'):.2f}-->25.99<!--/v--> / <!--v {m('dc05_input_transients','v_uvon'):.2f}-->30.01<!--/v--> V, <!--v {m('dc05_input_transients','v_ovp'):.2f}-->60.01<!--/v--> / <!--v {m('dc05_input_transients','v_ovr'):.2f}-->57.99<!--/v--> V |
+| dc08: eFuse inrush into the converter's 470 µF / start at | <!--v {m('dc08_pdn_48v_12v','ich1_pk'):.0f}-->57<!--/v--> A / <!--v {m('dc08_pdn_48v_12v','vin_dcrun'):.1f}-->31.0<!--/v--> V on the ramp |
+| dc08: converter in current limit, 12 V battery charging | 55 A, <!--v {u(m('dc08_pdn_48v_12v','ibat12_ss')*-1,'.1f')}-->44.7<!--/v--> A |
+| dc08: +40 A on the 12 V net | battery charging drops to <!--v {u(m('dc08_pdn_48v_12v','ibat12_ph')*-1,'.1f')}-->2.9<!--/v--> A; the converter stays at 55 A |
+| dc08: 48 V branch short | the DC/DC input stays ≥ <!--v {m('dc08_pdn_48v_12v','vdc_min'):.1f}-->43.4<!--/v--> V; the 12 V net moves <!--v {abs(m('dc08_pdn_48v_12v','v12_min')-m('dc08_pdn_48v_12v','v12_pre'))*1e3:.1f}-->0.5<!--/v--> mV |
 
 * *Show dc08 and ask:* "The 12 V load stepped by 40 A, but the DC/DC current
   did not move. Where did the 40 A come from?" Expected: the converter was
@@ -836,10 +836,10 @@ and [`dc07`](../testbenches/dc07_input_filter_stability.cir) (three input set-up
 | Set-up | Eigenvalue (linearized) | Simulated |
 |---|---|---|
 | 2 µH feed, 470 µF electrolytic (15 mΩ) | Re = −6091 s⁻¹, stable | no ripple |
-| 10 µH feed, 22 µF ceramic (2 mΩ) | Re = +2968 s⁻¹ at 10.7 kHz, **unstable** | 30 V p-p on the input, OVP trips, 12 V output collapses to ~6 V |
+| 10 µH feed, 22 µF ceramic (2 mΩ) | Re = +2968 s⁻¹ at 10.7 kHz, **unstable** | <!--v {m('dc07_input_filter_stability','vpp_b'):.0f}-->30<!--/v--> V p-p on the input, OVP trips, 12 V output collapses to ~6 V |
 | the same + 220 µF / 0.68 Ω damper | Re = −7359 s⁻¹, stable | no ripple |
 
-* dc06 gives Re(Z_in) = −6.17 Ω at 10 Hz for 350 W: the negative resistance,
+* dc06 gives Re(Z_in) = <!--v {u(m('dc06_impedance_ac','zr_10'),'.2f')}-->−6.17<!--/v--> Ω at 10 Hz for 350 W: the negative resistance,
   in parallel with the input capacitor.
 * *Show dc07 case B and ask:* "Nothing in the circuit is faulty. What is
   oscillating, and what single part would you add?" Expected: harness L with
@@ -865,7 +865,7 @@ and [`dc07`](../testbenches/dc07_input_filter_stability.cir) (three input set-up
 * Hard switch, no protection (relay-like): **568 A** peak, limited only by the
   loop L and R. The 48 V bus dips to **21 V** and the output overshoots to 59 V.
 * The same hard switch with the protections active: the eFuse cannot tell this
-  from a short. HSC latches 8.7 µs after turn-on at 255 A, and OUT stays at 10 V.
+  from a short. HSC latches 8.7 µs after turn-on at <!--v {m('tb26_hard_turn_on','ipk',1):.0f}-->258<!--/v--> A, and OUT stays at 10 V.
 * dV/dt control (C_SLEW 68 nF): 79 A, OUT at 48 V after ~0.7 ms, 0.79 J in the
   FET, bus minimum 46 V.
 * *Ask:* "Who else on the bus suffers in the first case?" Expected: every load on
@@ -1018,9 +1018,9 @@ in the resistor is fixed; uses a timer with no voltage check.
 
 | Pre-charge | Bus when the main switch closes | Closing current | Result |
 |---|---|---|---|
-| 0.5 s (5 τ) | 99.3 % of OCV | 28 A | ok |
+| 0.5 s (5 τ) | 99.3 % of OCV | <!--v {m('bat06_bms_protection','iclose_pk'):.0f}-->28<!--/v--> A | ok |
 | 0.25 s (2.5 τ) | 92 % of OCV | 156 A | ok, 5× the closing step |
-| none | 0 V | **1.74 kA** | the pack's SC protection trips after 174 µs; bus left at 19 V |
+| none | 0 V | **<!--v {m('bat06_bms_protection','ib_pk')/1e3:.2f}-->1.74<!--/v--> kA** | the pack's SC protection trips after <!--v {(m('bat06_bms_protection','tb_flt')-0.1)*1e6:.0f}-->174<!--/v--> µs; bus left at <!--v {m('bat06_bms_protection','vb_end'):.0f}-->19<!--/v--> V |
 
 * The same bench covers the other BMS protections: an overload trip after exactly
   T_OC, a re-arm through EN, under-voltage at the end of discharge, and
@@ -1215,8 +1215,8 @@ persistent overload.
 
 ![tb31](../docs/img/tb31_retry.png)
 
-* Short, retries with 1 / 2 / 4 ms back-off: the first trip peaks at 340 A and
-  costs 18 mJ. Each retry peaks at only ~121 A but costs **120 mJ**, 6.5× more.
+* Short, retries with 1 / 2 / 4 ms back-off: the first trip peaks at <!--v {m('tb31_retry','ia1'):.0f}-->342<!--/v--> A and
+  costs <!--v {m('tb31_retry','ea1')*1e3:.0f}-->18<!--/v--> mJ. Each retry peaks at only ~<!--v {m('tb31_retry','ia2'):.0f}-->124<!--/v--> A but costs **<!--v {m('tb31_retry','ea2')*1e3:.0f}-->124<!--/v--> mJ**, <!--v {m('tb31_retry','ea2')/m('tb31_retry','ea1'):.1f}-->6.8<!--/v-->× more.
   On a retry the FET is off and slews up through the dV/dt network into the
   short. It conducts in linear mode at ~48 V until the HSC trips. The junction
   climbs ~6 K per retry.
@@ -1244,9 +1244,9 @@ VDS monitor alone, and by "firmware" (CS readback + 1 ms task).
 
 | protection | FET off after | peak current | FET energy | Tj peak |
 |---|---|---|---|---|
-| hardware HSC | 14 µs | 340 A | 0.018 J | 39 °C |
-| VDS monitor only | 43 µs | 662 A | 0.07 J | 40 °C |
-| firmware only | 1.07 ms | **1.6 kA** | **6 J** | 325 °C |
+| hardware HSC | <!--v {m('tb32_hw_vs_fw','dt_off')*1e6:.0f}-->14<!--/v--> µs | <!--v {m('tb32_hw_vs_fw','ipk'):.0f}-->342<!--/v--> A | <!--v {m('tb32_hw_vs_fw','e_fet'):.3f}-->0.018<!--/v--> J | <!--v {m('tb32_hw_vs_fw','tjpk'):.0f}-->39<!--/v--> °C |
+| VDS monitor only | <!--v {m('tb32_hw_vs_fw','dt_off',1)*1e6:.0f}-->43<!--/v--> µs | <!--v {m('tb32_hw_vs_fw','ipk',1):.0f}-->663<!--/v--> A | <!--v {m('tb32_hw_vs_fw','e_fet',1):.2f}-->0.07<!--/v--> J | <!--v {m('tb32_hw_vs_fw','tjpk',1):.0f}-->40<!--/v--> °C |
+| firmware only | <!--v {m('tb32_hw_vs_fw','dt_off',2)*1e3:.2f}-->1.08<!--/v--> ms | **<!--v {m('tb32_hw_vs_fw','ipk',2)/1e3:.1f}-->1.6<!--/v--> kA** | **<!--v {m('tb32_hw_vs_fw','e_fet',2):.0f}-->6<!--/v--> J** | <!--v {m('tb32_hw_vs_fw','tjpk',2):.0f}-->325<!--/v--> °C |
 
 * In the firmware case the bus sits at 30 V for a millisecond (every other load
   on it resets), and switching off 1.6 kA late kicks VBAT to ~97 V. The VDS
@@ -1343,8 +1343,8 @@ source.
   correlation.
 
 **Simulation:** [`tb18`](../testbenches/tb18_short_di_dt.cir) (table in B3). Only the load-harness
-inductance changes, and the HSHT latch moves from 8.0 µs (1 µH) to 17.4 µs (5 µH)
-while the peak falls from 341 A to 175 A. A bench set-up with ~4 µH instead of
+inductance changes, and the HSHT latch moves from <!--v {m('tb18_short_di_dt','dt_trip',1)*1e6:.1f}-->8.1<!--/v--> µs (1 µH) to <!--v {m('tb18_short_di_dt','dt_trip',3)*1e6:.1f}-->17.5<!--/v--> µs (5 µH)
+while the peak falls from <!--v {m('tb18_short_di_dt','ipk',1):.0f}-->342<!--/v--> A to <!--v {m('tb18_short_di_dt','ipk',3):.0f}-->175<!--/v--> A. A bench set-up with ~4 µH instead of
 1 µH reproduces "8 µs simulated, 15 µs measured" with no error in the
 controller at all.
 
@@ -1437,7 +1437,7 @@ candidate has reasoned, not before.
 | dV/dt, C_SLEW 68 nF (fast enough for the blanking) | HSC trip 0.19 ms after turn-on at 110 A, OUT stuck at 9 V |
 | dV/dt, C_SLEW 220 nF (current below IHSC) | VDS trip 0.97 ms after turn-on, OUT at 21 V |
 | 10 Ω pre-charge, hand-over at 95 %, DC/DC gated by power-good | hand-over at 77 ms, 2.3 J and 171 W peak in the resistor, 27 A at hand-over, DC/DC runs at 21.3 A |
-| the same, then a short at the DC/DC input | 194 A peak, HSC latch 12.7 µs after the short, VBAT 60 V |
+| the same, then a short at the DC/DC input | <!--v {m('tb33_design_exercise','isc',3):.0f}-->195<!--/v--> A peak, HSC latch <!--v {m('tb33_design_exercise','dt_sc',3)*1e6:.1f}-->12.8<!--/v--> µs after the short, VBAT <!--v {m('tb33_design_exercise','vbatpk',3):.0f}-->60<!--/v--> V |
 
 * The simulation confirms step 6: no dV/dt setting works for 2.64 mF with this
   controller. The pre-charge numbers are lower than ½CV² = 3 J and V²/R = 230 W
@@ -1586,11 +1586,11 @@ on, so it logged nothing.
 
 | | +25 °C | −18 °C | −30 °C |
 |---|---|---|---|
-| minimum voltage at the inrush | 9.95 V | 8.27 V | 7.59 V |
-| inrush peak | 1294 A | 1074 A | 986 A |
-| average voltage while cranking | 11.77 V | 11.29 V | 11.11 V |
+| minimum voltage at the inrush | <!--v {m('bat04_cold_crank','vmin_b'):.2f}-->9.95<!--/v--> V | <!--v {m('bat04_cold_crank','vmin_c'):.2f}-->8.27<!--/v--> V | <!--v {m('bat04_cold_crank','vmin_d'):.2f}-->7.59<!--/v--> V |
+| inrush peak | <!--v {m('bat04_cold_crank','ipk_b'):.0f}-->1294<!--/v--> A | <!--v {m('bat04_cold_crank','ipk_c'):.0f}-->1074<!--/v--> A | <!--v {m('bat04_cold_crank','ipk_d'):.0f}-->986<!--/v--> A |
+| average voltage while cranking | <!--v {m('bat04_cold_crank','vcr_b'):.2f}-->11.77<!--/v--> V | <!--v {m('bat04_cold_crank','vcr_c'):.2f}-->11.29<!--/v--> V | <!--v {m('bat04_cold_crank','vcr_d'):.2f}-->11.11<!--/v--> V |
 
-* The CCA test ends at 8.14 V after 30 s (pass criterion ≥ 7.2 V), so this is a
+* The CCA test ends at <!--v {m('bat04_cold_crank','vcca'):.2f}-->8.14<!--/v--> V after 30 s (pass criterion ≥ 7.2 V), so this is a
   healthy battery. The cold dip is a battery-physics effect, not a defect.
 * *Show the plot and ask:* "Same starter, same battery. Why is the dip 2.4 V
   deeper at −30 °C, and why is the cold inrush current *lower*?" Expected: R0

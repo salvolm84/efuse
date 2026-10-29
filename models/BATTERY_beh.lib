@@ -268,6 +268,9 @@ Bsw bs P I=V(bs,P)*(1/({RON}*({RSW_OFF}/{RON})**(1-V(x,N))) + V(pre,N)/{R_PRE})
 * ---------------- fault output -------------------------------------------------
 Bflt flt_o N V=3.3*(V(fl,N)>0.5)
 Rflt flt_o FLT 100
+*  topology resistor: DC path for P when the pack is open and only capacitors
+*  or current sources are connected (LTspice floating-node check), 1 GOhm
+Rtop P N 1G
 .ends BATTERY_BMS
 
 

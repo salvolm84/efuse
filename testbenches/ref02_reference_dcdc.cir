@@ -1,0 +1,29 @@
+* ref02_reference_dcdc.cir
+* ---------------------------------------------------------------------------
+* DC/DC reference set DCDC_TOSHIBA_RD210 (models/REFERENCE_SETS_beh.lib)
+* against the Toshiba RD210 reference guide: 48 V in, 3 kW out (12 V, 250 A)
+* -> efficiency 91.3 % (published), VOUT 12 V (11.85 .. 12.15 V); and the
+* specified input range: still regulating at 24 V, stopped below the UVLO.
+* ---------------------------------------------------------------------------
+.include ../models/BATTERY_beh.lib
+.include ../models/DCDC48_12_beh.lib
+.include ../models/REFERENCE_SETS_beh.lib
+Vh hi 0 3.3
+* ---- full load at 48 V
+VinC vc 0 48
+XC vc oc 0 hi pgc DCDC_TOSHIBA_RD210
+IC oc 0 PWL(0 0 10m 0 12m 250)
+* ---- 1.5 kW while the input ramps 48 -> 20 V (30..58 ms)
+VinD vd 0 PWL(0 48 30m 48 58m 20)
+XD vd od 0 hi pgd DCDC_TOSHIBA_RD210
+RD od 0 0.096
+.save V(vc) V(oc) I(VinC) I(IC) V(vd) V(od) V(xd:x1:run)
+.meas tran pin_c avg -V(vc)*I(VinC) from 20m to 25m
+.meas tran pout_c avg V(oc)*I(IC) from 20m to 25m
+.meas tran eta_c param pout_c/pin_c
+.meas tran vo_c avg V(oc) from 20m to 25m
+.meas tran vo_24 find V(od) when V(vd)=24.2 fall=1
+.meas tran vin_off find V(vd) when V(xd:x1:run)=0.5 fall=1
+.tran 0 60m 0 5u
+.options plotwinsize=0
+.end
