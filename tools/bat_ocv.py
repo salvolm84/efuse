@@ -4,6 +4,11 @@ curve and its slope are continuous (a piecewise-linear table stalls the
 LTspice time-step control when the SOC creeps across a breakpoint).
 
     python3 tools/bat_ocv.py      # prints the B-source expression for the .lib
+
+Outside 0..1 the OCV continues with C1 quadratics (value and slope continuous
+at SOC 0 and 1): below 0 it falls to 0 V at -DSOC_END, above 1 it reaches
+VOC_EOC at 1 + DSOC_END and then rises linearly with the slope reached there.
+ocv() is the complete curve, as in the .lib.
 """
 G_S = [0, .05, .1, .2, .3, .4, .5, .6, .7, .8, .9, .95, 1]
 G_V = [0, .18, .30, .43, .51, .57, .62, .67, .72, .78, .87, .93, 1]
@@ -57,6 +62,31 @@ def g(s):
     return 0.0
 
 
+def ocv(s, v0, v100, veoc, dsoc=0.02, shape=1):
+    """Complete OCV(raw SOC) of the BATTERY model, end regions included."""
+    gd0, gd1 = (SLOPES[0], SLOPES[-1]) if shape else (1.0, 1.0)
+    s0, s1 = (v100 - v0) * gd0, (v100 - v0) * gd1
+    if s < 0:
+        clo = (s0 * dsoc - v0) / dsoc ** 2
+        return min(max(v0 + s * (s0 + clo * s), 0.0), v0)
+    if s > 1:
+        chi = (veoc - v100 - s1 * dsoc) / dsoc ** 2
+        d = s - 1
+        if d < dsoc:
+            return v100 + d * (s1 + chi * d)
+        return veoc + (s1 + 2 * chi * dsoc) * (d - dsoc)
+    return v0 + (v100 - v0) * (g(s) if shape else s)
+
+
+def ocv_inv(v, *args, **kw):
+    """Raw SOC at which ocv() = v (bisection; ocv is monotone)."""
+    lo, hi = -0.5, 2.0
+    for _ in range(200):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if ocv(mid, *args, **kw) < v else (lo, mid)
+    return (lo + hi) / 2
+
+
 def spice_expr(var="V(s,N)"):
     """Nested if() B-source expression; `var` is the clamped SOC expression."""
     cs = coeffs()
@@ -77,3 +107,4 @@ def spice_expr(var="V(s,N)"):
 if __name__ == "__main__":
     print(spice_expr("X"))
     print([round(m, 4) for m in SLOPES])
+    print(f"end slopes g'(0) = {SLOPES[0]!r}, g'(1) = {SLOPES[-1]!r} (GD0, GD1 in the .lib)")

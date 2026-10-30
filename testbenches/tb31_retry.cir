@@ -17,7 +17,7 @@
 Vbata bata 0 48
 Rbata bata ba1 10m
 Lbata ba1 vba 1u
-Dtvsa 0 vba TVS_58V
+Dtvsa 0 vba EF_TVS58V
 Cbusa vba 0 100u Rser=30m
 XA vba outa 0 en 0 clra diaga csa tfeta EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12
 + VDS_CODE=14 TNOM_CODE=0
@@ -25,7 +25,7 @@ Lha outa oa1 1u
 Rha oa1 loada 10m
 Cla loada 0 220u Rser=20m
 Rla loada 0 4.8
-Dfwa 0 outa SCH_100V
+Dfwa 0 outa EF_SCH100V
 Ssca loada 0 sca 0 SSHORT
 Vsca sca 0 PWL(0 0 2m 0 2.0001m 1)
 .model SSHORT SW(Ron=5m Roff=1Meg Vt=0.5 Vh=-0.2)
@@ -47,7 +47,7 @@ Rovb loadb ovb 1.92
 Sovb ovb 0 govb 0 SOV
 Vgovb govb 0 PWL(0 0 20m 0 20.001m 1)
 .model SOV SW(Ron=2m Roff=1Meg Vt=0.5 Vh=-0.2)
-Dfwb 0 outb SCH_100V
+Dfwb 0 outb EF_SCH100V
 Vclrb clrb 0 PWL(0 0 56.5m 0 56.501m 3.3 56.6m 3.3 56.601m 0 162m 0 162.001m 3.3
 + 162.1m 3.3 162.101m 0)
 

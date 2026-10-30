@@ -34,6 +34,9 @@ PINS = {
     "BATTERY_BMS": [(0, -96), (0, 96), (112, -32), (-112, 0), (112, 32)],
     "DCDC48_12": [(-128, -32), (128, -32), (0, 96), (-128, 32), (128, 32)],
 }
+# reference parameter sets: same pins as their base models
+PINS.update(BAT12_VARTA_E39=PINS["BATTERY"], BAT48_A123_8AH=PINS["BATTERY_BMS"],
+            DCDC_TOSHIBA_RD210=PINS["DCDC48_12"])
 
 
 class Sch:
@@ -83,7 +86,7 @@ def demo_module():
     lb = s.part("ind", 288, 208, "R90", "Lbat", "1u")
     cb = s.part("cap", 336, y, name="Cbus", value="100u", line="Rser=30m")
     s.gnd(cb[1])
-    tv = s.part("diode", 448, 288, "R180", "Dtvs", "TVS_58V")
+    tv = s.part("diode", 448, 288, "R180", "Dtvs", "EF_TVS58V")
     s.gnd(tv[0])
     x1 = s.part("EFUSE48_MOD", 640, 320, name="U1",
                 line="RSENSE=1m OVC_CODE=13 HSC_CODE=12 VDS_CODE=14 NTC_CODE=4 TNOM_CODE=0")
@@ -91,7 +94,7 @@ def demo_module():
     s.wire(lb[0], cb[0]); s.wire(cb[0], tv[1]); s.wire(tv[1], x1[0])
     s.flag(lb[0], "vbat")
     s.gnd(x1[2])
-    df = s.part("schottky", 832, 288, "R180", "Dfw", "SCH_100V")
+    df = s.part("schottky", 832, 288, "R180", "Dfw", "EF_SCH100V")
     s.gnd(df[0])
     lh = s.part("ind", 944, 208, "R90", "Lh", "1u")
     rh = s.part("res", 1040, 208, "R90", "Rh", "10m")
@@ -138,11 +141,11 @@ def app_discrete():
     cvs1 = s.part("polcap", 272, 144, name="Cvs1", value="100u", line="Rser=30m"); s.gnd(cvs1[1])
     s.flag(cvs1[0], "vbat")
     cvs2 = s.part("cap", 352, 144, name="Cvs2", value="100n"); s.gnd(cvs2[1]); s.flag(cvs2[0], "vbat")
-    tvs = s.part("diode", 448, 208, "R180", "Dtvs", "TVS_58V"); s.gnd(tvs[0]); s.flag(tvs[1], "vbat")
+    tvs = s.part("diode", 448, 208, "R180", "Dtvs", "EF_TVS58V"); s.gnd(tvs[0]); s.flag(tvs[1], "vbat")
     # --- shunt and FET (top power path)
     rs = s.part("res", 1072, 112, "R90", "Rsense", "1m")
     s.flag(rs[1], "vbat"); s.flag(rs[0], "drn")
-    m1 = s.part("nmos", 1184, 112, name="M1", value="FET100V_2M")
+    m1 = s.part("nmos", 1184, 112, name="M1", value="EF_FET100V")
     s.flag(m1[0], "drn"); s.flag(m1[1], "g"); s.flag(m1[2], "out")
     # --- controller
     u = s.part("VNF1048F", 768, 576, name="U1",
@@ -173,7 +176,7 @@ def app_discrete():
     for k, (nm, net, val) in enumerate(srcs):
         p = s.part("voltage", 64 + 208 * k, 816, name=nm, value=val); s.flag(p[0], net); s.gnd(p[1])
     # --- load side
-    df = s.part("schottky", 1648, 208, "R180", "Dfw", "SCH_100V"); s.gnd(df[0]); s.flag(df[1], "out")
+    df = s.part("schottky", 1648, 208, "R180", "Dfw", "EF_SCH100V"); s.gnd(df[0]); s.flag(df[1], "out")
     lh = s.part("ind", 1808, 112, "R90", "Lh", "1u"); s.flag(lh[1], "out"); s.flag(lh[0], "load")
     cl = s.part("cap", 1840, 144, name="Cload", value="220u", line="Rser=20m"); s.flag(cl[0], "load")
     s.gnd(cl[1])

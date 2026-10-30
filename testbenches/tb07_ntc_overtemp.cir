@@ -21,7 +21,7 @@ X1 vbat out 0 en byp clr diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=15 HSC_CODE
 
 Rload out 0 2.087
 Cload out 0 100u Rser=20m
-Dfw 0 out SCH_100V
+Dfw 0 out EF_SCH100V
 
 Ven en 0 PWL(0 0 1m 0 1.001m 3.3)
 Vbyp byp 0 0

@@ -15,7 +15,7 @@
 Vbat bat 0 48
 Rbat bat b1 10m
 Lbat b1 vbat 1u
-Dtvs 0 vbat TVS_58V
+Dtvs 0 vbat EF_TVS58V
 Cbus vbat 0 100u Rser=30m
 
 X1 vbat out 0 en byp clr diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12
@@ -24,7 +24,7 @@ X1 vbat out 0 en byp clr diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE
 Lload out l1 2m Rser=10m
 Rload l1 0 4.8
 Csn out 0 100n
-Dfw 0 fw SCH_100V
+Dfw 0 fw EF_SCH100V
 Rfw fw out {if(FW>0.5, 1m, 1G)}
 
 Ven en 0 PWL(0 0 0.5m 0 0.501m 3.3 10m 3.3 10.001m 0)

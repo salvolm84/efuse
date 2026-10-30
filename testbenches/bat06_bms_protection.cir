@@ -15,6 +15,11 @@
 * E  over-voltage: SOC0 = 95 %, faulty charger (56 V CV, 50 A) from 1 s ->
 *    cell voltage exceeds V_OV = 54 V just past full charge -> trip after
 *    T_OV = 0.1 s
+* F  pre-charge restart: as A, then EN low for only 5 ms at 1.0 s -> the
+*    pre-charge timer restarts, the main switch re-closes T_PRE after EN
+*    returns (not at once)
+* A also checks the hand-over: the pre-charge path is still on when the main
+* switch reaches half its conductance state (make-before-break).
 * ---------------------------------------------------------------------------
 .include ../models/BATTERY_beh.lib
 .model SLD SW(Ron=0.1m Roff=1Meg Vt=0.5 Vh=-0.2)
@@ -49,9 +54,15 @@ XE pe 0 soce hi flte BATTERY_BMS VNOM=48 SOC0=0.95
 CE pe 0 1m Rser=5m
 RblE pe 0 1k
 BchE 0 pe I=if(time>1, limit((56-V(pe))/10m, 0, 50), 0)
+* ---- F: pre-charge restart after a short EN low pulse
+VenF enf 0 PWL(0 0 0.1 0 0.1001 3.3 1.0 3.3 1.0001 0 1.005 0 1.0051 3.3)
+XF pf 0 socf enf fltf BATTERY_BMS VNOM=48 SOC0=0.8 T_PRE=0.5 R_PRE=10
+CF pf 0 10m Rser=5m
+RblF pf 0 1k
 
 .save V(pa) V(pb) V(pc) V(pd) V(pe) V(flta) V(fltb) V(fltc) V(fltd) V(flte)
 .save I(xa:Vsw) I(xb:Vsw) I(xc:Vsw) I(xd:Vsw) I(xe:Vsw) V(ena) V(enc) V(ldc)
+.save V(xa:x) V(xf:m) V(enf) V(pf) I(xf:Vsw)
 .save V(xa:xc:ocv) V(xa:pre) V(xa:m) V(xd:vm) V(xe:vm) V(xd:xc:s) V(xe:xc:s) V(socd) V(soce)
 * A
 .meas tran ipre_pk max I(xa:Vsw) from 0.1 to 0.59
@@ -59,6 +70,10 @@ BchE 0 pe I=if(time>1, limit((56-V(pe))/10m, 0, 50), 0)
 .meas tran va_close find V(pa) at 0.5999
 .meas tran ocva find V(xa:xc:ocv) at 0.09
 .meas tran flta_max max V(flta)
+.meas tran pre_x50 find V(xa:pre) when V(xa:x)=0.5 rise=1
+* F
+.meas tran tf_m2 find time when V(xf:m)=0.5 rise=2
+.meas tran dtf_re param tf_m2-1.0051
 * B
 .meas tran ib_pk max I(xb:Vsw) from 0.1 to 0.11
 .meas tran tb_flt find time when V(fltb)=1.65 rise=1

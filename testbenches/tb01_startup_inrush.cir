@@ -13,7 +13,7 @@
 Vbat bat 0 48
 Rbat bat b1 10m
 Lbat b1 vbat 1u
-Dtvs 0 vbat TVS_58V
+Dtvs 0 vbat EF_TVS58V
 Cbus vbat 0 100u Rser=30m
 
 * eFuse channel: INOM = 21.8 A (OVC 13), IHSC = 105.6 A (HSC 12), VDS 1.0 V
@@ -25,7 +25,7 @@ Lh out o1 1u
 Rh o1 load 10m
 Cload load 0 220u Rser=20m
 Rload load 0 4.8
-Dfw 0 out SCH_100V
+Dfw 0 out EF_SCH100V
 
 * control (MCU): OUTCTL on at 0.5 ms
 Ven en 0 PWL(0 0 0.5m 0 0.501m 3.3)

@@ -23,7 +23,7 @@
 Vbat bat 0 48
 Rbat bat b1 10m
 Lbat b1 vbat 1u
-Dtvs 0 vbat TVS_58V
+Dtvs 0 vbat EF_TVS58V
 Cbus vbat 0 100u Rser=30m
 
 X1 vbat out 0 en byp clr diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12
@@ -39,7 +39,7 @@ Lh out o1 1u
 Rh o1 load 10m
 Cload load 0 {CL} Rser=10m
 Rbl load 0 4.7k
-Dfw 0 out SCH_100V
+Dfw 0 out EF_SCH100V
 Rshort load 0 {if(CASE==1, 50m, 1G)}
 Rleak  load 0 {if(CASE==2, 10, 1G)}
 Bdcdc load 0 I=if(V(dcen)>0.5, 1000/max(V(load),20), 0)

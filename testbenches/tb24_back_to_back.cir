@@ -32,7 +32,7 @@ Dgoffa ga gofa EF_DSW
 Cslwa ga 0 47n
 Dzgsa outa ga EF_DZ15
 Rgba ga outa 47k
-M1a drna ga outa outa FET100V_2M
+M1a drna ga outa outa EF_FET100V
 Rntca drna ntca 10k
 Rtrefa ntca ntcma 10k
 Rpua v33 diaga 4.7k
@@ -56,8 +56,8 @@ Dgoffb gb gofb EF_DSW
 Cslwb gb 0 47n
 Dzgsb srcb gb EF_DZ15
 Rgbb gb srcb 47k
-M1b drnb gb srcb srcb FET100V_2M
-M2b outb gb srcb srcb FET100V_2M
+M1b drnb gb srcb srcb EF_FET100V
+M2b outb gb srcb srcb EF_FET100V
 Rntcb drnb ntcb 10k
 Rtrefb ntcb ntcmb 10k
 Rpub v33 diagb 4.7k

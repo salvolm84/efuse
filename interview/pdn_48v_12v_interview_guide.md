@@ -1017,7 +1017,7 @@ in the resistor is fixed; uses a timer with no voltage check.
 |---|---|---|---|
 | 0.5 s (5 τ) | 99.3 % of OCV | <!--v {m('bat06_bms_protection','iclose_pk'):.0f}-->28<!--/v--> A | ok |
 | 0.25 s (2.5 τ) | 92 % of OCV | 156 A | ok, 5× the closing step |
-| none | 0 V | **<!--v {m('bat06_bms_protection','ib_pk')/1e3:.2f}-->1.74<!--/v--> kA** | the pack's SC protection trips after <!--v {(m('bat06_bms_protection','tb_flt')-0.1)*1e6:.0f}-->174<!--/v--> µs; bus left at <!--v {m('bat06_bms_protection','vb_end'):.0f}-->19<!--/v--> V |
+| none | 0 V | **<!--v {m('bat06_bms_protection','ib_pk')/1e3:.2f}-->1.74<!--/v--> kA** | the pack's SC protection trips after <!--v {(m('bat06_bms_protection','tb_flt')-0.1)*1e6:.0f}-->175<!--/v--> µs; bus left at <!--v {m('bat06_bms_protection','vb_end'):.0f}-->19<!--/v--> V |
 
 * The same bench covers the other BMS protections: an overload trip after exactly
   T_OC, a re-arm through EN, under-voltage at the end of discharge, and
@@ -1213,7 +1213,7 @@ persistent overload.
 ![tb31](../docs/img/tb31_retry.png)
 
 * Short, retries with 1 / 2 / 4 ms back-off: the first trip peaks at <!--v {m('tb31_retry','ia1'):.0f}-->342<!--/v--> A and
-  costs <!--v {m('tb31_retry','ea1')*1e3:.0f}-->18<!--/v--> mJ. Each retry peaks at only ~<!--v {m('tb31_retry','ia2'):.0f}-->124<!--/v--> A but costs **<!--v {m('tb31_retry','ea2')*1e3:.0f}-->124<!--/v--> mJ**, <!--v {m('tb31_retry','ea2')/m('tb31_retry','ea1'):.1f}-->6.8<!--/v-->× more.
+  costs <!--v {m('tb31_retry','ea1')*1e3:.0f}-->18<!--/v--> mJ. Each retry peaks at only ~<!--v {m('tb31_retry','ia2'):.0f}-->124<!--/v--> A but costs **<!--v {m('tb31_retry','ea2')*1e3:.0f}-->125<!--/v--> mJ**, <!--v {m('tb31_retry','ea2')/m('tb31_retry','ea1'):.1f}-->6.8<!--/v-->× more.
   On a retry the FET is off and slews up through the dV/dt network into the
   short. It conducts in linear mode at ~48 V until the HSC trips. The junction
   climbs ~6 K per retry.

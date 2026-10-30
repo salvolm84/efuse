@@ -6,7 +6,7 @@
 * harness, 220 uF + 4.8 Ohm load, freewheel diode):
 *   A : the VNF1048F channel (EFUSE48_MOD, IHSC 105.6 A): latches off.
 *   B : an ideal linear current limiter at the same threshold: the same FET
-*       (FET100V_2M + the same FET_TH thermal network) with a behavioural
+*       (EF_FET100V + the same EF_FET_TH thermal network) with a behavioural
 *       gate loop VGS = 14 V - 1 V/A * (I - 105.6 A); no fault timer.
 * Expected: A dissipates tens of mJ for ~10 us. B holds ~110 A at VDS ~48 V,
 * i.e. ~5 kW: the junction passes 175 degC within ~1 ms and keeps heating.
@@ -18,7 +18,7 @@
 Vbata bata 0 48
 Rbata bata ba1 10m
 Lbata ba1 vba 1u
-Dtvsa 0 vba TVS_58V
+Dtvsa 0 vba EF_TVS58V
 Cbusa vba 0 100u Rser=30m
 X1 vba outa 0 en 0 0 diaga csa tfeta EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12
 + VDS_CODE=14 TNOM_CODE=0
@@ -26,28 +26,28 @@ Lha outa oa1 1u
 Rha oa1 loada 10m
 Cla loada 0 220u Rser=20m
 Rla loada 0 4.8
-Dfwa 0 outa SCH_100V
+Dfwa 0 outa EF_SCH100V
 Ssca loada 0 sc 0 SSHORT
 
 * ---- channel B: linear current limiter, same FET and thermal network
 Vbatb batb 0 48
 Rbatb batb bb1 10m
 Lbatb bb1 vbb 1u
-Dtvsb 0 vbb TVS_58V
+Dtvsb 0 vbb EF_TVS58V
 Cbusb vbb 0 100u Rser=30m
 Rshb vbb db 1m
-Mb db gb outb outb FET100V_2M
+Mb db gb outb outb EF_FET100V
 Bgb gdrv outb V=V(en)/3.3*limit(14 - (V(vbb,db)/1m - 105.6), 0, 14)
 Rgb gdrv gb 100
 Cgb gb outb 10n
 Dzb outb gb EF_DZ15
 Bpb 0 tjb I=if(time>0, max(V(db,outb)*Id(Mb),0), 0)
-Xthb tjb tcb 0 FET_TH TAMB=25 RTHJC=0.6 RTHCA=20 CTHJ=0.02 CTHC=0.5
+Xthb tjb tcb 0 EF_FET_TH TAMB=25 RTHJC=0.6 RTHCA=20 CTHJ=0.02 CTHC=0.5
 Lhb outb ob1 1u
 Rhb ob1 loadb 10m
 Clb loadb 0 220u Rser=20m
 Rlb loadb 0 4.8
-Dfwb 0 outb SCH_100V
+Dfwb 0 outb EF_SCH100V
 Sscb loadb 0 sc 0 SSHORT
 
 Vsc sc 0 PWL(0 0 1m 0 1.0001m 1)

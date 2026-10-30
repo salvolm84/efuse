@@ -21,7 +21,7 @@
 Vbat bat 0 48
 Rbat bat b1 10m
 Lbat b1 vbat 1u
-Dtvs 0 vbat TVS_58V
+Dtvs 0 vbat EF_TVS58V
 Cbus vbat 0 100u Rser=30m
 
 * main path: eFuse channel (standard settings, default slew network)
@@ -39,7 +39,7 @@ Lh out o1 1u
 Rh o1 load 10m
 Cload load 0 {CL} Rser=10m
 Rbl load 0 4.7k
-Dfw 0 out SCH_100V
+Dfw 0 out EF_SCH100V
 
 * sequencer (MCU): pre-charge on at T0, eFuse on at THO, pre-charge off THO+2 ms
 Vpcg pcg 0 PWL(0 0 {T0} 0 {T0+1u} 1 {THO+2m} 1 {THO+2m+1u} 0)

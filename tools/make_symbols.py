@@ -1,4 +1,5 @@
-"""Generate the LTspice symbols (.asy) for the behavioral models (eFuse, battery, DC/DC).
+"""Generate the LTspice symbols (.asy) for the behavioral models (eFuse, battery, DC/DC)
+and the reference parameter sets.
 Writes identical copies to symbols/ (canonical) and schematics/ (so the demo
 schematics find them next to the .asc files)."""
 import os
@@ -85,6 +86,20 @@ dcdc = asy("DCDC48_12",
            (-112, -80, 112, 80), dc_pins, "VSET=14 PRATED=700 DCRUN=0",
            ["TEXT 0 -24 Center 2 48V -> 12V", "TEXT 0 8 Center 1 DC/DC 700 W", "LINE Normal -64 40 64 -40"])
 
+# reference parameter sets (models/REFERENCE_SETS_beh.lib): base-model pins
+REF_INC = "Needs .include BATTERY_beh.lib, DCDC48_12_beh.lib (as used) and REFERENCE_SETS_beh.lib"
+varta = asy("BAT12_VARTA_E39", "12 V 70 Ah AGM, Varta Silver Dynamic AGM E39 (fitted to public data). " + REF_INC,
+            (-64, -64, 64, 64), bat_pins, "SOC0=0.8 TBAT=25",
+            ["LINE Normal -32 -24 32 -24", "LINE Normal -16 -8 16 -8", "LINE Normal -32 8 32 8",
+             "LINE Normal -16 24 16 24", "TEXT 40 -40 Left 1 +", "TEXT 0 44 Center 1 VARTA E39"])
+a123 = asy("BAT48_A123_8AH", "48 V 8 Ah LiFePO4 pack with BMS, A123 (SAE 2018-01-0433, fitted). " + REF_INC,
+           (-96, -80, 96, 80), bms_pins, "SOC0=0.5 TBAT=25 T_PRE=0",
+           ["LINE Normal -32 -40 32 -40", "LINE Normal -16 -24 16 -24", "LINE Normal -32 -8 32 -8",
+            "LINE Normal -16 8 16 8", "TEXT 0 36 Center 2 A123 48V 8Ah"])
+rd210 = asy("DCDC_TOSHIBA_RD210", "3 kW 48/12 V converter, Toshiba RD210 reference design (fitted). " + REF_INC,
+            (-112, -80, 112, 80), dc_pins, "VSET=12 DCRUN=0",
+            ["TEXT 0 -24 Center 2 48V -> 12V", "TEXT 0 8 Center 1 RD210 3 kW", "LINE Normal -64 40 64 -40"])
+
 for d in ("symbols", "schematics"):
     os.makedirs(os.path.join(ROOT, d), exist_ok=True)
     write_if_changed(os.path.join(ROOT, d, "VNF1048F.asy"), vnf)
@@ -93,4 +108,7 @@ for d in ("symbols", "schematics"):
     write_if_changed(os.path.join(ROOT, d, "BATTERY.asy"), bat)
     write_if_changed(os.path.join(ROOT, d, "BATTERY_BMS.asy"), bms)
     write_if_changed(os.path.join(ROOT, d, "DCDC48_12.asy"), dcdc)
+    write_if_changed(os.path.join(ROOT, d, "BAT12_VARTA_E39.asy"), varta)
+    write_if_changed(os.path.join(ROOT, d, "BAT48_A123_8AH.asy"), a123)
+    write_if_changed(os.path.join(ROOT, d, "DCDC_TOSHIBA_RD210.asy"), rd210)
 print("symbols written")

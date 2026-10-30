@@ -53,7 +53,12 @@ for f in "$@"; do
   log="$base.log"
   echo "== ${f:t}  (${n}s)"
   if [[ ! -f "$log" ]]; then
-    echo "!! no log written: ${f:t}"; st=1; continue
+    echo "!! no log written: ${f:t}"
+    # seen after killing a stalled run: hung winedevice.exe processes block every later run
+    if [[ -x "$WINE" ]] && pgrep -f winedevice.exe >/dev/null; then
+      echo "   if no bench writes a log any more: pkill -9 -f winedevice.exe; WINEPREFIX=\"$BOTTLE\" ${WINE:h:h}/bin/wineserver -k"
+    fi
+    st=1; continue
   fi
   # older LTspice versions write UTF-16 logs
   txt=$(if [[ "$(head -c 2 "$log" | od -An -tx1)" == *00* ]]; then iconv -f UTF-16LE -t UTF-8 "$log"; else cat "$log"; fi)

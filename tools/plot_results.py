@@ -854,15 +854,11 @@ def iv_h4():
 # battery model benches (models/BATTERY_beh.lib)
 BAT = {12: dict(cap=70, v0=11.70, v100=12.90, veoc=15.0, r0=2.0e-3, r1=0.8e-3, r2=0.7e-3, l=0.2e-6),
        48: dict(cap=10, v0=40.0, v100=52.0, veoc=55.0, r0=15e-3, r1=5e-3, r2=5e-3, l=1e-6)}
-from bat_ocv import g as _bat_g  # noqa: E402  (PCHIP curve used in the .lib)
+from bat_ocv import ocv as _bat_ocv  # noqa: E402  (complete OCV curve of the .lib)
 
 
 def bat_ocv(c, s):
-    s = np.asarray(s, dtype=float)
-    mid = c["v0"] + (c["v100"] - c["v0"]) * np.vectorize(_bat_g)(s)
-    lo = c["v0"] * np.maximum(0, 1 + s / 0.02)
-    hi = c["v100"] + (c["veoc"] - c["v100"]) * (s - 1) / 0.02
-    return np.where(s < 0, lo, np.where(s > 1, hi, mid))
+    return np.vectorize(lambda x: _bat_ocv(x, c["v0"], c["v100"], c["veoc"]))(np.asarray(s, dtype=float))
 
 
 def bat_ft(temp):

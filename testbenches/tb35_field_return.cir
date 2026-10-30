@@ -29,7 +29,7 @@
 Vbat bat 0 48
 Rbat bat b1 10m
 Lbat b1 vbat 1u
-Dtvs 0 vbat TVS_58V
+Dtvs 0 vbat EF_TVS58V
 Cbus vbat 0 100u Rser=30m
 
 * ---- discrete channel, shunt as 2 x 0.5 mOhm
@@ -47,7 +47,7 @@ Dgoff g goff EF_DSW
 Cslw g 0 47n
 Dzgs out g EF_DZ15
 Rgb g out 47k
-M1 drn g out out FET100V_2M
+M1 drn g out out EF_FET100V
 Rntc sn ntc 10k
 Rtref ntc ntcm 10k
 Vlog v33 0 3.3
@@ -65,7 +65,7 @@ Rpre pc out 4.7
 * ---- branch wire + load
 Lh out o1 1u
 Rh o1 load 10m
-Dfw 0 out SCH_100V
+Dfw 0 out EF_SCH100V
 Cload load 0 47u Rser=20m
 Rload load 0 3.2
 Rov load ov 3.2

@@ -31,7 +31,7 @@ Rov load ov 1.6
 Sov ov 0 gov 0 SOV
 Vgov gov 0 PWL(0 0 5m 0 5.001m 1)
 .model SOV SW(Ron=2m Roff=1Meg Vt=0.5 Vh=-0.2)
-Dfw 0 out SCH_100V
+Dfw 0 out EF_SCH100V
 
 Ven en 0 PWL(0 0 0.5m 0 0.501m 3.3)
 Vbyp byp 0 0

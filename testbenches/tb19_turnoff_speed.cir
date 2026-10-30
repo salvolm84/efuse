@@ -18,7 +18,7 @@
 Vbat bat 0 48
 Rbat bat b1 10m
 Lbat b1 vbat 1u
-Dtvs 0 vbat TVS_58V
+Dtvs 0 vbat EF_TVS58V
 Cbus vbat 0 100u Rser=30m
 
 X1 vbat out 0 en byp clr diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12
@@ -28,7 +28,7 @@ Lh out o1 1u
 Rh o1 load 10m
 Cload load 0 220u Rser=20m
 Rload load 0 4.8
-Dfw 0 out SCH_100V
+Dfw 0 out EF_SCH100V
 Ssc load 0 sc 0 SSHORT
 Vsc sc 0 PWL(0 0 3m 0 3.0001m 1)
 .model SSHORT SW(Ron=5m Roff=1Meg Vt=0.5 Vh=-0.2)

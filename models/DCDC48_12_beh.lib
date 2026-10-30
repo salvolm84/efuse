@@ -13,7 +13,7 @@
 *
 *  Contents
 *    DCDC48_12     the converter                                        5 pins
-*    DC_LATCH / DC_DGL  helper primitives (SR latch, deglitch filter)
+*    DC_LATCH      helper primitive (SR latch)
 *
 *  What is modeled (and why it matters at system level)
 *    * output regulation with a PI voltage loop (crossover FC) around an
@@ -77,10 +77,12 @@
 *  hiccup latch) makes LTspice's default trapezoidal integration ring and
 *  stall the time step after fast logic events, depending on what else is in
 *  the netlist. Gear integration (the usual cure for stiff behavioural models)
-*  removes this. Including this library therefore switches the whole
-*  simulation to Gear; delete the line to go back to the default (and expect
-*  occasional stalls). All eFuse checks also pass under Gear (README,
-*  "Numerical guidance"), but some eFuse netlists run much slower with it.
+*  removes this. Including this library (with .include or .lib) therefore
+*  switches the whole simulation to Gear. The last .options line wins: put
+*  ".options method=trap" after the .include to go back to the default (and
+*  expect occasional stalls of the DC/DC). All eFuse checks also pass under
+*  Gear (README, "Numerical guidance"), but some eFuse netlists run much
+*  slower with it.
 .options method=gear
 
 .subckt DCDC48_12 VIN VOUT GND EN PG
@@ -203,12 +205,3 @@ Bl GND Q I=if(V(S,GND)>0.5, 1-V(Q,GND), if(V(R,GND)>0.5 | time<=0, -V(Q,GND),
 Cl Q GND 100n
 Rl Q GND 1T
 .ends DC_LATCH
-
-*  Deglitch filter: first-order filter + comparator, tau = T/ln2 (a step on IN
-*  sets OUT after T)
-.subckt DC_DGL IN OUT GND T=1u
-Bi i GND V=V(IN,GND)>0.5
-Rt i t 1
-Ct t GND {T/ln(2)} Rpar=1T
-Bo OUT GND V=V(t,GND)>0.5
-.ends DC_DGL

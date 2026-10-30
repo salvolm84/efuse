@@ -12,6 +12,11 @@
 * VGS: M1 takes roughly 3/4 of the current and most of the energy (the
 * simulation gives 70 A vs 21 A peak, 0.70 J vs 0.08 J). Fully on, the
 * channel resistances are equal and the split is ~50/50.
+* Model check (separate 48 V source): two EFUSE48_MOD channels, on from
+* t = 0 with a 20 A load, NPAR=1 and NPAR=2. TFET is the junction temperature
+* of each FET, so its rise per watt dissipated in one FET must be the same
+* for both (NPAR=2: each FET takes half the current and a quarter of the
+* power).
 * Interview guide: questions C1 (follow-up), K.
 * ---------------------------------------------------------------------------
 .include ../models/VNF1048F_beh.lib
@@ -23,7 +28,7 @@
 Vbat bat 0 48
 Rbat bat b1 10m
 Lbat b1 vbat 1u
-Dtvs 0 vbat TVS_58V
+Dtvs 0 vbat EF_TVS58V
 Cbus vbat 0 100u Rser=30m
 
 * ---- discrete channel (DS13084 Fig. 16 + slew network)
@@ -49,22 +54,30 @@ Vlog v33 0 3.3
 Rpu v33 diag 4.7k
 * thermal networks, one per FET
 Bp1 0 tj1 I=if(time>0, max(V(drn,out)*Id(M1),0), 0)
-Xth1 tj1 tc1 0 FET_TH TAMB=25 RTHJC=0.6 RTHCA=20 CTHJ=0.02 CTHC=0.5
+Xth1 tj1 tc1 0 EF_FET_TH TAMB=25 RTHJC=0.6 RTHCA=20 CTHJ=0.02 CTHC=0.5
 Bp2 0 tj2 I=if(time>0, max(V(drn,out)*Id(M2),0), 0)
-Xth2 tj2 tc2 0 FET_TH TAMB=25 RTHJC=0.6 RTHCA=20 CTHJ=0.02 CTHC=0.5
+Xth2 tj2 tc2 0 EF_FET_TH TAMB=25 RTHJC=0.6 RTHCA=20 CTHJ=0.02 CTHC=0.5
 
 * ---- load
 Lh out o1 1u
 Rh o1 load 10m
 Cload load 0 1m Rser=10m
 Rbl load 0 4.7k
-Dfw 0 out SCH_100V
+Dfw 0 out EF_SCH100V
 Rld load ld 1.2
 Sld ld 0 gld 0 SLD
 Vgld gld 0 PWL(0 0 3m 0 3.001m 1)
 .model SLD SW(Ron=2m Roff=1Meg Vt=0.5 Vh=-0.2)
 
 Ven en 0 PWL(0 0 0.5m 0 0.501m 3.3)
+
+* ---- model check: EFUSE48_MOD with NPAR = 1 / 2, on from t = 0, 20 A each
+Vbm vbm 0 48
+Vonm onm 0 3.3
+X2 vbm o2 0 onm 0 0 diag2 cs2 tf2 EFUSE48_MOD NPAR=1
+Rl2 o2 0 2.4
+X3 vbm o3 0 onm 0 0 diag3 cs3 tf3 EFUSE48_MOD NPAR=2
+Rl3 o3 0 2.4
 
 .save V(vbat) V(out) V(drn) V(g) Id(M1) Id(M2) V(tj1) V(tj2) I(Lh)
 .save V(xu:hsht) V(xu:vdsmax) V(xu:flt)
@@ -77,6 +90,11 @@ Ven en 0 PWL(0 0 0.5m 0 0.501m 3.3)
 .meas tran i1on  avg Id(M1) from 4m to 5m
 .meas tran i2on  avg Id(M2) from 4m to 5m
 .meas tran fltmax max V(xu:flt)
+.save V(tf2) V(tf3) V(o2) V(o3) V(x2:drn) V(x3:drn) I(Rl2) I(Rl3)
+.meas tran pf2   avg V(x2:drn,o2)*I(Rl2) from 4m to 5m
+.meas tran pf3   avg V(x3:drn,o3)*I(Rl3) from 4m to 5m
+.meas tran dtj2  find V(tf2)-25 at 5m
+.meas tran dtj3  find V(tf3)-25 at 5m
 .tran 0 5m 0 0.5u
 .options plotwinsize=0
 .end

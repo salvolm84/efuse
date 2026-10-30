@@ -25,7 +25,7 @@ X1 vbat out 0 en byp clr diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE
 Lh out o1 1u
 Rh o1 load 10m
 Cload load 0 47u Rser=20m
-Dfw 0 out SCH_100V
+Dfw 0 out EF_SCH100V
 * PWM load: 1.2 Ohm (~40 A) switched by a low-side switch
 Rpwm load lsw 1.2
 Spwm lsw 0 gpwm 0 SPWM

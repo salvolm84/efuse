@@ -18,7 +18,7 @@
 Vbat bat 0 48
 Rbat bat b1 20m
 Lmain b1 bus 2u Rser=5m
-Dtvs 0 bus TVS_58V
+Dtvs 0 bus EF_TVS58V
 Cbus bus 0 220u Rser=20m
 
 * ---- channel 1: DC/DC converter
@@ -41,8 +41,8 @@ Lh2 o2 m2 1.5u Rser=15m
 Cm2 m2 0 100u Rser=20m
 Lm2 m2 mm 200u
 Rm2 mm 0 3.8
-Dfw2 0 o2 SCH_100V
-Dfw1 0 o1 SCH_100V
+Dfw2 0 o2 EF_SCH100V
+Dfw1 0 o1 EF_SCH100V
 Ssc m2 0 scg 0 SSC
 Vscg scg 0 PWL(0 0 15m 0 15.0001m 1)
 .model SSC SW(Ron=5m Roff=1Meg Vt=0.5 Vh=-0.2)

@@ -23,7 +23,7 @@ X1 vbat out 0 en byp clr diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=0 HSC_CODE=
 * ideal overload: constant current (resistive below 5 V so OUT=0 is defined)
 Bload out 0 I={ILOAD}*u(time-5m)*limit(V(out)/5,0,1)
 Rmin out 0 100k
-Dfw 0 out SCH_100V
+Dfw 0 out EF_SCH100V
 
 Ven en 0 PWL(0 0 0.5m 0 0.501m 3.3)
 Vbyp byp 0 0

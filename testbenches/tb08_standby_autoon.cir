@@ -26,7 +26,7 @@ Rwake out wk 9.6
 Swk wk 0 wks 0 SWAKE
 Vwks wks 0 PWL(0 0 5m 0 5.001m 1)
 .model SWAKE SW(Ron=1m Roff=10Meg Vt=0.5 Vh=-0.2)
-Dfw 0 out SCH_100V
+Dfw 0 out EF_SCH100V
 
 Ven en 0 PWL(0 0 15m 0 15.001m 3.3)
 Vbyp byp 0 3.3
@@ -42,6 +42,8 @@ Vclr clr 0 PWL(0 0 20m 0 20.001m 3.3 20.05m 3.3 20.051m 0)
 .meas tran t_rec   find time when V(out)=47 rise=1 td=5.1m
 .meas tran diag_wk avg V(diag) from 10m to 14m
 .meas tran diag_end avg V(diag) from 24m to 25m
+.save V(x1:xu:cplow)
+.meas tran cplow_max max V(x1:xu:cplow) from 4m to 25m
 .meas tran vout_end avg V(out) from 24m to 25m
 .tran 0 25m 0 1u
 .options plotwinsize=0

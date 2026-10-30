@@ -260,6 +260,8 @@ def efuse():
     check(t, "OUT droop during wake-up", m(t, "vout_min"), 40, 48, "V", "470 uF hold-up")
     check(t, "DIAG low after wake-up event", m(t, "diag_wk"), 0, 0.3, "V", "DIAG = 0 if WAKEUPM")
     check(t, "DIAG released after CLR", m(t, "diag_end"), 3.0, 3.4, "V", "BYPASS_SAT cleared")
+    check(t, "no CP_LOW while the charge pump starts", m(t, "cplow_max"), -0.01, 0.01, "",
+          "CP_BLK blanking after CP enable")
     # ---- tb09 inductive ------------------------------------------------------------
     t = "tb09_inductive_turnoff"
     check(t, "OUT min with freewheel", m(t, "vout_min", 1), -2, 0, "V", "Tab.2 VOUT >= -2 V DC")
@@ -371,6 +373,11 @@ def efuse():
     t = "tb22_parallel_fets"
     check(t, "linear mode: energy ratio M1/M2", m(t, "e1") / m(t, "e2"), 4, 15, "", "(VGS-Vth)^2 at common VGS")
     check(t, "fully on: current ratio M1/M2", m(t, "i1on") / m(t, "i2on"), 0.95, 1.05, "", "equal RDS(on)")
+    check(t, "EFUSE48_MOD NPAR=2 / NPAR=1: TFET rise per W per FET",
+          (m(t, "dtj3") / (m(t, "pf3") / 2)) / (m(t, "dtj2") / m(t, "pf2")), 0.98, 1.02, "",
+          "thermal network per FET")
+    check(t, "EFUSE48_MOD NPAR=2 / NPAR=1: TFET rise", m(t, "dtj3") / m(t, "dtj2"), 0.23, 0.27, "",
+          "(I/2)^2 R per FET = 1/4")
     t = "tb23_linear_soa"
     check(t, "1 mF: FET energy / (1/2 C dV^2)", m(t, "e_fet", 2) / (0.5 * 1e-3 * (48 - m(t, "v0", 2)) ** 2),
           0.8, 1.0, "", "half-energy rule")
@@ -445,7 +452,7 @@ def battery():
     # ---- battery models (models/BATTERY_beh.lib), analytic references ---------------
     BAT = {12: dict(cap=70, v0=11.70, v100=12.90, veoc=15.0, r0=2.0e-3, r1=0.8e-3, r2=0.7e-3, l=0.2e-6),
            48: dict(cap=10, v0=40.0, v100=52.0, veoc=55.0, r0=15e-3, r1=5e-3, r2=5e-3, l=1e-6)}
-    from bat_ocv import g as bat_g  # noqa: E402  (PCHIP curve used in the .lib)
+    from bat_ocv import g as bat_g, ocv_inv  # noqa: E402  (OCV curve used in the .lib)
 
 
     def bat_ocv(c, soc):
@@ -467,7 +474,7 @@ def battery():
         check(t, f"{v} V: rest voltage vs OCV table (9 points)", err * 1e3, 0, 2, "mV", "OCV(SOC) curve points")
         check(t, f"{v} V: delivered capacity to cut-off / rated", m(t, f"ah{v}") / 3600 / c["cap"], 0.99, 1.01, "",
               "charge counting, CAP_AH")
-        s_eoc = 1 + 0.02 * ((14.4 if v == 12 else 53) - c["v100"]) / (c["veoc"] - c["v100"])
+        s_eoc = ocv_inv(14.4 if v == 12 else 53, c["v0"], c["v100"], c["veoc"])
         check(t, f"{v} V: CV charge, final raw SOC", m(t, f"s{v}_end"), s_eoc - 5e-4, s_eoc + 5e-4, "",
               f"OCV = V_CV -> {s_eoc:.4f}")
         check(t, f"{v} V: CV charge, final current", m(t, f"ich{v}_end"), -0.01, 0.01, "A", "taper to 0")
@@ -529,6 +536,10 @@ def battery():
           "OCV / R_PRE")
     check(t, "pre-charge: step at main-switch closing", m(t, "iclose_pk"), 0, 50, "A", "bus within ~1 V of OCV")
     check(t, "pre-charge: no fault", m(t, "flta_max"), -0.01, 0.01, "V", "")
+    check(t, "pre-charge hand-over: R_PRE still on at x = 0.5", m(t, "pre_x50"), 0.99, 1.01, "",
+          "make-before-break")
+    check(t, "5 ms EN low pulse: re-close after T_PRE", m(t, "dtf_re"), 0.495, 0.505, "s",
+          "pre-charge timer restarts")
     check(t, "no pre-charge, 10 mF: SC trip at closing", (m(t, "tb_flt") - 0.1) * 1e6, 100, 300, "us",
           "inrush > I_SC for > T_SC")
     check(t, "overcurrent ~400 A: trip delay", m(t, "dt_oc"), 0.99, 1.01, "s", "T_OC = 1 s")

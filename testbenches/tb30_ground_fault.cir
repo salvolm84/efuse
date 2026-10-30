@@ -34,7 +34,7 @@ Vclr clr 0 0
 * ---- load ECU (local ground lg)
 Lh out o1 1u
 Rh o1 vin 10m
-Dfw 0 out SCH_100V
+Dfw 0 out EF_SCH100V
 Recu vin lg 4.8
 Cecu vin lg 100u Rser=20m
 * ground wire: healthy until 5 ms, then (CASE 1) 0.2 Ohm or (CASE 2) open

@@ -179,7 +179,7 @@ or demo schematic (`schematics/*.asc`) and modify it.
    * **A source with impedance:** the battery model, or a source with R and
      harness L.
    * **Bus capacitance:** ≥ 100 µF with its ESR.
-   * **Optionally a TVS** (`TVS_58V`).
+   * **Optionally a TVS** (`EF_TVS58V`).
 
    Without bus capacitance the energy of a hard-short interruption has no
    realistic path ([8.3](#83-board-level-protection-seen-in-the-benches)).
@@ -201,7 +201,7 @@ or demo schematic (`schematics/*.asc`) and modify it.
      °C): outputs that can stay unconnected.
 4. **Load side.**
    * **Load harness:** add its L and R, then the load.
-   * **Freewheel diode:** an `SCH_100V` from GND to OUT for any inductive load
+   * **Freewheel diode:** an `EF_SCH100V` from GND to OUT for any inductive load
      or long harness.
    * **Converter that is off:** if OUT feeds a converter that is off, add the
      bleeder your design has. The ~1.3 mA OUT bias current would otherwise
@@ -296,7 +296,7 @@ Ven en 0 PWL(0 0 1m 0 1.001m 3.3)
 Xfuse bus fout 0 en 0 0 diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=22 HSC_CODE=14
 + VDS_CODE=14 TNOM_CODE=2
 Lh1 fout dcin 1u Rser=10m
-Dfw 0 fout SCH_100V
+Dfw 0 fout EF_SCH100V
 Rbl dcin 0 4.7k                                  ; bleeder for the eFuse OUT bias
 
 * 700 W DC/DC, always enabled: starts at its 30 V UVLO on the eFuse ramp
@@ -346,7 +346,8 @@ efuse/
 │   ├── NTC10K_ST.asy             NTC thermistor with temperature input
 │   ├── BATTERY.asy               3-pin battery (P, N, SOC)
 │   ├── BATTERY_BMS.asy           5-pin battery pack with BMS (P, N, SOC, EN, FLT)
-│   └── DCDC48_12.asy             5-pin DC/DC (VIN, VOUT, GND, EN, PG)
+│   ├── DCDC48_12.asy             5-pin DC/DC (VIN, VOUT, GND, EN, PG)
+│   └── BAT12_VARTA_E39.asy, BAT48_A123_8AH.asy, DCDC_TOSHIBA_RD210.asy   reference sets
 ├── schematics/                   ready-to-run schematics (symbols copied alongside)
 │   ├── demo_efuse48_module.asc   module in a 48 V harness: start-up, short, retry
 │   ├── app_vnf1048f_discrete.asc full discrete application (DS13084 Fig. 16 + slew network)
@@ -385,13 +386,13 @@ python3 tools/plot_results.py                                  # -> docs/img/*.p
 python3 tools/lint_models.py                                   # static checks, no simulation
 ```
 
-* **Checks.** `validate.py` runs <!--v {m('summary','checks_total'):.0f}-->267<!--/v--> checks against datasheets, model equations,
+* **Checks.** `validate.py` runs <!--v {m('summary','checks_total'):.0f}-->272<!--/v--> checks against datasheets, model equations,
   hand calculations and public product data, in five groups:
 
   | Group | Checks |
   |---|---|
-  | `efuse` (tb01–tb35) | <!--v {m('summary','checks_efuse'):.0f}-->156<!--/v--> |
-  | `battery` (bat01–bat07) | <!--v {m('summary','checks_battery'):.0f}-->49<!--/v--> |
+  | `efuse` (tb01–tb35) | <!--v {m('summary','checks_efuse'):.0f}-->159<!--/v--> |
+  | `battery` (bat01–bat07) | <!--v {m('summary','checks_battery'):.0f}-->51<!--/v--> |
   | `dcdc` (dc01–dc08) | <!--v {m('summary','checks_dcdc'):.0f}-->48<!--/v--> |
   | `reference` (ref01–ref02) | <!--v {m('summary','checks_reference'):.0f}-->7<!--/v--> |
   | `schematics` | <!--v {m('summary','checks_schematics'):.0f}-->7<!--/v--> |
@@ -468,7 +469,10 @@ sections [12](#12-numerical-notes-and-troubleshooting), [14.10](#1410-numerical-
   capacitors need a large resistor (MΩ–GΩ) for LTspice's floating-node check.
 * **Test with several instances in one netlist.** Most stalls appeared only
   there, and some depended on the `.save` list.
-* **Gear integration.** `DCDC48_12_beh.lib` switches the simulation to Gear.
+* **Gear integration.** `DCDC48_12_beh.lib` switches the simulation to Gear,
+  whether it is loaded with `.include` or `.lib` (checked: the log reports
+  `method = Gear`). The last `.options` line wins, so `.options method=trap`
+  placed after the include restores the default, at the risk of DC/DC stalls.
   All 35 eFuse benches were also run under Gear (validation of the default
   trapezoidal results): all eFuse checks still pass, and of 1046 measured values
   the median change is 0.000 %, 13 change by more than 1 % and one by more than
@@ -527,7 +531,7 @@ microsecond short-circuit response and switch self-monitoring.
 
 * **The switch** is an N-channel MOSFET in the positive line (*high side*), so the
   load stays referenced to chassis ground. In the model it is `M1`
-  (`FET100V_2M`: 100 V, ~2 mΩ). An N-channel device has lower resistance and is
+  (`EF_FET100V`: 100 V, ~2 mΩ). An N-channel device has lower resistance and is
   cheaper than a P-channel one. To turn it on, though, the gate must be about
   10–15 V **above the source**, and with the switch on the source sits at battery
   voltage. The gate therefore has to be driven *above the battery*.
@@ -746,7 +750,7 @@ self-tests, HWLO, ADC sample timing (filters are used instead). See [11](#11-ass
 ## 3. Files of the eFuse model
 
 ```
-models/VNF1048F_beh.lib          VNF1048F, EFUSE48_MOD, NTC10K_ST, FET_TH, helpers, device models
+models/VNF1048F_beh.lib          VNF1048F, EFUSE48_MOD, NTC10K_ST, EF_FET_TH, helpers, device models
 symbols/VNF1048F.asy             14-pin controller
 symbols/EFUSE48_MOD.asy          9-pin complete eFuse channel
 symbols/NTC10K_ST.asy            NTC thermistor with temperature input
@@ -881,22 +885,27 @@ that works in simulation maps 1:1 onto the firmware configuration.
 | `TNOM_CODE` | 0 | CR#2.T_NOM, 0..255 → **tNOM = 2·code + 1 s** |
 | `VOC_MV`, `HSC_MV`, `VDS_MV`, `VNTC_MV`, `TNOM_S` | 0 | direct overrides in mV / s (used when > 0) |
 | `FUSE_MODE` | 0 | 0 = ST stepwise curve (as the silicon), 1 = ideal continuous curve |
-| `TOL_T` | 1 | trip-time multiplier, for corner analysis (datasheet ±10 % → 0.9 / 1.1) |
+| `TOL_T` | 1 | trip-time multiplier, for corner analysis (datasheet ±10 % → 0.9 / 1.1); scales heating and cooling alike, so the RMS criterion holds for any value |
 | `KCOOL` | 1 | cooling-rate factor of the fuse memory (1 = symmetric heat balance) |
 | `T_SAMP` | 61u | fuse current averaging window (tI_SAMPLING) |
 | `CPON` | 1 | 1 = Unlocked/Locked mode (charge pump running), 0 = Stand-by (CP off until AUTO-ON or OUTCTL) |
 | `VGS_ON`, `IG_SRC`, `IG_SNK` | 14, 0.2, 0.5 | gate drive regulation [V], source / sink current [A] **[EST]** |
 | `VCP_REG`, `ICP_MAX`, `RCP` | 14.5, 30m, 10 | charge pump: regulation above VS, current capability **[EST]**, output R **[EST]** |
 | `HSC_DLY`, `VDS_DGL`, `VDS_DLY`, `VDS_BLK`, `VGU_DGL`, `UV_FLT`, `NTC_DGL`, `CP_FLT`, `BYP_DGL` | 5u, 5u, 5u, 960u, 8u, 33u, 100u, 60u, 5u | timing (datasheet; NTC_DGL is "10…500 µs", 100 µs chosen) |
+| `CP_BLK` | 200u | CP_LOW is evaluated only this long after the charge pump is enabled (start-up from Stand-by takes ~100 µs) **[EST]** |
 | `VS_USD`, `VS_USD_HYS` | 4.5, 0.1 | UV threshold and hysteresis |
 | `VBYP_SAT`, `RBYP`, `IBYP_SAT` | 1.3, 7, 0.12 | bypass switch |
 | `TTSD`, `TTSD_HYS`, `TAMB`, `RTHJA`, `P_EXT` | 175, 15, 25, 26, 0 | device thermal (P_EXT adds external heating to the IC) |
 | `IQ_ON`, `IQ_STBY`, `IOUT_B`, `ISNSP_B`, `ISNSN_B` | 8m, 150u, 1.3m, 300u, 420u | supply and pin bias currents |
-| `CS_GERR` | 0 | gain error of the CS readback (e.g. 0.03 = +3 %) |
+| `CS_GERR` | 0 | gain error of the CS readback (e.g. 0.03 = +3 %), applied before the 13-bit full-scale clamp |
+| `VTH_LOGIC` | 1.5 | threshold of the OUTCTL, BYPCTL and CLR inputs |
 
 **`EFUSE48_MOD` accepts all of these parameters too** and passes them to its
-internal controller (`TAMB_IC` is the controller's `TAMB`; the module's own
-`TAMB` is the FET ambient). For example, a corner run on the complete channel:
+internal controller, with the controller's defaults except the thresholds
+(`OVC_CODE=13`, `HSC_CODE=12`, `VDS_CODE=14`, sized for `RSENSE=1m`). The
+module's own `TAMB` is the FET ambient; `TAMB_IC` is the controller's ambient
+and follows `TAMB` unless set (default −1000, i.e. "same as `TAMB`"). For
+example, a corner run on the complete channel:
 `X1 … EFUSE48_MOD OVC_CODE=13 TOL_T=1.1 CS_GERR=-0.05 VGS_ON=12`.
 
 ### 6.3 Internal nodes you can probe
@@ -1015,10 +1024,17 @@ equivalent: dE/dt ∝ I² − INOM² ,  trip at  E = INOM²·tNOM/32
 The model integrates a normalized fuse state `fd` (0 → 1) on a 1 F capacitor:
 
 ```
-x > 1 :  dfd/dt = k(x) / (tNOM · TOL_T)       k = 2^m (FUSE_MODE 0)  or  max(1, 32(x²−1)) (FUSE_MODE 1)
-x < 1 :  dfd/dt = −KCOOL · 32 · (1 − x²) / tNOM      (cooling, fd ≥ 0)
+x > 1 :  dfd/dt = k(x) · r(x) / (tNOM · TOL_T)       k = 2^m (FUSE_MODE 0)  or  max(1, 32(x²−1)) (FUSE_MODE 1)
+x < 1 :  dfd/dt = −KCOOL · 32 · (1 − x²) / (tNOM · TOL_T)      (cooling, fd ≥ 0)
 trip  :  fd ≥ 1 while the FET is on  →  FUSE_LATCH
+r(x) = limit((x − 1)/0.002, 0, 1)
 ```
+
+`r(x)` ramps the heating rate in between x = 1 and 1.002 **[EST]**, so a current
+sitting at INOM does not see a step from 0 to 1/tNOM (k ≥ 1 just above INOM);
+it changes the trip time only within 0.2 % of INOM, well inside the sense
+tolerance. `TOL_T` scales heating and cooling alike, so the RMS criterion below
+holds for any `TOL_T`.
 
 Consequences, all visible in the test benches:
 
@@ -1068,12 +1084,21 @@ with the charge pump off (`CPON` = 0). If VS − VOUT > 1.3 V for 5 µs while th
 is off, the controller sets `autoon`. Then the bypass turns off, the charge pump
 starts and the **FET is switched on by hardware** regardless of OUTCTL. In
 stand-by (`CPON` = 0) DIAG is pulled low to signal the wake-up. CLR clears it.
+The charge pump needs ~100 µs to start from Stand-by (470 nF at 30 mA), longer
+than the 60 µs CP_LOW filter, so CP_LOW is evaluated only `CP_BLK` = 200 µs
+**[EST]** after the pump is enabled; otherwise every wake-up would flag CP_LOW
+and hold the gate off until it cleared (tb08 checks that it does not).
 The bypass must not be used to charge loads.
 
 ### 7.11 Latches, clear and DIAG
 
 `EF_LATCH` is a set-dominant SR latch that holds its state on a capacitor and
-regenerates to 0/1. It starts deterministically at 0. `CLR` (or POR) resets all
+regenerates to 0/1. It starts deterministically at 0. The fault latches
+(HSHT, FUSE_LATCH, VDS_MAX, VGS_LOW, NTC_OVT, AUTO-ON) cannot set during the DC
+operating point (`DCS=0`): their trip removes their own cause (FET off, no
+current), so a fault already present at t = 0, such as OUTCTL high into a short,
+would leave the DC solve without a consistent solution and LTspice hung. Such a
+fault now latches at the first time step. `CLR` (or POR) resets all
 latched faults. Because set dominates, a fault still present re-latches at once.
 For example, CLR into a persistent short makes the FET turn on and the HSC trip
 again 5 µs later, which is how a firmware retry behaves (tb02).
@@ -1086,7 +1111,7 @@ again 5 µs later, which is how a firmware retry behaves (tb02).
 DS13084 Fig. 16, plus a gate slew network:
 
 ```
-VBAT ──RSENSE──┬── drain [FET100V_2M ×NPAR] source ── OUT
+VBAT ──RSENSE──┬── drain [EF_FET100V ×NPAR] source ── OUT
   │            │                gate ─┬─ RG_ON (2.2k) ── HS_GATE
   │ CVS 100n   NTC 10k (pad)          ├─ D ─ RG_OFF (10 Ω) ── HS_GATE   (fast turn-off)
   │ CCP 470n   │                      ├─ C_SLEW (47 nF) ── GND           (dV/dt control)
@@ -1096,8 +1121,10 @@ VBAT ──RSENSE──┬── drain [FET100V_2M ×NPAR] source ── OUT
 ```
 
 Extra parameters: `RSENSE`, `RG_ON`, `C_SLEW`, `RG_OFF`, `NPAR` (FETs in parallel),
-and the FET thermal network `TAMB`, `RTHJC`, `RTHCA`, `CTHJ`, `CTHC`. FET power is
-P = VDS·ID into a 2-stage RC network. The NTC sees the pad temperature.
+and the FET thermal network `TAMB`, `RTHJC`, `RTHCA`, `CTHJ`, `CTHC`, per FET.
+Each FET dissipates P = VDS·ID/NPAR into its 2-stage RC network (identical FETs
+share the current equally), so `TFET` is the junction temperature of each FET;
+tb22 checks this against NPAR = 1. The NTC sees the pad temperature.
 
 ### 8.1 Choosing the thresholds
 
@@ -1408,7 +1435,7 @@ LTspice. The write-ups below have the same structure:
 * **Things to try**: parameters worth changing to explore the behaviour.
 
 All numbers are simulated values from the `.meas` statements
-(`docs/VALIDATION.md`: all **<!--v {m('summary','checks_efuse'):.0f}-->156<!--/v-->** eFuse checks pass, tb15–tb35 included; the
+(`docs/VALIDATION.md`: all **<!--v {m('summary','checks_efuse'):.0f}-->159<!--/v-->** eFuse checks pass, tb15–tb35 included; the
 battery and DC/DC checks are described in [section 14](#14-automotive-battery-model) and
 [section 15](#15-dcdc-converter-model-48-v-to-12-v-700-w)).
 tb01–tb14 are described below. tb15–tb35 are listed in
@@ -1913,7 +1940,7 @@ with a 470 µF hold-up capacitor.
 | bypass current sleeping / max | 20 mA / ~0.11 A | 20 mA / 0.111 A |
 | wake-up → AUTO-ON | ~0.12 ms | **<!--v {m('tb08_standby_autoon','dt_auto')*1e6:.0f}-->109<!--/v--> µs** |
 | CP reaches VS + 6 V / VS + 14 V | ~0.2 ms after wake-up | 205 µs / 347 µs |
-| OUT minimum (hold-up droop) | 48 − ΔV | <!--v {m('tb08_standby_autoon','vout_min'):.2f}-->45.06<!--/v--> V at 245 µs |
+| OUT minimum (hold-up droop) | 48 − ΔV | <!--v {m('tb08_standby_autoon','vout_min'):.2f}-->45.73<!--/v--> V at 245 µs |
 | DIAG after wake-up / after CLR | low / high | 0.13 V / 3.3 V |
 
 **Things to try.** Reduce `Chold` to 47 µF and the load browns out deeper (ΔV ≈
@@ -2322,7 +2349,7 @@ thermal model, cold-temperature shifts) are assumptions, not datasheet values.
 | tb19_turnoff_speed | gate turn-off path (RG_OFF) during a short | B3, B5 |
 | tb20_sense_error | sensed-resistance error vs effective INOM and trip time | B4, E2 |
 | tb21_inductive_clamp | avalanche vs freewheel vs zener demagnetization | B6 |
-| tb22_parallel_fets | two FETs with different VGS(th): linear mode vs fully on | C1 |
+| tb22_parallel_fets | two FETs with different VGS(th): linear mode vs fully on; `EFUSE48_MOD` NPAR = 2 vs 1 (TFET per FET) | C1 |
 | tb23_linear_soa | linear-mode pulse during dV/dt start-up at 85 °C, junction vs NTC | C1, E1 |
 | tb24_back_to_back | back-driven motor: single FET vs back-to-back | C2 |
 | tb25_supply_clamp | bus capacitance, TVS, TVS placement, freewheel during a short | A2, C3, E2, J2 |
@@ -2376,7 +2403,7 @@ protection layers, probe bandwidth and skew, and the wire curve vs the fuse curv
 | Fuse cooling law | symmetric heat balance (`KCOOL` = 1) | consistent with the Fig. 4/5 curve and the RMS statement; the silicon's exact decrement is not published |
 | VGS_LOW arming | after VGS first exceeds the threshold | datasheet wording "falls below" |
 | NTC deglitch | 100 µs | datasheet range 10…500 µs |
-| FET100V_2M, TVS_58V, SCH_100V | generic models | replace with the vendor models of your parts |
+| EF_FET100V, EF_TVS58V, EF_SCH100V | generic models | replace with the vendor models of your parts |
 
 **Not modeled / simplified:**
 
@@ -2615,7 +2642,7 @@ device in the power network sees?
 ### 14.3 Files
 
 ```
-models/BATTERY_beh.lib        BATTERY, BATTERY_BMS, helpers (BAT_LATCH, BAT_DGL)
+models/BATTERY_beh.lib        BATTERY, BATTERY_BMS, helpers (BAT_LATCH, BAT_DGL, BAT_DGLR)
 symbols/BATTERY.asy           3-pin symbol  (P, N, SOC)
 symbols/BATTERY_BMS.asy       5-pin symbol  (P, N, SOC, EN, FLT)
 schematics/demo_battery.asc   12 V crank at -18 degC + 48 V pack: pre-charge, load, short
@@ -2719,8 +2746,8 @@ All `BATTERY` parameters are passed through (default `VNOM=48`), plus:
 | `R_PRE`, `T_PRE` | 10 Ω, 0 (off) | Ω, s | pre-charge resistor and time |
 | `VTH_LOGIC` | 1.5 | V | EN threshold |
 
-The voltage defaults scale with the class factor; the current thresholds do
-not.
+The voltage defaults and `RSW_ON` scale with the class factor; the current
+thresholds do not.
 
 #### 14.5.3 Internal nodes you can probe
 
@@ -2737,7 +2764,7 @@ inside a `BATTERY_BMS` (the cells are the sub-instance `Xc`).
 | `I(x1:Vi)` | battery current (> 0 = discharge) |
 | BMS: `vm` | filtered voltage the BMS compares against V_OV / V_UV |
 | BMS: `ov uv oc sc` | deglitched trip conditions (0/1) |
-| BMS: `fl`, `on`, `m`, `pre`, `x` | fault latch, switch command, main-switch command, pre-charge active, switch state 0…1 |
+| BMS: `fl`, `on`, `m`, `pre`, `x` | fault latch, switch command, main-switch command, pre-charge path (0…1), switch state 0…1 |
 | BMS: `I(x1:Vsw)` | pack current (> 0 = discharge) |
 
 ---
@@ -2773,15 +2800,24 @@ interpolated with a monotone cubic (PCHIP: value and slope continuous, see
 
 ```
 OCV = VOC_0 + (VOC_100 − VOC_0) · g(s)                          0 ≤ s ≤ 1
-OCV = VOC_0 · max(0, 1 + s/DSOC_END)                            s < 0   (collapse)
-OCV = VOC_100 + (VOC_EOC − VOC_100) · (s − 1)/DSOC_END          s > 1   (end of charge)
+OCV = VOC_0 + S0·s + CLO·s²   (≥ 0)                             s < 0   (collapse)
+OCV = VOC_100 + S1·d + CHI·d²,   d = s − 1                      1 < s < 1 + DSOC_END
+OCV = VOC_EOC + SEND·(s − 1 − DSOC_END)                         beyond (end of charge)
+
+S0 = (VOC_100 − VOC_0)·g'(0)      S1 = (VOC_100 − VOC_0)·g'(1)      (g'(0) = 4.2, g'(1) = 1.5)
+CLO = (S0·DSOC_END − VOC_0)/DSOC_END²      CHI = (VOC_EOC − VOC_100 − S1·DSOC_END)/DSOC_END²
+SEND = S1 + 2·CHI·DSOC_END
 ```
 
 The end regions are what bound the energy. A load that keeps drawing current
-from an empty battery drives the OCV towards 0 V within 2 % of the capacity. A
-constant-voltage charger at `V_CV` drives the battery to the SOC where the OCV
-equals `V_CV`, and the current then tapers to zero
-(`s_end = 1 + DSOC_END·(V_CV − VOC_100)/(VOC_EOC − VOC_100)`).
+from an empty battery drives the OCV to 0 V within 2 % of the capacity
+(`DSOC_END`). A constant-voltage charger at `V_CV` drives the battery to the
+SOC where the OCV equals `V_CV`, and the current then tapers to zero. Both end
+regions are quadratics that continue the value and the slope of the curve at
+SOC 0 and 1, so the OCV has no slope step anywhere (a step at SOC 1, from
+1.8 V to 105 V per unit SOC in the 12 V class, is exactly what a CV charger
+creeps across). `tools/bat_ocv.py` holds the complete curve (`ocv()`, and
+`ocv_inv()` for `s_end`).
 
 **Terminal voltage.**
 
@@ -2806,12 +2842,23 @@ condition (`vm > V_OV`, `vm < V_UV`, `|I| > I_OC`, `I > I_SC`) drives a
 first-order filter with τ = T/ln 2, followed by a 0.5 comparator. A condition
 that persists therefore trips after exactly `T`, and shorter repeated pulses
 add up partially. The trips set a latch: FLT goes high and the switch opens.
-EN low resets the latch. The switch conductance is
+EN low resets the latch. A condition already present in the DC operating point
+trips at the first time step (the latch cannot set during the DC solve: its
+trip removes its own cause, which would leave no consistent DC solution). The
+switch conductance is
 
 ```
 G(x) = 1 / (RSW_ON · (RSW_OFF/RSW_ON)^(1 − x)) + pre/R_PRE,     τ_x = T_SW/5
+pre  = on · limit((0.95 − x)·10, 0, 1)                          (make-before-break)
 I_clamp = sgn(V)·max(|V| − V_CLAMP, 0) / 1 mΩ                   V = V(bs, P)
 ```
+
+`pre` keeps the pre-charge resistor connected until the main switch is
+already conducting (x = 0.85…0.95, where its resistance is below
+~30 × RSW_ON), so the bus is never left on its capacitors during the
+hand-over. The pre-charge timer restarts as soon as `on` drops: it counts up in
+`T_PRE` and resets 1000× faster, so even a short EN low pulse is followed by a
+full pre-charge (bat06 F).
 
 ---
 
@@ -2855,17 +2902,17 @@ filter), a rest until 9900 s, and a 1C CC-CV charge to 14.4 V / 53 V.
 **Expected.** Each rest voltage equals the OCV table, because 600 s is 30 ×
 TAU2. The SOC drops by exactly 10 % per pulse. The delivered capacity is ≈ the
 rated one, since at 1C the cut-off is reached in the collapse region just
-below 0 %. The CV phase ends where OCV = V_CV, i.e. at a raw SOC of 1.0143 /
-1.0067, with the current tapering to zero.
+below 0 %. The CV phase ends where OCV = V_CV, i.e. at a raw SOC of 1.0169 /
+1.0110, with the current tapering to zero.
 
 | Quantity | Expected | 12 V class | 48 V class |
 |---|---|---|---|
 | rest voltage vs OCV table, max error (9 points) | 0 | 0.007 mV | 0.07 mV |
 | SOC after 9 pulses | 0.1000 | 0.1000 | 0.1000 |
-| delivered charge to cut-off / rated | ≈ 1 | <!--v {m('bat01_capacity_ocv','ah12')/3600/70:.3f}-->1.001<!--/v--> | <!--v {m('bat01_capacity_ocv','ah48')/3600/10:.3f}-->1.002<!--/v--> |
-| raw SOC at cut-off | slightly < 0 | <!--v {u(m('bat01_capacity_ocv','s12_co'),'.4f')}-->−0.0014<!--/v--> | <!--v {u(m('bat01_capacity_ocv','s48_co'),'.4f')}-->−0.0018<!--/v--> |
-| final raw SOC after CV | 1.0143 / 1.0067 | <!--v {m('bat01_capacity_ocv','s12_end'):.4f}-->1.0143<!--/v--> | <!--v {m('bat01_capacity_ocv','s48_end'):.4f}-->1.0067<!--/v--> |
-| final charge current | → 0 | <!--v {m('bat01_capacity_ocv','ich12_end')*1e6:.1f}-->0.3<!--/v--> µA | <!--v {m('bat01_capacity_ocv','ich48_end')*1e6:.2f}-->0.04<!--/v--> µA |
+| delivered charge to cut-off / rated | ≈ 1 | <!--v {m('bat01_capacity_ocv','ah12')/3600/70:.3f}-->1.005<!--/v--> | <!--v {m('bat01_capacity_ocv','ah48')/3600/10:.3f}-->1.006<!--/v--> |
+| raw SOC at cut-off | slightly < 0 | <!--v {u(m('bat01_capacity_ocv','s12_co'),'.4f')}-->−0.0053<!--/v--> | <!--v {u(m('bat01_capacity_ocv','s48_co'),'.4f')}-->−0.0058<!--/v--> |
+| final raw SOC after CV | 1.0169 / 1.0110 | <!--v {m('bat01_capacity_ocv','s12_end'):.4f}-->1.0169<!--/v--> | <!--v {m('bat01_capacity_ocv','s48_end'):.4f}-->1.0110<!--/v--> |
+| final charge current | → 0 | <!--v {abs(m('bat01_capacity_ocv','ich12_end'))*1e6:.2f}-->0.01<!--/v--> µA | <!--v {m('bat01_capacity_ocv','ich48_end')*1e6:.2f}-->0.04<!--/v--> µA |
 
 **Things to try.** `OCV_SHAPE=0` (linear OCV). A larger `DSOC_END` gives a
 softer end of charge and a longer CV taper. `ETA_CHG=0.95` makes recharging
@@ -2997,7 +3044,7 @@ interrupt this. A 48 V pack opens itself.
 | 12 V: terminal voltage during the short | ~4 V | <!--v {m('bat05_short_circuit','va_3ms'):.2f}-->4.19<!--/v--> V |
 | 48 V: I_SC crossing → FLT | 100 µs | <!--v {m('bat05_short_circuit','dt_sc')*1e6:.1f}-->100.1<!--/v--> µs |
 | 48 V: pack current peak | ~2.2 kA | <!--v {m('bat05_short_circuit','ib_pk'):.0f}-->2197<!--/v--> A |
-| 48 V: voltage across the switch | 80 V + 2.2 kA × 1 mΩ | <!--v {m('bat05_short_circuit','vsw_max'):.1f}-->82.2<!--/v--> V |
+| 48 V: voltage across the switch | 80 V + 2.2 kA × 1 mΩ | <!--v {m('bat05_short_circuit','vsw_max'):.1f}-->82.1<!--/v--> V |
 | 48 V: energy in the clamp | ½L_INT·I² × V_CL/(V_CL − V_bat) ≈ 7 J | <!--v {m('bat05_short_circuit','e_cl'):.1f}-->8.0<!--/v--> J |
 | 48 V: current after opening / FLT | 0 / 3.3 V | <!--v {m('bat05_short_circuit','ib_end')*1e6:.0f}-->5<!--/v--> µA / 3.3 V |
 
@@ -3014,23 +3061,26 @@ short-circuit protection (eFuse, pyrofuse) has to act first.
 
 #### bat06: BMS, pre-charge and protections (`bat06_bms_protection.cir`)
 
-**What we simulate.** Five 48 V packs, one scenario each:
+**What we simulate.** Six 48 V packs, one scenario each:
 
 * A / B: closing onto a 10 mF bus with and without pre-charge.
 * C: overload, re-arm through EN, and a short overload that must not trip.
 * D: deep discharge.
 * E: a faulty charger.
+* F: as A, then EN low for only 5 ms: the pre-charge must run again.
 
 | Scenario | Expected | Simulated |
 |---|---|---|
 | A: pre-charge peak current | OCV/R_PRE = 4.94 A | <!--v {m('bat06_bms_protection','ipre_pk'):.2f}-->4.93<!--/v--> A |
 | A: current step when the main switch closes after 0.5 s | small (bus ≈ OCV) | <!--v {m('bat06_bms_protection','iclose_pk'):.0f}-->28<!--/v--> A, no fault |
-| B: no pre-charge, closing onto 10 mF | inrush > I_SC for > T_SC → SC trip | <!--v {m('bat06_bms_protection','ib_pk')/1e3:.2f}-->1.74<!--/v--> kA, trips after <!--v {(m('bat06_bms_protection','tb_flt')-0.1)*1e6:.0f}-->174<!--/v--> µs, bus left at <!--v {m('bat06_bms_protection','vb_end'):.0f}-->19<!--/v--> V |
+| B: no pre-charge, closing onto 10 mF | inrush > I_SC for > T_SC → SC trip | <!--v {m('bat06_bms_protection','ib_pk')/1e3:.2f}-->1.74<!--/v--> kA, trips after <!--v {(m('bat06_bms_protection','tb_flt')-0.1)*1e6:.0f}-->175<!--/v--> µs, bus left at <!--v {m('bat06_bms_protection','vb_end'):.0f}-->19<!--/v--> V |
 | C: 0.1 Ω load (~405 A > I_OC): trip delay | T_OC = 1 s | <!--v {m('bat06_bms_protection','dt_oc'):.3f}-->1.000<!--/v--> s |
 | C: EN low 3.0 s, high 3.5 s | fault cleared, pack re-closes | bus back at <!--v {m('bat06_bms_protection','vc_rearm'):.1f}-->49.2<!--/v--> V |
 | C: second overload, 0.8 s | < T_OC: no trip | no trip (<!--v {m('bat06_bms_protection','ic_ol2'):.0f}-->404<!--/v--> A) |
-| D: 100 A from 10 % SOC: delay after V < V_UV | T_UV = 1 s | <!--v {m('bat06_bms_protection','td_flt')-m('bat06_bms_protection','td_uv'):.3f}-->1.000<!--/v--> s, SOC <!--v {u(m('bat06_bms_protection','sd_flt')*100,'.1f')}-->−0.3<!--/v--> % |
-| E: 56 V / 50 A charger from 95 %: delay after V > V_OV | T_OV = 0.1 s | <!--v {m('bat06_bms_protection','te_flt')-m('bat06_bms_protection','te_ov'):.3f}-->0.100<!--/v--> s, SOC <!--v {m('bat06_bms_protection','se_flt')*100:.1f}-->100.5<!--/v--> % |
+| D: 100 A from 10 % SOC: delay after V < V_UV | T_UV = 1 s | <!--v {m('bat06_bms_protection','td_flt')-m('bat06_bms_protection','td_uv'):.3f}-->1.000<!--/v--> s, SOC <!--v {u(m('bat06_bms_protection','sd_flt')*100,'.1f')}-->−0.5<!--/v--> % |
+| E: 56 V / 50 A charger from 95 %: delay after V > V_OV | T_OV = 0.1 s | <!--v {m('bat06_bms_protection','te_flt')-m('bat06_bms_protection','te_ov'):.3f}-->0.100<!--/v--> s, SOC <!--v {m('bat06_bms_protection','se_flt')*100:.1f}-->101.0<!--/v--> % |
+| A: pre-charge path when the main switch is half closed (x = 0.5) | still on (make-before-break) | <!--v {m('bat06_bms_protection','pre_x50'):.2f}-->1.00<!--/v--> |
+| F: re-close after a 5 ms EN low pulse | T_PRE = 0.5 s after EN returns | <!--v {m('bat06_bms_protection','dtf_re'):.3f}-->0.499<!--/v--> s |
 
 Case B is the reason 48 V packs pre-charge: τ = (R0' + RSW_ON + ESR)·C ≈
 0.2 ms keeps the inrush above 1 kA for longer than T_SC. In case D the pack
@@ -3178,9 +3228,13 @@ The battery spans time constants from nanoseconds (L_INT) to hours
 
 `models/REFERENCE_SETS_beh.lib` contains parameter sets of real products, fitted
 to their public data. Each set is a wrapper subcircuit with the pins of the base
-model; include the library after `BATTERY_beh.lib`. In the library, every value
-is marked [PUB] (from the source), [FIT] (fitted to a published criterion) or
-[EST] (estimate). The manufacturers did not provide or review these sets.
+model and its own symbol (`symbols/<SET>.asy`); include the library together
+with `BATTERY_beh.lib` (the DC/DC set also needs `DCDC48_12_beh.lib`). The
+parameters that describe the use case are passed through: `SOC0`, `TBAT`,
+`ETA_CHG`, `L_INT` (both sets) and `T_PRE`, `R_PRE`, `VTH_LOGIC` (the BMS
+pack); the fitted product data are fixed. In the library, every value is marked
+[PUB] (from the source), [FIT] (fitted to a published criterion) or [EST]
+(estimate). The manufacturers did not provide or review these sets.
 
 | Set | Product and source | Published data used | Fitted / estimated |
 |---|---|---|---|
@@ -3192,8 +3246,8 @@ Checked in `ref01_reference_sets.cir`:
 | Check | Published | Simulated |
 |---|---|---|
 | Varta: 760 A, −18 °C, voltage after 10 s | ≥ 7.5 V (EN 50342-1) | <!--v {m('ref01_reference_sets','va1_10'):.2f}-->7.50<!--/v--> V |
-| Varta: 20 h capacity (3.5 A to 10.5 V) | 70 Ah | <!--v {m('ref01_reference_sets','ah_a2')/3600:.1f}-->70.1<!--/v--> Ah |
-| A123: 1C capacity to the 36 V limit | 8 Ah | <!--v {m('ref01_reference_sets','ah_b1')/3600:.2f}-->8.02<!--/v--> Ah |
+| Varta: 20 h capacity (3.5 A to 10.5 V) | 70 Ah | <!--v {m('ref01_reference_sets','ah_a2')/3600:.1f}-->70.4<!--/v--> Ah |
+| A123: 1C capacity to the 36 V limit | 8 Ah | <!--v {m('ref01_reference_sets','ah_b1')/3600:.2f}-->8.06<!--/v--> Ah |
 | A123: ohmic resistance at 50 % SOC | 8–10 mΩ | <!--v {m('ref01_reference_sets','r0_b2')*1e3:.2f}-->8.96<!--/v--> mΩ |
 
 ```spice
@@ -3331,7 +3385,7 @@ ceramics on a 10 µH feed, it is negative: the bus oscillates at
 ### 15.3 Files and quick start
 
 ```
-models/DCDC48_12_beh.lib       DCDC48_12 and helpers (DC_LATCH, DC_DGL)
+models/DCDC48_12_beh.lib       DCDC48_12 and helper (DC_LATCH)
 symbols/DCDC48_12.asy          5-pin symbol (VIN, VOUT, GND, EN, PG)
 schematics/demo_dcdc.asc       48 V feed -> DC/DC -> 12 V battery + switched PTC load
 testbenches/dc01..dc08         test benches, section 15.6
@@ -3354,7 +3408,8 @@ X2 vin v12b 0 en pg2 DCDC48_12 VSET=13.5 PRATED=1000 FC=1.5k T_HIC_OFF=200m
   is ill-defined. Ramp current-source loads in after start-up (the benches do),
   or use resistive or battery loads.
 * **Including the library switches the simulation to Gear integration**
-  (`.options method=gear`, see [15.8](#158-numerical-notes)).
+  (`.options method=gear`, see [15.8](#158-numerical-notes)); a later
+  `.options method=trap` line overrides it.
 * **Fed from an eFuse channel?** The eFuse's ~1.3 mA OUT bias current is larger
   than the converter's 1 mA stand-by current. Add the input bleeder your real
   design has (dc08 uses 4.7 kΩ, as tb10), or the "off" input charges up.
@@ -3671,7 +3726,11 @@ is the buck direction of the Toshiba RD210 reference design, *Automotive 3kW
   KSW 8.33 mW/(V·A). The split between the three terms is an estimate, because
   only one efficiency point is published as a number.
 * **Estimated:** the UVLO (26 / 23 V), the OVP (56 / 54 V), the loop and the
-  capacitances. The boost direction is not characterised.
+  capacitances (COUT 10 mF, CIN 2.2 mF). The boost direction is not
+  characterised.
+* **Set by the wrapper:** `VSET=12`, `PRATED=3000` (so `ILIM` = 275 A). Passed
+  through: `VSET`, `DCRUN`, `BIDIR`, `ILIM`, `T_SS`, `VTH_LOGIC`. Symbol:
+  `symbols/DCDC_TOSHIBA_RD210.asy`.
 
 Checked in `ref02_reference_dcdc.cir`:
 
