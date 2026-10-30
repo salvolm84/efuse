@@ -1,0 +1,39 @@
+* tp05_loaddump_12v_tvs.cir
+* ---------------------------------------------------------------------------
+* ISO 16750-2 load dump on a 12 V ECU input with a local TVS:
+* generator -> ECU input: TVS, 100 uF, 1 A load (13.5 Ohm). Load dump at 10 ms.
+*   CASE 0  test A (ISO16750_LD_A12: 101 V, 0.5 Ohm, td 400 ms), TVS with
+*           ~27 V breakdown (24 V stand-off class): the TVS absorbs the
+*           load dump, hundreds of joules
+*   CASE 1  test B (ISO16750_LD_B12: clamped at US* = 35 V), same TVS: the
+*           central suppression limits the generator, but the local TVS still
+*           conducts (35 V > 27 V) for most of the pulse
+*   CASE 2  test B with a TVS of ~38 V breakdown (above US*): no TVS current,
+*           the ECU sees 35 V
+* Expected: CASE 0/1 TVS current (V_oc - V)/RI - V/R_load, energy
+* integral of V*I over the pulse; CASE 2: ECU input = 35 V * 13.5/14 (the
+* load divides with RI = 0.5 Ohm).
+* ---------------------------------------------------------------------------
+.include ../models/PULSES_beh.lib
+.param CASE=0
+.param USCL={if(CASE==0, 0, 35)}
+.param BVT={if(CASE==2, 38, 27)}
+.model TVSX D(Is=1e-12 Rs=20m N=1.5 BV={BVT} Ibv=1m Cjo=5n)
+
+Xgen g 0 TP_LOADDUMP UA=13.5 US=101 TRISE=10m TDUR=400m RI=0.5 USCL={USCL} TD=10m
+Lh g ecu 1u Rser=5m
+Dtvs 0 ecu TVSX
+Cin ecu 0 100u Rser=50m
+Rl ecu 0 13.5
+
+.save V(g) V(ecu) I(Dtvs) I(Rl) V(xgen:oc)
+.meas tran vecu_pk max V(ecu)
+.meas tran itvs_pk max -I(Dtvs)
+.meas tran vtvs_ipk find V(ecu) when -I(Dtvs)=itvs_pk*0.999 rise=1
+.meas tran e_tvs   integ -I(Dtvs)*V(ecu) from 0 to 1
+.meas tran t_tvs   find time when -I(Dtvs)=1 fall=last
+.meas tran vecu_200 find V(ecu) at 0.2
+.tran 0 1 0 0.2m
+.step param CASE list 0 1 2
+.options plotwinsize=0
+.end

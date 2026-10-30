@@ -1,0 +1,56 @@
+* tp01_iso16750_shapes.cir
+* ---------------------------------------------------------------------------
+* ISO 16750-2 generators of models/PULSES_beh.lib checked against their own
+* definitions (README part 5), open circuit (1 MOhm) and into a load:
+*   A  starting profile level I (ISO16750_CRANK_L1) into 1 MOhm:
+*      14 V -> 8 V (5 ms), 15 ms, -> 9.5 V (50 ms), 1 s, -> 14 V (40 ms)
+*   B  load dump test A, 12 V (ISO16750_LD_A12: 101 V, 0.5 Ohm, td 400 ms,
+*      tr 10 ms) into 1 MOhm: peak 101 V, tr (10-90 %) 10 ms, td between
+*      the 10 % points 400 ms
+*   C  the same generator into 0.5 Ohm (= RI): half the open-circuit
+*      voltage, i.e. a peak of 50.5 V
+*   D  load dump test B (ISO16750_LD_B12, US* 35 V) into 1 MOhm: clamped
+*      at 35 V
+*   E  momentary drop (ISO16750_DROP12) into 1 MOhm: 10.8 V -> 4.5 V for
+*      100 ms
+* All sources start at t = 10 ms.
+* ---------------------------------------------------------------------------
+.include ../models/PULSES_beh.lib
+
+XA a 0 ISO16750_CRANK_L1
+RA a 0 1Meg
+XB b 0 ISO16750_LD_A12
+RB b 0 1Meg
+XC c 0 ISO16750_LD_A12
+RC c 0 0.5
+XD d 0 ISO16750_LD_B12
+RD d 0 1Meg
+XE e 0 ISO16750_DROP12
+RE e 0 1Meg
+
+.save V(a) V(b) V(c) V(d) V(e)
+* A: levels and segment times
+.meas tran va_min  min V(a)
+.meas tran va_us   find V(a) at 0.58
+.meas tran ta_fall find time when V(a)=11 fall=1
+.meas tran ta_rec  find time when V(a)=11.75 rise=1
+.meas tran va_end  find V(a) at 1.2
+* B: peak, rise and duration (10 % / 90 % of US - UA = 87.5 V above 13.5 V)
+.meas tran vb_pk   max V(b)
+.meas tran tb_10r  find time when V(b)=22.25 rise=1
+.meas tran tb_90r  find time when V(b)=92.25 rise=1
+.meas tran tb_10f  find time when V(b)=22.25 fall=1
+.meas tran tb_rise param tb_90r-tb_10r
+.meas tran tb_dur  param tb_10f-tb_10r
+.meas tran vb_end  find V(b) at 1.2
+* C, D, E
+.meas tran vc_pk   max V(c)
+.meas tran vd_pk   max V(d)
+.meas tran vd_200  find V(d) at 0.2
+.meas tran ve_min  min V(e)
+.meas tran te_low  find time when V(e)=7.65 fall=1
+.meas tran te_up   find time when V(e)=7.65 rise=1
+.meas tran te_dur  param te_up-te_low
+.tran 0 1.2 0 0.5m
+.options plotwinsize=0
+.end

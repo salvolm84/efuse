@@ -1,0 +1,67 @@
+* tp04_lv148_e48_02_pdn.cir
+* ---------------------------------------------------------------------------
+* LV 148 / VDA 320 test E48-02 (transient over-voltage: 70 V for 40 ms,
+* LV148_E48_02) applied to the 48 V side of a two-voltage system:
+* test generator (48 V, 10 mOhm) -> 1 uH / 10 mOhm feed -> 48 V bus
+* (220 uF) -> eFuse (EFUSE48_MOD) -> 700 W DC/DC (DCDC48_12) -> 12 V net
+* (12 V battery, 10 A load). The pulse starts at 60 ms.
+*   CASE 0  58 V TVS on the bus (as in the eFuse benches), DC/DC default
+*           (input OVP 60 V): the TVS (~64 V breakdown) clamps the 70 V
+*           generator: tens of amperes for 40 ms, joules in the TVS
+*   CASE 1  no TVS, DC/DC default: the bus reaches 70 V (the VNF1048F
+*           limit), the DC/DC stops on its 60 V OVP during the pulse, the
+*           12 V battery carries the 12 V net (E48-02 requires full function:
+*           the converter fails the test)
+*   CASE 2  no TVS, DC/DC with VIN_OVP 75 V: keeps running through the pulse
+* Expected in all cases: no eFuse fault (the eFuse has no VS over-voltage
+* shutdown; its UV and gate drive are unaffected), the 12 V net within a few
+* hundred mV.
+* ---------------------------------------------------------------------------
+.include ../models/VNF1048F_beh.lib
+.include ../models/BATTERY_beh.lib
+.include ../models/DCDC48_12_beh.lib
+.include ../models/PULSES_beh.lib
+.param CASE=0
+.param TVS={if(CASE==0, 1, 0)}
+.param OVP={if(CASE==2, 75, 60)}
+
+Vh hi 0 3.3
+Xgen g 0 LV148_E48_02 TD=60m UB=48 RI=10m
+Lfeed g bus 1u Rser=10m
+Cbus bus 0 220u Rser=20m
+* TVS branch always present; CASE 1/2 open it with a 1 GOhm series R
+Rtvsw bus tvo {if(TVS>0, 1u, 1G)}
+Dtvs 0 tvo EF_TVS58V
+
+X1 bus o1 0 en1 0 0 diag1 cs1 tfet1 EFUSE48_MOD RSENSE=1m OVC_CODE=22 HSC_CODE=14
++ VDS_CODE=14 TNOM_CODE=2
+Lh1 o1 d1 1u Rser=10m
+Dfw1 0 o1 EF_SCH100V
+Rbl d1 0 4.7k
+Xdc d1 v12 0 hi pgdc DCDC48_12 VIN_OVP={OVP}
+
+Lh12 v12 b12 0.5u Rser=2m
+Xb12 b12 0 soc12 BATTERY VNOM=12 SOC0=0.7
+Rbase b12 0 1.25
+
+Ven1 en1 0 PWL(0 0 1m 0 1.001m 3.3)
+
+.save V(g) V(bus) V(o1) V(d1) V(v12) V(b12) V(diag1) V(pgdc) I(Dtvs) I(Lh1)
+.save V(x1:xu:flt) V(xdc:run) V(xdc:il) I(xb12:Vi) V(x1:drn)
+.meas tran vbus_pk  max V(bus) from 55m to 110m
+.meas tran itvs_pk  max -I(Dtvs) from 55m to 110m
+.meas tran itvs_av  avg -I(Dtvs) from 70m to 95m
+.meas tran e_tvs    integ -I(Dtvs)*V(bus) from 55m to 110m
+.meas tran vtvs_av  avg V(bus) from 70m to 95m
+.meas tran run_min  min V(xdc:run) from 55m to 110m
+.meas tran run_end  find V(xdc:run) at 150m
+.meas tran v12_min  min V(b12) from 55m to 110m
+.meas tran v12_pre  avg V(b12) from 50m to 55m
+.meas tran ib12_on  avg I(xb12:Vi) from 75m to 95m
+.meas tran fltmax   max V(x1:xu:flt)
+.meas tran diagmin  min V(diag1) from 5m to 150m
+.meas tran vds_pk   max V(x1:drn,o1) from 55m to 110m
+.step param CASE list 0 1 2
+.tran 0 150m 0 20u
+.options plotwinsize=0
+.end

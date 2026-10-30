@@ -1,0 +1,223 @@
+* ============================================================================
+*  PULSES_beh.lib  --  Automotive supply test pulses as LTspice sources
+*                      (ISO 16750-2, ISO 7637-2, LV 148 / VDA 320 / ISO 21780)
+*
+*  Status    : stimulus library for power-distribution simulation. The shapes
+*              follow the definitions of the standards as summarized in public
+*              sources (see README.md, part 5 and its references); levels that
+*              no public source confirmed are flagged [CHECK]. The standards
+*              are revised (ISO 16750-2:2012 -> 2023, VDA 320 / LV 148 ->
+*              ISO 21780): check every level against the edition your test
+*              plan cites. Generator source impedance is an ideal resistor.
+*  Simulator : LTspice (validated with LTspice 26.0.2; PWL sources and
+*              B-sources of time; no idt(), no state)
+*
+*  Contents (all sources have the pins P (+) and N (-); the open-circuit
+*  voltage is applied through the internal resistance RI)
+*    Generic shapes
+*      TP_STEP      level change UB -> U1 -> UB with linear edges
+*      TP_CRANK     ISO 16750-2 starting (cranking) profile
+*      TP_LOADDUMP  ISO 16750-2 load dump, test A or B (clamped)
+*      TP_ISO7637   ISO 7637-2 style transient (pulses 1, 2a, 3a, 3b),
+*                   repeated NP times, optionally with the supply disconnected
+*      TP_RIPPLE    superimposed AC voltage with a logarithmic sweep
+*    Presets (wrappers with the levels of the standard, same pins)
+*      ISO16750_LD_A12 / _B12 / _A24 / _B24, ISO16750_CRANK_L1 / _L2 / _L4,
+*      ISO16750_JUMP12, ISO16750_OV12, ISO16750_DROP12, ISO16750_RIPPLE12,
+*      ISO7637_P1_12, ISO7637_P2A_12, ISO7637_P3A_12, ISO7637_P3B_12,
+*      LV148_E48_02, LV148_OV60
+*    TP_BRK        helper (time-step breakpoints for the B-source shapes)
+*
+*  Pulse shape of TP_LOADDUMP and TP_ISO7637 (time t' from the pulse start):
+*      g(t') = t'/T0                     0 <= t' < T0      (linear rise)
+*      g(t') = exp(-(t' - T0)/TAU)       t' >= T0          (exponential decay)
+*    T0 = TRISE/0.8, so TRISE is the 10 % -> 90 % rise time, and TAU is set so
+*    that the pulse lasts TDUR between its 10 % points (rising and falling):
+*      TAU = (TDUR - 0.9*T0) / ln(10)
+*  The sources are time functions, not circuits: they do not react to the
+*  load except through RI (as a test generator with that output impedance).
+* ============================================================================
+
+
+* ----------------------------------------------------------------------------
+*  TP_STEP -- UB until TD, edge TF to U1, U1 for T1, edge TR back to UB
+*    jump start, long-term over-voltage, momentary drop, slow decrease /
+*    increase (long TF / TR), 48 V transient over-voltage ...
+* ----------------------------------------------------------------------------
+.subckt TP_STEP P N UB=13.5 U1=24 TD=10m TF=1m T1=60 TR=1m RI=10m
+Vs o N PWL(0 {UB} {TD} {UB} {TD+TF} {U1} {TD+TF+T1} {U1} {TD+TF+T1+TR} {UB})
+Rs o P {max(RI,1u)}
+.ends TP_STEP
+
+
+* ----------------------------------------------------------------------------
+*  TP_CRANK -- ISO 16750-2 starting profile (cranking)
+*    UB until TD, falls in TF to US6, holds T6, rises in T7 to US, holds T8,
+*    rises in TR back to UB. Defaults: level I (UB 14 V, US6 8 V, US 9.5 V,
+*    TF 5 ms, T6 15 ms, T7 50 ms, T8 1 s, TR 40 ms). Segment order inferred
+*    from the parameter names of the standard's table [CHECK the figure].
+* ----------------------------------------------------------------------------
+.subckt TP_CRANK P N UB=14 US6=8 US=9.5 TF=5m T6=15m T7=50m T8=1 TR=40m TD=10m RI=10m
+Vs o N PWL(0 {UB} {TD} {UB} {TD+TF} {US6} {TD+TF+T6} {US6} {TD+TF+T6+T7} {US}
++  {TD+TF+T6+T7+T8} {US} {TD+TF+T6+T7+T8+TR} {UB})
+Rs o P {max(RI,1u)}
+.ends TP_CRANK
+
+
+* ----------------------------------------------------------------------------
+*  TP_LOADDUMP -- ISO 16750-2 load dump
+*    UA + (US - UA)*g(t - TD), shape g as in the header. USCL > 0: test B, the
+*    open-circuit voltage is clamped at USCL (centralized load-dump
+*    suppression, US*). Defaults: 12 V test A, worst corner of the ranges
+*    (US 79..101 V, RI 0.5..4 Ohm, TDUR 40..400 ms, TRISE <= 10 ms).
+* ----------------------------------------------------------------------------
+.subckt TP_LOADDUMP P N UA=13.5 US=101 TRISE=10m TDUR=400m RI=0.5 USCL=0 TD=10m
+.param T0  = {TRISE/0.8}
+.param TAU = {(TDUR - 0.9*T0)/ln(10)}
+Bs oc N V={UA} + ({US}-{UA})*if(time<{TD}, 0, if(time<{TD}+{T0}, (time-{TD})/{T0},
++  exp(-(time-{TD}-{T0})/{TAU})))
+Bc o N V=if({USCL}>0, limit(V(oc,N), -1e4, {USCL}), V(oc,N))
+Rs o P {max(RI,1u)}
+Xbk N TP_BRK TD={TD} T0={T0} TAU={TAU} TDUR={TDUR} TREP={10*TDUR} NP=1
+.ends TP_LOADDUMP
+
+
+* ----------------------------------------------------------------------------
+*  TP_ISO7637 -- ISO 7637-2 style transient, NP pulses every TREP from TD
+*    DISC = 0: UA + US*g(t')            (pulses 2a, 3a, 3b: superimposed on
+*                                         the supply)
+*    DISC = 1: US*g(t') during T2 after each pulse start, the supply (UA) is
+*              disconnected for T2       (pulse 1: an inductive load
+*                                         disconnected in parallel with the DUT)
+*    t' = time since the start of the current pulse. US is the open-circuit
+*    amplitude (the test level). Defaults: pulse 1, 12 V, level -150 V.
+* ----------------------------------------------------------------------------
+.subckt TP_ISO7637 P N UA=13.5 US=-150 TRISE=1u TDUR=2m RI=10 TD=1m NP=1 TREP=0.5
++ DISC=0 T2=200m
+.param T0  = {TRISE/0.8}
+.param TAU = {(TDUR - 0.9*T0)/ln(10)}
+*  pulse index k (0..NP-1) and time since its start
+Bk k N V=limit(floor((time-{TD})/{TREP}), 0, {NP}-1)
+Btp tp N V=time - {TD} - V(k,N)*{TREP}
+Bs o N V=if(time<{TD}, {UA},
++  if({DISC}>0.5 & V(tp,N)>=0 & V(tp,N)<{T2}, 0, {UA})
++  + {US}*if(V(tp,N)<0, 0, if(V(tp,N)<{T0}, V(tp,N)/{T0}, exp(-(V(tp,N)-{T0})/{TAU}))))
+Rs o P {max(RI,1u)}
+Rk k N 1G
+Rtp tp N 1G
+Xbk N TP_BRK TD={TD} T0={T0} TAU={TAU} TDUR={TDUR} TREP={TREP} NP={NP}
+*  supply disconnection edges (pulse 1)
+Vbd bd N PULSE(0 1n {TD} 1n {T2} 1n {TREP} {NP})
+Rbd bd N 1G
+.ends TP_ISO7637
+
+
+* ----------------------------------------------------------------------------
+*  TP_RIPPLE -- UB + UPP/2 * sin(phase), frequency swept logarithmically
+*    from FMIN to FMAX in TSW, starting at TD (FMAX = FMIN: fixed frequency).
+*    Defaults: ISO 16750-2 superimposed AC, 12 V, severity 1 V p-p, upper peak
+*    16 V, 50 Hz .. 25 kHz (2023 edition: up to 200 kHz) in 60 s, RI 50 mOhm.
+* ----------------------------------------------------------------------------
+.subckt TP_RIPPLE P N UB=15.5 UPP=1 FMIN=50 FMAX=25k TSW=60 TD=0 RI=50m
+.param KF = {ln(FMAX/FMIN)}
+Bs o N V={UB} + {UPP}/2*sin(if(time<{TD}, 0,
++  if({KF}>1u, 2*pi*{FMIN}*{TSW}/{KF}*(exp({KF}*(time-{TD})/{TSW})-1),
++  2*pi*{FMIN}*(time-{TD}))))
+Rs o P {max(RI,1u)}
+.ends TP_RIPPLE
+
+
+* ----------------------------------------------------------------------------
+*  TP_BRK -- forces time-step breakpoints at the defining points of each
+*  pulse of the B-source shapes, which LTspice does not know about (a
+*  resistive circuit would otherwise be stepped across the peak or the
+*  decay): the start, the 10 % and 90 % points of the rise, the peak, half and
+*  one TAU into the decay, and the falling 10 % point, for NP pulses every
+*  TREP. 1 nV PULSE sources into 1 GOhm: no effect on the circuit.
+* ----------------------------------------------------------------------------
+.subckt TP_BRK N TD=0 T0=1u TAU=1u TDUR=1u TREP=1 NP=1
+Vb1 b1 N PULSE(0 1n {TD} {0.1*T0} {0.8*T0} {0.1*T0} {TREP} {NP})
+Vb2 b2 N PULSE(0 1n {TD+T0} {0.5*TAU} {0.5*TAU} {TDUR-0.9*T0-TAU} {TREP} {NP})
+Rb1 b1 N 1G
+Rb2 b2 N 1G
+.ends TP_BRK
+
+
+* ============================================================================
+*  Presets. Levels from public summaries of the standards (README part 5);
+*  [CHECK] = not confirmed by a public source, verify against your copy.
+* ============================================================================
+
+*  ISO 16750-2 load dump, 12 V, test A (no central suppression)
+.subckt ISO16750_LD_A12 P N TD=10m US=101 RI=0.5 TDUR=400m
+X1 P N TP_LOADDUMP UA=13.5 US={US} TRISE=10m TDUR={TDUR} RI={RI} USCL=0 TD={TD}
+.ends ISO16750_LD_A12
+*  ... test B (centralized suppression, US* = 35 V)
+.subckt ISO16750_LD_B12 P N TD=10m US=101 RI=0.5 TDUR=400m USCL=35
+X1 P N TP_LOADDUMP UA=13.5 US={US} TRISE=10m TDUR={TDUR} RI={RI} USCL={USCL} TD={TD}
+.ends ISO16750_LD_B12
+*  ISO 16750-2 load dump, 24 V, test A (US 151..202 V, RI 1..8 Ohm, TDUR 100..350 ms)
+.subckt ISO16750_LD_A24 P N TD=10m US=202 RI=1 TDUR=350m
+X1 P N TP_LOADDUMP UA=27 US={US} TRISE=10m TDUR={TDUR} RI={RI} USCL=0 TD={TD}
+.ends ISO16750_LD_A24
+*  ... test B, US* = 58 V [CHECK]
+.subckt ISO16750_LD_B24 P N TD=10m US=202 RI=1 TDUR=350m USCL=58
+X1 P N TP_LOADDUMP UA=27 US={US} TRISE=10m TDUR={TDUR} RI={RI} USCL={USCL} TD={TD}
+.ends ISO16750_LD_B24
+
+*  ISO 16750-2 starting profile, 12 V, levels I, II, IV
+.subckt ISO16750_CRANK_L1 P N TD=10m RI=10m
+X1 P N TP_CRANK UB=14 US6=8 US=9.5 TF=5m T6=15m T7=50m T8=1 TR=40m TD={TD} RI={RI}
+.ends ISO16750_CRANK_L1
+.subckt ISO16750_CRANK_L2 P N TD=10m RI=10m
+X1 P N TP_CRANK UB=14 US6=4.5 US=6.5 TF=5m T6=15m T7=50m T8=10 TR=100m TD={TD} RI={RI}
+.ends ISO16750_CRANK_L2
+.subckt ISO16750_CRANK_L4 P N TD=10m RI=10m
+X1 P N TP_CRANK UB=14 US6=6 US=6.5 TF=5m T6=15m T7=50m T8=10 TR=100m TD={TD} RI={RI}
+.ends ISO16750_CRANK_L4
+
+*  ISO 16750-2, 12 V: jump start 24 V for 60 s; long-term over-voltage 18 V
+*  for 60 min (regulator failure); momentary drop to 4.5 V for 100 ms [CHECK]
+.subckt ISO16750_JUMP12 P N TD=10m UB=13.5 RI=10m
+X1 P N TP_STEP UB={UB} U1=24 TD={TD} TF=1m T1=60 TR=1m RI={RI}
+.ends ISO16750_JUMP12
+.subckt ISO16750_OV12 P N TD=10m UB=13.5 RI=10m
+X1 P N TP_STEP UB={UB} U1=18 TD={TD} TF=1m T1=3600 TR=1m RI={RI}
+.ends ISO16750_OV12
+.subckt ISO16750_DROP12 P N TD=10m UB=10.8 RI=10m
+X1 P N TP_STEP UB={UB} U1=4.5 TD={TD} TF=1m T1=100m TR=1m RI={RI}
+.ends ISO16750_DROP12
+*  ISO 16750-2 superimposed AC, 12 V, severity 1 / 2 / 4 V p-p (UPP), upper
+*  peak 16 V
+.subckt ISO16750_RIPPLE12 P N UPP=1 TSW=60 FMAX=25k TD=0 RI=50m
+X1 P N TP_RIPPLE UB={16-UPP/2} UPP={UPP} FMIN=50 FMAX={FMAX} TSW={TSW} TD={TD} RI={RI}
+.ends ISO16750_RIPPLE12
+
+*  ISO 7637-2, 12 V systems. US = open-circuit test level (highest of the
+*  listed levels), RI = generator impedance.
+*  pulse 1: -75 / -112 / -150 V, 10 Ohm, td 2 ms, tr 1 us, supply disconnected
+.subckt ISO7637_P1_12 P N TD=1m US=-150 NP=1 TREP=0.5
+X1 P N TP_ISO7637 UA=13.5 US={US} TRISE=1u TDUR=2m RI=10 TD={TD} NP={NP} TREP={TREP}
++ DISC=1 T2=200m
+.ends ISO7637_P1_12
+*  pulse 2a: +37 / +55 / +112 V, 2 Ohm, td 50 us, tr 1 us, on the supply
+.subckt ISO7637_P2A_12 P N TD=1m US=112 NP=1 TREP=0.5
+X1 P N TP_ISO7637 UA=13.5 US={US} TRISE=1u TDUR=50u RI=2 TD={TD} NP={NP} TREP={TREP} DISC=0
+.ends ISO7637_P2A_12
+*  pulse 3a / 3b: -112 / -165 / -220 V and +75 / +112 / +150 V, 50 Ohm,
+*  td 150 ns, tr 5 ns, in bursts (pulse period 100 us) [CHECK the period]
+.subckt ISO7637_P3A_12 P N TD=1m US=-220 NP=1 TREP=100u
+X1 P N TP_ISO7637 UA=13.5 US={US} TRISE=5n TDUR=150n RI=50 TD={TD} NP={NP} TREP={TREP} DISC=0
+.ends ISO7637_P3A_12
+.subckt ISO7637_P3B_12 P N TD=1m US=150 NP=1 TREP=100u
+X1 P N TP_ISO7637 UA=13.5 US={US} TRISE=5n TDUR=150n RI=50 TD={TD} NP={NP} TREP={TREP} DISC=0
+.ends ISO7637_P3B_12
+
+*  LV 148 / VDA 320, 48 V: E48-02 transient over-voltage 70 V for 40 ms
+*  (edges 1 ms [EST]); long-term over-voltage 60 V for 60 min
+.subckt LV148_E48_02 P N TD=10m UB=48 RI=10m
+X1 P N TP_STEP UB={UB} U1=70 TD={TD} TF=1m T1=40m TR=1m RI={RI}
+.ends LV148_E48_02
+.subckt LV148_OV60 P N TD=10m UB=48 RI=10m
+X1 P N TP_STEP UB={UB} U1=60 TD={TD} TF=1m T1=3600 TR=1m RI={RI}
+.ends LV148_OV60

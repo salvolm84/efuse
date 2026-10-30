@@ -1155,6 +1155,201 @@ def dc08():
     finish(fig, ax, "time [ms]", "dc08_pdn_48v_12v.png")
 
 
+# ---------------------------------------------------------------------------
+# wiring harness benches (models/HARNESS_beh.lib)
+WH_AL = 3.9293e-3
+WH_CSA = [0.35, 0.5, 0.75, 1, 1.5, 2.5, 4, 6, 10, 16, 25, 35, 50]
+WH_R20 = dict(zip(WH_CSA, [54.4e-3, 37.1e-3, 24.7e-3, 18.5e-3, 12.7e-3, 7.6e-3, 4.71e-3, 3.14e-3, 1.82e-3,
+                           1.16e-3, 0.743e-3, 0.527e-3, 0.368e-3]))
+WH_I90 = dict(zip(WH_CSA, [10, 13, 16.5, 19.5, 24.5, 34, 42, 51, 68, 88, 114, 136, 158]))
+
+
+def wh_lpm(s, hgt=10e-3):
+    return 2e-7 * np.log(2 * hgt / np.sqrt(s * 1e-6 / (np.pi * 0.7)))
+
+
+def wh_rth(s, iref=0, tamb=25):
+    if iref > 0:
+        return 50 / (iref ** 2 * WH_R20[s] * (1 + WH_AL * (tamb + 30)))
+    return 50 / (WH_I90[s] ** 2 * WH_R20[s] * (1 + WH_AL * 70))
+
+
+def wh_temp(i, t, t0, tamb, rth, cp, r20):
+    """Closed form of the wire ODE at constant current (README part 4.5)."""
+    g = 1 / rth - i * i * r20 * WH_AL
+    tinf = (i * i * r20 * (1 - 20 * WH_AL) + tamb / rth) / g
+    return tinf + (t0 - tinf) * np.exp(-g * t / cp)
+
+
+def wh01():
+    lg = meas_log(os.path.join(TB, "wh01_resistance_inductance.log"))
+    r = raw("wh01_resistance_inductance"); f = r["frequency"].real
+    cs = np.array(WH_CSA); w = 2 * np.pi * 1e5
+    fig, ax = panels(3, "wh01 - WIRE: resistance and loop inductance per metre vs cross-section, |Z(f)|", h=2.4,
+                     sharex=False)
+    ax[0].loglog(cs, [WH_R20[s] * 1e3 for s in WH_CSA], "-", color=INK2, lw=0.8, label="ISO 6722-1 table, 20 degC")
+    ax[0].loglog(cs, [lg[f"r{k:02d}"][0] * 1e3 for k in range(1, 14)], "o", color=C[0], ms=5, mfc=SURF, mew=1.5,
+                 label="simulated, 20 degC")
+    ax[0].loglog([1, 2.5, 16], [lg[f"r{k}"][0] * 1e3 for k in (14, 15, 16)], "s", color=C[1], ms=5, mfc=SURF,
+                 mew=1.5, label="simulated, 105 degC (x 1.334)")
+    ax[0].set_ylabel("R' [mOhm/m]"); ax[0].set_xlabel("cross-section [mm2]")
+    cc = np.logspace(np.log10(0.3), np.log10(60), 100)
+    ax[1].semilogx(cc, wh_lpm(cc) * 1e6, color=INK2, lw=0.8, label="mu0/(2 pi) ln(2 HGT/r), HGT 10 mm")
+    ax[1].semilogx(cs, [lg[f"x{k:02d}"][0] / w * 1e6 for k in range(1, 14)], "o", color=C[0], ms=5, mfc=SURF,
+                   mew=1.5, label="simulated Im Z / omega at 100 kHz")
+    ax[1].semilogx(cc, wh_lpm(cc, 30e-3) * 1e6, color=INK2, lw=0.8, ls="--", label="formula, HGT 30 mm")
+    ax[1].semilogx([2.5], [lg["x18"][0] / w * 1e6], "s", color=C[1], ms=5, mfc=SURF, mew=1.5,
+                   label="simulated, HGT 30 mm")
+    ax[1].set_ylabel("L' [uH/m]"); ax[1].set_xlabel("cross-section [mm2]"); ax[1].set_ylim(0, 1.2)
+    for j, (k, s) in enumerate([(1, 0.35), (6, 2.5), (13, 50)]):
+        ax[2].loglog(f, np.abs(r[f"V(a{k:02d})"]) * 1e3, color=C[j], label=f"{s:g} mm2, 1 m")
+        ax[2].axvline(WH_R20[s] / (2 * np.pi * wh_lpm(s)), color=C[j], lw=0.8, ls=":")
+    ax[2].set_ylabel("|Z| [mOhm]"); ax[2].text(1.5, 2e2, "dotted: corner R'/(2 pi L')", color=INK2, fontsize=8)
+    finish(fig, ax, "frequency [Hz]", "wh01_resistance_inductance.png")
+
+
+def wh02():
+    r = raw("wh02_wire_thermal"); t = r["time"]
+    fig, ax = panels(2, "wh02 - WIRE: conductor temperature at constant current (dotted: closed form)", h=2.8)
+    cp = 3.45e6 * 2.5e-6 * 1.3
+    rth = wh_rth(2.5, iref=30)
+    ta = np.where(t <= 2000, wh_temp(30, t, 25, 25, rth, cp, 7.6e-3),
+                  wh_temp(0, t - 2000, wh_temp(30, 2000, 25, 25, rth, cp, 7.6e-3), 25, rth, cp, 7.6e-3))
+    curves = [("V(ta)", "XA: 2.5 mm2, IREF 30 A, 25 degC; off at 2000 s", ta),
+              ("V(tc)", "XC: 2.5 mm2 table, 34 A, 40 degC", wh_temp(34, t, 40, 40, wh_rth(2.5), cp, 7.6e-3)),
+              ("V(td)", "XD: 0.5 mm2 table, 10 A, 85 degC",
+               wh_temp(10, t, 85, 85, wh_rth(0.5), 3.45e6 * 0.5e-6 * 1.3, 37.1e-3)),
+              ("V(te)", "XE: as XA, LEN 10 m (30 A)", wh_temp(30, t, 25, 25, rth, cp, 7.6e-3))]
+    for k, (n, lab, an) in enumerate(curves):
+        plot(ax[0], t, r[n], lab, k)
+        ax[0].plot(t, an, color=INK, ls=":", lw=1.2)
+    ax[0].set_ylabel("T [degC]"); ax[0].axhline(105, color=INK2, lw=0.8, ls="--")
+    ax[0].text(3500, 107, "TMAX 105 degC", color=INK2, fontsize=8); ax[0].set_ylim(0, 140)
+    plot(ax[1], t, r["V(tb)"], "XB: 2 x IREF = 60 A", 4)
+    ax[1].plot(t, wh_temp(60, t, 25, 25, rth, cp, 7.6e-3), color=INK, ls=":", lw=1.2, label="closed form")
+    plot(ax[1], t, r["V(ta)"], "XA: IREF = 30 A", 0)
+    ax[1].set_ylabel("T [degC]")
+    ax[1].text(3000, 250, "2 x IREF: 474 K, not 4 x 50 K: R(T) feedback", color=INK2, fontsize=8)
+    finish(fig, ax, "time [s]", "wh02_wire_thermal.png")
+
+
+def wh03():
+    r = raw("wh03_short_adiabatic"); t = r["time"]
+    fig, ax = panels(1, "wh03 - WIRE: adiabatic heating, 150 A/mm2 for 1 s, vs IEC 60949 (K = 226)", h=4.0)
+    tt = np.linspace(0, 1, 60)
+    iec = lambda ti: (ti + 234.5) * np.exp(150 ** 2 * tt / 226 ** 2) - 234.5
+    plot(ax[0], t, r["V(t2)"], "pure Cu, KINS 1, from 20 degC (1.5 / 2.5 / 6 mm2 identical)", 0)
+    plot(ax[0], t, r["V(t4)"], "pure Cu, KINS 1, from 85 degC", 1)
+    plot(ax[0], t, r["V(t5)"], "table R20, KINS 1.3, adiabatic", 2)
+    plot(ax[0], t, r["V(t6)"], "table R20, KINS 1.3, default cooling", 3, ls="--")
+    for ti in (20, 85):
+        ax[0].plot(tt[::4], iec(ti)[::4], "o", color=INK, ms=4, mfc=SURF, label="IEC 60949" if ti == 20 else None)
+    ax[0].axhline(105, color=INK2, lw=0.8, ls="--"); ax[0].text(1.25, 108, "TMAX 105 degC", color=INK2, fontsize=8)
+    ax[0].set_ylabel("T [degC]")
+    finish(fig, ax, "time [s]", "wh03_short_adiabatic.png")
+
+
+def wh04():
+    r = raw("wh04_efuse_wire_coordination")
+    lg = meas_log(os.path.join(TB, "wh04_efuse_wire_coordination.log"))
+    xs = [1.09, 1.2, 1.32, 1.6]
+    fig, ax = panels(3, "wh04 - eFuse (INOM 21.8 A) protecting a 2 m 1.5 mm2 wire at 60 degC: tNOM 15 s vs 511 s",
+                     h=2.6, sharex=False)
+    for k in range(8):
+        t = r.get("time", k); a = ax[0] if k < 4 else ax[1]
+        a.plot(t, r.get("V(tw)", k), color=C[k % 4], label=f"x = {xs[k % 4]}")
+        a.plot(lg["t_fl"][k], lg["twmax"][k], "v", color=C[k % 4], ms=6)
+    for a, lim, ttl in ((ax[0], 8, "tNOM 15 s (coordinated)"), (ax[1], 135, "tNOM 511 s (mis-coordinated)")):
+        a.axhline(105, color=C[7], lw=1, ls="--"); a.set_xlim(0, lim); a.set_ylabel("wire T [degC]")
+        a.set_title(ttl + ", markers: eFuse trip", loc="left", fontsize=9); a.set_xlabel("time [s]")
+        a.text(0.02, 0.80, "TMAX 105 degC (dashed)", color=C[7], fontsize=8, transform=a.transAxes)
+    ax[1].set_xscale("log"); ax[1].set_xlim(0.9, 135)
+    inom = 21.8
+    i = np.logspace(np.log10(inom * 1.001), np.log10(105.6), 500); x = i / inom
+    for k, tnom in enumerate((15, 511)):
+        mm = np.maximum(0, np.floor(np.log2(32 * (x ** 2 - 1))))
+        ax[2].loglog(i, tnom / 2 ** mm, color=C[k], label=f"eFuse trip, tNOM {tnom} s")
+    s, tamb, tpre = 1.5, 60, lg["tw0"][0]
+    rth, cp, r20 = wh_rth(s), 3.45e6 * s * 1e-6 * 1.3, WH_R20[s]
+    g = 1 / rth - i * i * r20 * WH_AL
+    tinf = (i * i * r20 * (1 - 20 * WH_AL) + tamb / rth) / g
+    with np.errstate(invalid="ignore", divide="ignore"):
+        t105 = np.where((g < 0) | (tinf > 105), -cp / g * np.log((tinf - 105) / (tinf - tpre)), np.nan)
+    ilim = np.sqrt(45 / (r20 * rth * (1 + WH_AL * 85)))
+    ax[2].axvline(ilim, color=C[7], lw=0.8, ls=":")
+    ax[2].text(ilim * 1.01, 0.07, f"wire limit {ilim:.1f} A", color=C[7], fontsize=8, rotation=90, va="bottom")
+    ax[2].loglog(i, t105, color=C[7], lw=2, label=f"wire reaches 105 degC (from {tpre:.1f} degC, closed form)")
+    ax[2].loglog(lg["i_ol"][4:], np.array(lg["t105"][4:]) - 1.0005, "o", color=C[7], ms=5, mfc=SURF, mew=1.5,
+                 label="simulated, wire at 105 degC")
+    for k in range(8):
+        ax[2].loglog(lg["i_ol"][k], lg["t_fl"][k] - 1.0005, "s", color=C[k // 4], ms=5, mfc=SURF, mew=1.5,
+                     label="simulated eFuse trip" if k == 0 else None)
+    ax[2].set_xlabel("overload current [A]"); ax[2].set_ylabel("time [s]"); ax[2].set_ylim(0.05, 1e3)
+    finish(fig, ax, "overload current [A]", "wh04_efuse_wire_coordination.png")
+
+
+
+def tp01():
+    r = raw("tp01_iso16750_shapes"); t = r["time"]
+    fig, ax = panels(3, "tp01 - ISO 16750-2 generators: starting profile, load dump A / B, momentary drop", sharex=False)
+    plot(ax[0], t, r["V(a)"], "starting profile level I (open circuit)", 0); ax[0].set_ylabel("V"); ax[0].set_ylim(0, 16)
+    ax[0].set_xlabel("time [s]")
+    plot(ax[1], t, r["V(b)"], "load dump A, open circuit", 0); plot(ax[1], t, r["V(c)"], "load dump A into RI = 0.5 Ohm", 1)
+    plot(ax[1], t, r["V(d)"], "load dump B (US* 35 V)", 2); ax[1].set_ylabel("V"); ax[1].set_xlabel("time [s]")
+    w = t < 0.2
+    plot(ax[2], t[w] * 1e3, r["V(e)"][w], "momentary drop", 0); ax[2].set_ylabel("V"); ax[2].set_ylim(0, 12)
+    finish(fig, ax, "time [ms]", "tp01_iso16750_shapes.png")
+
+
+def tp02():
+    r = raw("tp02_iso7637_pulses"); t = r["time"]
+    fig, ax = panels(3, "tp02 - ISO 7637-2 pulses 1, 2a, 3a / 3b (12 V): open circuit and into R = RI", sharex=False)
+    w = (t > 0.9e-3) & (t < 4e-3)
+    plot(ax[0], t[w] * 1e3, r["V(a)"][w], "pulse 1, open", 0); plot(ax[0], t[w] * 1e3, r["V(b)"][w], "pulse 1 into 10 Ohm", 1)
+    ax[0].set_ylabel("V"); ax[0].set_xlabel("time [ms]")
+    w = (t > 0.99e-3) & (t < 1.12e-3)
+    plot(ax[1], t[w] * 1e6 - 1000, r["V(c)"][w], "pulse 2a, open", 0); plot(ax[1], t[w] * 1e6 - 1000, r["V(d)"][w], "pulse 2a into 2 Ohm", 1)
+    ax[1].set_ylabel("V"); ax[1].set_xlabel("time after the pulse start [us]")
+    w = (t > 0.4999e-3) & (t < 0.5006e-3)
+    for k, (n, lab) in enumerate((("V(e)", "pulse 3a, open"), ("V(f)", "pulse 3a into 50 Ohm"), ("V(g)", "pulse 3b, open"))):
+        plot(ax[2], t[w] * 1e9 - 0.5e6, r[n][w], lab, k)
+    ax[2].set_ylabel("V")
+    finish(fig, ax, "time after the pulse start [ns]", "tp02_iso7637_pulses.png")
+
+
+def tp03():
+    r = raw("tp03_ripple_sweep"); t = r["time"]
+    fig, ax = panels(2, "tp03 - ISO 16750-2 superimposed AC (2 V p-p, 50 Hz -> 25 kHz log sweep) and an ECU input filter")
+    plot(ax[0], t * 1e3, r["V(a)"], "generator, open circuit", 0, lw=0.4); ax[0].set_ylabel("V")
+    plot(ax[1], t * 1e3, r["V(f)"], "after 4.7 uH / 220 uF (resonance 4.9 kHz)", 1, lw=0.4); ax[1].set_ylabel("V")
+    finish(fig, ax, "time [ms] (frequency rises logarithmically)", "tp03_ripple_sweep.png")
+
+
+def tp04():
+    r = raw("tp04_lv148_e48_02_pdn")
+    fig, ax = panels(3, "tp04 - LV 148 E48-02 (70 V, 40 ms) on the 48 V bus: TVS, DC/DC input OVP, 12 V net")
+    labs = ["58 V TVS, OVP 60 V", "no TVS, OVP 60 V", "no TVS, OVP 75 V"]
+    for k in range(r.nsteps):
+        t = r.get("time", k) * 1e3
+        plot(ax[0], t, r.get("V(bus)", k), labs[k], k)
+        plot(ax[1], t, -r.get("I(Dtvs)", k), labs[k], k)
+        plot(ax[2], t, r.get("V(b12)", k), labs[k], k)
+    ax[0].set_ylabel("48 V bus [V]"); ax[1].set_ylabel("TVS current [A]"); ax[2].set_ylabel("12 V net [V]")
+    finish(fig, ax, "time [ms]", "tp04_lv148_e48_02_pdn.png")
+
+
+def tp05():
+    r = raw("tp05_loaddump_12v_tvs")
+    fig, ax = panels(2, "tp05 - ISO 16750-2 load dump on a 12 V ECU input with a local TVS")
+    labs = ["test A, 27 V TVS", "test B (35 V), 27 V TVS", "test B (35 V), 38 V TVS"]
+    for k in range(r.nsteps):
+        t = r.get("time", k)
+        plot(ax[0], t, r.get("V(ecu)", k), labs[k], k)
+        plot(ax[1], t, -r.get("I(Dtvs)", k), labs[k], k)
+    ax[0].set_ylabel("ECU input [V]"); ax[1].set_ylabel("TVS current [A]")
+    finish(fig, ax, "time [s]", "tp05_loaddump_12v_tvs.png")
+
+
 ALL = dict(tb01=tb01, tb02=tb02, tb03=tb03, tb04=tb04, tb05=tb05, tb06=tb06,
            tb07=tb07, tb08=tb08, tb09=tb09, tb10=tb10, tb11=tb11, tb12=tb12,
            tb13=tb13, tb14=tb14, tb15=tb15, tb16=tb16, tb17=tb17, tb18=tb18, tb19=tb19,
@@ -1162,7 +1357,9 @@ ALL = dict(tb01=tb01, tb02=tb02, tb03=tb03, tb04=tb04, tb05=tb05, tb06=tb06,
            tb27=tb27, tb28=tb28, tb29=tb29, tb30=tb30, tb31=tb31, tb32=tb32, tb33=tb33,
            tb34=tb34, tb35=tb35, tb36=tb36, iv_b2=iv_b2, iv_h2=iv_h2, iv_h4=iv_h4,
            bat01=bat01, bat02=bat02, bat03=bat03, bat04=bat04, bat05=bat05, bat06=bat06, bat07=bat07,
-           dc01=dc01, dc02=dc02, dc03=dc03, dc04=dc04, dc05=dc05, dc06=dc06, dc07=dc07, dc08=dc08)
+           dc01=dc01, dc02=dc02, dc03=dc03, dc04=dc04, dc05=dc05, dc06=dc06, dc07=dc07, dc08=dc08,
+           wh01=wh01, wh02=wh02, wh03=wh03, wh04=wh04,
+           tp01=tp01, tp02=tp02, tp03=tp03, tp04=tp04, tp05=tp05)
 
 if __name__ == "__main__":
     sel = sys.argv[1:] or list(ALL)

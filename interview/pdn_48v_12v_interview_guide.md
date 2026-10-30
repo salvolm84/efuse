@@ -12,9 +12,10 @@ of the network and of its main devices:
 
 | Topic | Questions |
 |---|---|
-| 48 V system, zonal architecture, standards | A1–A3 |
-| eFuse and PDU: protection, power stage, inrush, thermal, faults, safety, validation | B–H (except C4–C7, D5, H5, H6), I, J1–J5 |
+| 48 V system, zonal architecture, standards, supply test pulses | A1–A3, A6, C8, H7 |
+| eFuse and PDU: protection, power stage, inrush, thermal, faults, safety, validation | B–H (except C4–C8, D5, H5–H7), I, J1–J5 |
 | Batteries: source impedance, cold crank, pack disconnect (load dump), pack pre-charge, models from datasheets | A4, A5, D5, H5, J6 |
+| Wiring harness: wire sizing, R(T), short-time heating, eFuse-to-wire coordination | W1–W3 |
 | DC/DC converter: the converter as a load, input-filter stability, pre-biased start, 12 V-side protection, models from datasheets | C4–C7, H6, J4, J7 |
 
 Pick the questions that match the role: a PDU designer should cover B–H in
@@ -45,7 +46,10 @@ battery or converter questions plus the system ones (A, F).
   the topic (G1, C7), the block says so and points to the closest benches. The
   quick-fire checks in K have no Simulation block: their last column names the
   bench that shows the number, where one exists. Benches tb01–tb14 are
-  described in the README; tb15–tb36 were written for this guide; bat01–bat07
+  described in the README; tb15–tb36 were written for this guide; tp01–tp05
+  (supply test pulses) are described in
+  [README part 5](../README.md#5-automotive-test-pulses-iso-16750-2-iso-7637-2-lv-148), wh01–wh04 (wire) in
+  [README part 4](../README.md#4-wiring-harness-model); bat01–bat07
   (12 V battery, 48 V pack with BMS) are described in
   [README section 2](../README.md#2-automotive-battery-model), dc01–dc08 (700 W 48/12 V DC/DC) in
   [README section 3](../README.md#3-dcdc-converter-model-48-v-to-12-v-700-w), and ref01–ref02 (reference
@@ -61,7 +65,7 @@ Suggested format, 90–120 min:
 | Part | Content | Time |
 |---|---|---|
 | 1 | Background and a project the candidate owned (they drive it, you drill) | 15 min |
-| 2 | Technical questions, sections A–H (pick per level and role, see the topic table) | 45–60 min |
+| 2 | Technical questions, sections A–H and W (pick per level and role, see the topic table) | 45–60 min |
 | 3 | Design exercise (section I) | 20–30 min |
 | 4 | Debug scenarios (section J) | 10–15 min |
 
@@ -76,6 +80,7 @@ A scoring sheet is at the end.
 | A3 | tb10, bat07 | selectivity: one channel shorted, the other rides through; the pack BMS does not trip |
 | A4 | bat02, bat03, bat05 | battery/pack impedance vs temperature and frequency; short at the pack terminals |
 | A5 | bat07 | the pack opens while the generator feeds the bus: 48 V load dump |
+| A6 | tp04 | LV 148 E48-02 (70 V, 40 ms) on the 48 V bus: a 58 V TVS burns, a 60 V DC/DC OVP stops the converter |
 | B1 | tb03, tb04, tb16 | I²t curve, RMS response, thermal memory vs wire temperature |
 | B2 | tb02/03/05/07, tb17 | time scales of the layers; latch-off vs current limiting |
 | B3 | tb02, tb18, tb19, tb25 | the first 20 µs; effect of harness L and of turn-off speed |
@@ -89,6 +94,7 @@ A scoring sheet is at the end.
 | C5 | dc06, dc07 | negative input resistance; harness + input filter stability, damping |
 | C6 | dc03 | start-up into a pre-biased 12 V battery: no reverse current; BIDIR sinking; key-off drain |
 | C7 | tb29, dc04 (no bench for a failed converter) | 48 V onto the 12 V net with and without a battery as clamp; 12 V short: hiccup |
+| C8 | tp05 | 12 V load dump test A / B on an ECU input: TVS energy, TVS breakdown vs US* |
 | D1 | tb26 | hard switch-on vs dV/dt control into 1 mF |
 | D2 | tb27, tb13 | half-energy rule for R = 1…100 Ω |
 | D3 | tb11, tb13, tb28 | dV/dt window, methods, bypass + AUTO-ON |
@@ -107,6 +113,10 @@ A scoring sheet is at the end.
 | H4 | tb03, tb16 (post-processed) | wire damage curve vs fuse curve with tolerance |
 | H5 | ref01 | battery and pack sets fitted to datasheet / paper data, re-running the published tests |
 | H6 | ref02 | DC/DC set fitted to one published efficiency figure and the input range |
+| H7 | tp01, tp02, tp03 | ISO 16750-2 / 7637-2 generators open circuit and into RI; ripple sweep through an input filter |
+| W1 | wh02 | wire temperature at constant current: rating, 2 × rating (R(T) feedback), time constants, ambient |
+| W2 | wh03 | adiabatic short-circuit heating vs IEC 60949 |
+| W3 | wh04 | eFuse I²t (tNOM 15 s vs 511 s) vs a preloaded 1.5 mm² wire at 60 °C |
 | I | tb33 | the design exercise, simulated |
 | J1 | tb34 | cold start-up: which protection fired |
 | J2 | tb25 | controller over-stress while the FET survives |
@@ -352,6 +362,53 @@ from 25 ms and its regulator reacts with a 5 ms lag; the BMS opens the pack at 3
   has to act in the first 100 µs?" Expected: ΔI/C is far faster than any
   regulation loop. Only the clamp, the capacitance or a hardware de-excitation
   are fast enough.
+
+### A6. A 48 V ECU must pass LV 148 E48-02 (70 V for 40 ms). What does that require of the components on the 48 V bus? (L2)
+
+**Expected answer**
+* E48-02 is a **transient over-voltage at full function**: the generator holds
+  70 V for 40 ms, with a low source impedance (mΩ). It is not a fast spike that
+  a capacitor or a TVS absorbs: the energy available is practically unlimited.
+* Every part directly on the 48 V bus needs a **70 V rating with margin**
+  (input capacitors, the eFuse controller's VS pin, the FET, DC/DC input
+  stages); 80–100 V parts are usual.
+* **No clamp may conduct at 70 V.** A TVS sized for the 12 V-style "clamp the
+  spike" approach (e.g. 58 V stand-off, ~64 V breakdown) would carry tens of
+  amperes for 40 ms: joules, and it fails. Fast transients have to be handled
+  above 70 V (TVS breakdown > 70 V, ~75–80 V), by capacitance and by layout.
+* **"Full function"** means the converters keep working: an input OVP at 60 V
+  that stops the DC/DC fails the test, even if the 12 V battery hides it.
+  The OVP has to sit above 70 V, and the converter has to be rated for it.
+* The other LV 148 levels frame it: 36–52 V normal operation, 60 V for an hour
+  (long-term over-voltage), up to 70 V transient.
+
+**Follow-ups**
+* "Then what protects the bus against an inductive kick when a short is
+  interrupted?" Bulk capacitance close to the switch and a TVS with breakdown
+  above the 70 V test level; check that its clamp voltage stays below the
+  absolute maximum of the parts, which is why 100 V parts are common.
+* "Your DC/DC stops at 60 V, but the 12 V net stays up in the test. Pass?" No:
+  the battery carried the load, the converter did not function. Ask for the
+  converter's status signal in the test.
+
+**Red flags:** puts a 58 V TVS on the bus "for protection"; treats 70 V for
+40 ms as a spike; accepts an input OVP that shuts the converter down during
+the test.
+
+**Simulation:** [`tp04`](../testbenches/tp04_lv148_e48_02_pdn.cir), the
+`LV148_E48_02` generator on the 48 V bus of a system with an eFuse, the 700 W
+DC/DC and a 12 V battery: (0) 58 V TVS and a 60 V input OVP, (1) no TVS, (2)
+no TVS and a 75 V OVP.
+
+![tp04](../docs/img/tp04_lv148_e48_02_pdn.png)
+
+* Case 0: the TVS carries <!--v {m('tp04_lv148_e48_02_pdn','itvs_av',0):.0f}-->34<!--/v--> A for the whole pulse and absorbs
+  **<!--v {m('tp04_lv148_e48_02_pdn','e_tvs',0):.0f}-->94<!--/v--> J**; the bus still reaches <!--v {m('tp04_lv148_e48_02_pdn','vbus_pk',0):.1f}-->69.5<!--/v--> V.
+* Cases 0 and 1: the DC/DC stops on its 60 V OVP; the 12 V net falls from
+  <!--v {m('tp04_lv148_e48_02_pdn','v12_pre',1):.2f}-->12.68<!--/v--> V to <!--v {m('tp04_lv148_e48_02_pdn','v12_min',1):.2f}-->12.37<!--/v--> V on the battery. Case 2 runs through it.
+* *Show the TVS current and ask:* "Why does the TVS not clamp the bus?"
+  Expected: the generator's 10 mΩ is far lower than the TVS's dynamic
+  resistance; the TVS just shares the current.
 
 ---
 
@@ -1008,6 +1065,52 @@ onto the 12 V net; plot and table in F1) and
 * *Ask, on tb29 case 1:* "Which component would you add, and where?" Expected:
   a 12 V-side over-voltage detection acting on the 48 V feed, or a series
   disconnect in the converter. Only the 12 V side can see this fault.
+
+---
+
+### C8. A 12 V ECU input must survive the ISO 16750-2 load dump. Test A or test B, and how do you choose the input TVS? (L2)
+
+**Expected answer**
+* **Load dump:** the battery is disconnected while the alternator (or the
+  DC/DC) charges it; the regulator needs hundreds of ms to react. ISO 16750-2
+  test A: 79–101 V open circuit, 0.5–4 Ω source, 40–400 ms. Test B: the same
+  pulse with **central suppression** in the vehicle (alternator or a central
+  clamp) limiting it to US*, typically 35 V for 12 V systems.
+* Which one applies is a **vehicle decision**: with central suppression the
+  ECUs are tested to B, without it each ECU has to absorb test A.
+* **Test A at the ECU:** the TVS absorbs hundreds of joules (0.5 Ω source,
+  ~400 ms); that needs a dedicated load-dump TVS (e.g. SM8S class), not a
+  standard SMBJ, or a surge stopper (series MOSFET that disconnects or
+  regulates the input).
+* **Test B:** the ECU sees at most 35 V. A local TVS with a breakdown **below
+  US*** still conducts for most of the pulse (tens of joules), so choose it
+  above 35 V (and the downstream parts rated for 35 V + margin), or accept
+  and rate the energy.
+* Also check the **reverse battery** and **jump start** (24 V for 60 s)
+  requirements, which constrain the TVS stand-off from the other side.
+
+**Follow-ups**
+* "How do you estimate the TVS energy?" Clamp voltage × (V_oc − V_clamp)/RI,
+  integrated over the exponential decay: E ≈ V_cl/RI · ∫(V_oc(t) − V_cl) dt.
+* "What changes with a surge stopper?" The series FET takes the voltage
+  difference instead of a TVS; its SOA for ~100 ms at (US − V_out) × I_load
+  becomes the limit.
+
+**Red flags:** does not know test B or central suppression; picks a TVS by
+stand-off voltage alone; expects the input capacitor to absorb a load dump.
+
+**Simulation:** [`tp05`](../testbenches/tp05_loaddump_12v_tvs.cir), a 12 V ECU
+input (TVS, 100 µF, 1 A): test A with a 27 V TVS, test B with the same TVS,
+test B with a 38 V TVS.
+
+![tp05](../docs/img/tp05_loaddump_12v_tvs.png)
+
+* Test A: the TVS clamps at <!--v {m('tp05_loaddump_12v_tvs','vecu_pk',0):.1f}-->30.1<!--/v--> V with up to <!--v {m('tp05_loaddump_12v_tvs','itvs_pk',0):.0f}-->138<!--/v--> A and absorbs
+  **<!--v {m('tp05_loaddump_12v_tvs','e_tvs',0):.0f}-->452<!--/v--> J**.
+* Test B, 27 V TVS: still <!--v {m('tp05_loaddump_12v_tvs','e_tvs',1):.0f}-->98<!--/v--> J. Test B, 38 V TVS: no TVS current, the ECU sees
+  <!--v {m('tp05_loaddump_12v_tvs','vecu_pk',2):.1f}-->33.7<!--/v--> V.
+* *Show the TVS current of test B and ask:* "The vehicle has central
+  suppression. Why does the local TVS still get hot?"
 
 ---
 
@@ -1779,6 +1882,192 @@ UVLO, OVP, loop and capacitances estimated.
 
 ---
 
+### H7. How do you run the ISO 16750-2 and ISO 7637-2 supply tests in simulation, and what does the generator's source impedance mean for the result? (L2)
+
+**Expected answer**
+* The tests are defined as **generators**: an open-circuit waveform (level,
+  tr, td, shape) and a source resistance RI. The DUT's input impedance loads
+  the generator, so the voltage at the DUT is lower than the test level
+  whenever it draws current; into a load equal to RI the amplitude halves.
+  A simulation must model RI, not just apply the waveform as an ideal source.
+* td and tr are defined between the 10 % / 90 % points of the pulse; the
+  amplitude is the open-circuit test level. A model should be checked against
+  those definitions open circuit and into RI.
+* Pulse families and what they stress: ISO 7637-2 pulse 1 (an inductive load
+  disconnected in parallel: negative, 10 Ω, ms), 2a (current interrupted in a
+  harness: positive, 2 Ω, 50 µs), 3a/3b (switching arcs: ns bursts, 50 Ω,
+  mostly an EMC question); ISO 16750-2 slow events (cranking profile, load
+  dump, jump start, superimposed AC, drops).
+* **Superimposed AC** sweeps 50 Hz to 25 kHz (200 kHz in the 2023 edition):
+  an LC input filter resonates in that range and can amplify the ripple at the
+  ECU.
+* The standards are revised, and some levels are customer-specific (US*,
+  test levels): the levels come from the test plan, not from memory.
+
+**Follow-ups**
+* "Pulse 3a in a behavioural averaged model: meaningful?" Only for the
+  network around it (clamps, filters); the ns behaviour of the real part
+  (parasitics, EMC) needs a different model and the lab.
+* "Your input filter resonates at 5 kHz. What does the ripple test show?" A
+  gain of about Q at resonance; damp the filter (ESR, RC damper) or move the
+  resonance.
+
+**Red flags:** applies the test levels as ideal voltage sources; does not know
+that td/tr are defined at the 10 % / 90 % points; assumes the ripple test is
+attenuated by any input filter.
+
+**Simulation:** [`tp01`](../testbenches/tp01_iso16750_shapes.cir),
+[`tp02`](../testbenches/tp02_iso7637_pulses.cir) and
+[`tp03`](../testbenches/tp03_ripple_sweep.cir): the generators of
+`models/PULSES_beh.lib` checked open circuit and into RI, and the ripple sweep
+through an ECU input filter.
+
+![tp03](../docs/img/tp03_ripple_sweep.png)
+
+* Load dump A: <!--v {m('tp01_iso16750_shapes','vb_pk'):.1f}-->101.0<!--/v--> V open circuit, <!--v {m('tp01_iso16750_shapes','vc_pk'):.2f}-->50.50<!--/v--> V into RI = 0.5 Ω; pulse 1:
+  <!--v {u(m('tp02_iso7637_pulses','va_min'),'.0f')}-->−150<!--/v--> V open, <!--v {u(m('tp02_iso7637_pulses','vb_min'),'.0f')}-->−75<!--/v--> V into 10 Ω.
+* Ripple through a 4.7 µH / 220 µF filter: <!--v {m('tp03_ripple_sweep','vf_lo'):.2f}-->1.99<!--/v--> V p-p below the resonance,
+  <!--v {m('tp03_ripple_sweep','vf_res'):.2f}-->2.95<!--/v--> V p-p at 4.9 kHz (amplified), <!--v {m('tp03_ripple_sweep','vf_hi'):.2f}-->0.20<!--/v--> V p-p at 25 kHz.
+
+---
+
+## W. Wiring harness
+
+### W1. How do you choose the cross-section of a wire on a 48 V eFuse channel, and what does its temperature depend on? (L1–L2)
+
+**Expected answer**
+* The wire is chosen for its **temperature**, not only for its voltage drop:
+  I²·R heats the conductor until the heat lost to the surroundings balances
+  it. The limit is the insulation rating (105 °C for a PVC FLRY-B cable).
+* The current rating depends on the **ambient** and the **routing**: the
+  same wire carries less at 85 °C than at 25 °C, and less in a bundle or a
+  conduit than alone in free air (bundle factors of 0.5…0.8).
+* Copper's resistance rises by ~0.4 %/K, so a hot wire generates more heat:
+  the temperature rise grows faster than I² (positive feedback). R at 105 °C
+  is 1.33 × R at 20 °C, which also matters for the voltage drop.
+* The wire has a **thermal time constant** (tens of seconds for 1…2.5 mm²,
+  many minutes for battery cables), so short overloads are fine and long ones
+  are not. That time constant is what the eFuse's I²t curve has to respect.
+* Then check the drop (R·I at the hot temperature, plus the crimps) and,
+  for a 48 V feed, the loop inductance (short-circuit di/dt).
+
+**Follow-ups**
+* "The rating is 30 A for a 50 K rise. What happens at 60 A?" Not 4 × 50 K:
+  with R(T) feedback it is far more (~470 K in the linear model, wh02), the
+  wire is close to thermal runaway. In reality it is destroyed long before.
+* "Where do you get the rating from?" The harness supplier, for the real
+  bundle, routing and ambient; the cable datasheet only gives R20 and the
+  insulation class.
+
+**Red flags:** sizes the wire by voltage drop only; uses a free-air rating
+for a wire in a bundle next to the engine; thinks the rise is proportional
+to I².
+
+**Simulation:** [`wh02`](../testbenches/wh02_wire_thermal.cir), five wires at
+constant current (2.5 mm², 0.5 mm², at 25, 40 and 85 °C).
+
+![wh02](../docs/img/wh02_wire_thermal.png)
+
+* At its rating (30 A, 50 K) the 2.5 mm² wire settles at +<!--v {m('wh02_wire_thermal','dt_ref'):.1f}-->50.0<!--/v--> K with a
+  time constant of <!--v {m('wh02_wire_thermal','t63a'):.0f}-->80<!--/v--> s; at twice the current the rise is
+  <!--v {m('wh02_wire_thermal','dt_2'):.0f}-->474<!--/v--> K and the time constant <!--v {m('wh02_wire_thermal','t63b'):.0f}-->190<!--/v--> s.
+* A 0.5 mm² wire rated 13 A at 40 °C reaches a 50 K rise at
+  <!--v {m('wh02_wire_thermal','iref_d'):.1f}-->12.2<!--/v--> A at 85 °C, and 85 °C + 50 K is already 30 K above its rating.
+* *Ask:* "Why is the time constant at 60 A more than twice the one at 30 A?"
+  (the heat generated grows with T: τ_eff = C'/(1/Rth' − I²·R20·α)).
+
+### W2. A short circuit at the end of a 2.5 mm² wire: how hot does the wire get before the eFuse opens? (L2)
+
+**Expected answer**
+* Over milliseconds to a few seconds the heat has no time to leave: the
+  heating is **adiabatic**, set by I²t and the heat capacity of the copper
+  (IEC 60949: θf = (θi + 234.5)·exp(I²t/(K²S²)) − 234.5, K = 226 A·s^0.5/mm²
+  for copper).
+* The temperature depends on the **current density** and the time, not on
+  the length: the same A/mm² heats every cross-section equally.
+* For an eFuse the short is cleared in microseconds (hard-short latch,
+  ~5…10 µs): the wire temperature does not move. The wire's short-time limit
+  matters for melting fuses, for a failed or slow protection (FET stuck on,
+  current limiting instead of latch-off), and for the overload region where
+  the I²t curve, not the hard-short detection, acts.
+* The harness also limits the short: R and L of the wire set the peak
+  current and its di/dt, which the eFuse's detection delay depends on.
+
+**Follow-ups**
+* "Where does the I²t of the wire become the limit, then?" Between ~2 and ~5 ×
+  INOM, where the eFuse waits for its I²t curve (tens of ms to seconds). That
+  is where the wire curve and the fuse curve must be compared.
+* "Does the insulation change the result?" Slightly: it adds heat capacity
+  (the model uses +30 %), so a real cable heats more slowly than bare copper.
+
+**Red flags:** expects the temperature to depend on the wire length; has
+never heard of an adiabatic (I²t) short-time rating.
+
+**Simulation:** [`wh03`](../testbenches/wh03_short_adiabatic.cir), 150 A/mm² for
+1 s with no cooling.
+
+![wh03](../docs/img/wh03_short_adiabatic.png)
+
+* Pure copper from 20 °C: <!--v {m('wh03_short_adiabatic','tf2'):.1f}-->161.4<!--/v--> °C after 1 s for 1.5, 2.5 and
+  6 mm² alike (IEC 60949: 160.9 °C with the rounded K = 226).
+* From 85 °C the same pulse ends at <!--v {m('wh03_short_adiabatic','tf4'):.0f}-->262<!--/v--> °C: the starting temperature
+  matters, and R grows on the way.
+* The default FLRY-B wire (insulation heat capacity, ISO maximum resistance)
+  ends at <!--v {m('wh03_short_adiabatic','tf6'):.1f}-->134.4<!--/v--> °C.
+* *Ask:* "The eFuse's hard-short latch acts in 8 µs at ~300 A. How much does
+  the wire heat in that time?" (nothing measurable: ~0.5 mK.)
+
+### W3. The eFuse's INOM is below the wire's current rating. Is the wire protected? (L3)
+
+**Expected answer**
+* Not necessarily. Three conditions must hold for **every** current:
+  * the wire's **limit current at the real ambient** (steady temperature =
+    insulation rating) must be above the highest current that never trips
+    (INOM plus tolerances; for the VNF1048F curve INOM·sqrt(1 + 1/32) trips
+    only after tNOM);
+  * between INOM and the hard-short threshold, the eFuse must trip **before**
+    the wire reaches its limit: tNOM must fit the wire's thermal time
+    constant; a long tNOM (hundreds of seconds) on a thin wire is not
+    protection;
+  * the check starts from the **worst initial state**: a wire already at its
+    steady temperature under the normal load, in the hottest location.
+* The rating on the datasheet is usually for 25…40 °C and a single wire;
+  at 60…70 °C and in a bundle the limit current can be below INOM.
+* Method: overlay the eFuse curve (with its tolerances) and the wire's
+  time-to-limit curve for the real ambient and preload, and verify the worst
+  cases with a thermocouple on the wire (H4).
+
+**Follow-ups**
+* "Why does the preload matter, and why only for the wire?" The eFuse's
+  integrator stays at zero below INOM; the wire is already warm. A test with a
+  cold wire hides the problem.
+* "Which tNOM would you choose?" The largest that still trips before the
+  wire's curve at every current and that the load's inrush and duty cycle
+  allow, with the tolerance band on the late side.
+
+**Red flags:** "INOM < wire rating, so it is protected"; compares the
+curves only at room temperature or from a cold wire; ignores tNOM.
+
+**Simulation:** [`wh04`](../testbenches/wh04_efuse_wire_coordination.cir), an
+EFUSE48_MOD channel (INOM 21.8 A) and 2 m of 1.5 mm² wire at 60 °C, preloaded
+with 15 A, overloads x = 1.09…1.6, tNOM 15 s vs 511 s.
+
+![wh04](../docs/img/wh04_efuse_wire_coordination.png)
+
+* tNOM 15 s: every overload trips in time, the wire stays at
+  ≤ <!--v {m('wh04_efuse_wire_coordination','twmax',0):.1f}-->80.9<!--/v--> °C.
+* tNOM 511 s: at x = 1.09 the eFuse trips after
+  <!--v {m('wh04_efuse_wire_coordination','t_fl',4)-1.0005:.0f}-->128<!--/v--> s, but the wire passed 105 °C after
+  <!--v {m('wh04_efuse_wire_coordination','t105',4)-1.0005:.0f}-->77<!--/v--> s; at x = 1.6 the margin is only
+  <!--v {m('wh04_efuse_wire_coordination','t_fl',7)-m('wh04_efuse_wire_coordination','t105',7):.1f}-->2.6<!--/v--> s the wrong way, and the wire peaks at
+  <!--v {m('wh04_efuse_wire_coordination','twmax',7):.0f}-->109<!--/v--> °C.
+* The same wire at 70 °C ambient has a limit current of 20.0 A, below INOM:
+  a 21 A load would overheat it with no trip at all, whatever tNOM.
+* *Show the bottom panel and ask:* "Where do the wire curve and the 511 s
+  curve cross, and what would you change: tNOM, INOM or the wire?"
+
+---
+
 ## I. Design exercise (whiteboard, 20–30 min)
 
 **Task to give the candidate:**
@@ -2164,14 +2453,15 @@ numbers, 3 = can lead and teach it).
 
 | Area | Sections | Score (0–3) | Notes |
 |---|---|---|---|
-| 48 V system, standards, batteries as the source | A | | |
+| 48 V system, standards and supply tests, batteries as the source | A | | |
 | eFuse principles and protections | B | | |
-| Power stage, FET, SOA; the DC/DC as a load, input-filter stability, pre-biased start, 12 V-side protection | C | | |
+| Power stage, FET, SOA; the DC/DC as a load, input-filter stability, pre-biased start, 12 V-side protection, load dump | C | | |
 | Inrush and pre-charge (channel and pack) | D | | |
 | Thermal and layout | E | | |
 | System faults (48/12 V short, ground, stuck-on) | F | | |
 | Functional safety and firmware interaction | G | | |
-| Validation strategy, measurement, models from datasheets | H | | |
+| Validation strategy, measurement, supply test pulses, models from datasheets | H | | |
+| Wiring harness and wire protection | W | | |
 | Design exercise | I | | |
 | Debug reasoning | J | | |
 

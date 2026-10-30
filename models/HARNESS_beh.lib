@@ -1,0 +1,183 @@
+* ============================================================================
+*  HARNESS_beh.lib  --  Behavioral LTspice model of a wiring-harness wire
+*                       segment (single copper conductor, chassis return)
+*                       for power-distribution and protection-coordination
+*                       simulation
+*
+*  Status    : generic model of an automotive single-core copper cable
+*              (ISO 6722-1 / FLRY-B class). Default values come from public
+*              cable tables and are flagged "[EST]" where they are typical
+*              rather than guaranteed (see README.md, section "Wiring harness
+*              model"). Replace them with the data of the cable, bundle and
+*              routing you actually use.
+*  Simulator : LTspice (validated with LTspice 26.0.2; uses B-sources with
+*              if(); table() only in .param lines, never on a state; no
+*              min()/max() in any feedback path; no idt(), see "thermal
+*              state")
+*
+*  Contents
+*    WIRE      one wire segment: R(T) + contact resistance + loop inductance
+*              (electrical path A -> B) and the conductor temperature
+*              (first-order thermal model, temperature output T)      4 pins
+*
+*  What is modeled (and why it matters at system level)
+*    * conductor resistance R'(T) = R20 (1 + ALPHA (T - 20)), per metre,
+*      times LEN, plus a contact resistance RC at each end (voltage drop,
+*      loss, short-circuit current)
+*    * loop inductance of the wire over its return (chassis / return wire)
+*      L = LEN x LPM (di/dt of a short, inductive kick at turn-off, input
+*      filter resonances)
+*    * conductor temperature: I^2 R'(T) heating against a linear thermal
+*      resistance to ambient and the heat capacity of copper + insulation
+*      (what the eFuse I2t curve is there to protect)
+*  Not modeled on purpose: skin and proximity effect (R and L are the
+*  low-frequency values), capacitance to chassis, temperature-dependent
+*  cooling (convection/radiation grow faster than linearly with dT: the
+*  linear Rth overestimates the temperature above ~1.5 x IREF, i.e. it is
+*  conservative), the temperature profile along the wire and across the
+*  insulation, mutual heating inside a bundle (set IREF for the bundle),
+*  melting / insulation damage (the temperature keeps rising beyond TMAX),
+*  heating of the contacts.
+*
+*  Node voltages used as signals (probe with V(<inst>:<node>)), all referred
+*  to the GND pin:
+*      tw    conductor temperature state [degC] (= pin T)
+*      tm    tw - TMAX: margin to the insulation rating [K] (> 0 = exceeded)
+*      rw    total resistance A -> B [Ohm] (2 RC + LEN R'(T))
+*      pw    power dissipated in the conductor [W] (contacts excluded)
+*      iref  effective IREF [A]: the current that gives a steady rise of
+*            DTREF at TAMB (constant; = IREF if IREF > 0)
+*  I(<inst>:Vs) is the wire current (> 0 from A to B).
+* ============================================================================
+
+
+* ----------------------------------------------------------------------------
+*  WIRE  -- wire segment
+*
+*  Pins: A, B (the two ends of the conductor)
+*        T   conductor temperature [degC] as a voltage referred to GND
+*        GND reference of the temperature output and of the internal
+*            signals (connect it to the ground / chassis node, normally 0).
+*            No current flows through GND in the electrical path A -> B.
+*
+*  A --[I sense]--[ 2 RC + LEN R'(T) ]--( LEN LPM, Rser 1n, || RDAMP )-- B
+*
+*  Parameters (0 = default from the table by CSA; ranges are what the table
+*  covers, linear interpolation in between, see below):
+*    LEN    1        length [m]
+*    CSA    2.5      conductor cross-section [mm^2] (tables 0.35 .. 50)
+*    R20    0        conductor resistance at 20 degC [Ohm/m];
+*                    0 = ISO 6722-1 maximum value by CSA (table A)
+*    ALPHA  3.9293m  temperature coefficient [1/K] (annealed copper,
+*                    1/(234.5 + 20), IEC 60228 / IEC 60949)
+*    RC     0        contact resistance per end (terminal + crimp) [Ohm]
+*    TAMB   25       ambient temperature [degC]
+*    T0     -1000    initial conductor temperature [degC] (< -273: = TAMB)
+*    LPM    0        loop inductance per metre [H/m]; 0 = single wire at
+*                    height HGT over a return plane:
+*                      LPM = mu0/(2 pi) ln(2 HGT / r),
+*                      r = sqrt(CSA / (pi KFILL)) (stranded conductor)
+*    HGT    10m      height of the conductor axis over the return [m] [EST]
+*    KFILL  0.7      copper fill factor of the stranded conductor [EST]
+*                    (FLRY-B conductor diameters, table A source)
+*    IREF   0        current [A] that gives a steady rise DTREF at TAMB
+*                    (single wire in free air, or derated for your bundle);
+*                    0 = rating by CSA (table B): Rth' is then derived from
+*                    the table's 50 K rise at 40 degC ambient
+*    DTREF  50       temperature rise at IREF [K] (used when IREF > 0)
+*    KINS   1.3      heat capacity factor for the insulation [EST]
+*    CV     3.45meg  volumetric heat capacity of copper [J/(m^3 K)]
+*                    (IEC 60949: 3.45e6)
+*    TMAX   105      insulation temperature rating [degC] (FLRY-B PVC
+*                    datasheets: -40 .. +105 degC); informational: only the
+*                    node tm uses it, the model does not limit the temperature
+*    RDAMP  100      damping resistor across the inductance [Ohm] (as the
+*                    battery's L_INT: keeps ideal current steps from
+*                    ringing numerically; corner RDAMP/(2 pi L) >> 1 MHz)
+*
+*  Equations (per metre, so LEN cancels in the thermal state):
+*    R'(T)   = R20 (1 + ALPHA (T - 20))                         [Ohm/m]
+*    C'      = CV x CSA x KINS                                  [J/(K m)]
+*    Rth'    = DTREF / (IREF^2 R20 (1 + ALPHA (TAMB + DTREF - 20)))   [K m/W]
+*              (IREF = 0: 50 / (I90^2 R20_table (1 + ALPHA 70)), table B)
+*    dT/dt   = (I^2 R'(T) - (T - TAMB)/Rth') / C'
+*  The ODE is linear in T: steady state and time constant at a constant I
+*    T_inf - TAMB = I^2 R20 (1 + ALPHA (TAMB - 20)) Rth' / (1 - I^2 R20 ALPHA Rth')
+*    tau_eff      = C' / (1/Rth' - I^2 R20 ALPHA)
+*  so IREF gives exactly DTREF, and above I = 1/sqrt(R20 ALPHA Rth')
+*  (~2.55 x the table rating) there is no steady state (thermal runaway).
+*  Adiabatic limit (short circuit, KINS = 1, pure copper R20 = rho20/CSA):
+*    T_f = (T_i + 1/ALPHA - 20) exp(I^2 t R20 ALPHA / C') - (1/ALPHA - 20)
+*  = IEC 60949 with K = sqrt(CV (234.5 + 20)/rho20) = 225.7 A s^0.5/mm^2.
+*
+*  Table A, R20 [mOhm/m], ISO 6722-1 maximum at 20 degC (FLRY-B datasheets):
+*    CSA  0.35 0.5  0.75 1    1.5  2.5 4    6    10   16   25    35    50
+*    R20  54.4 37.1 24.7 18.5 12.7 7.6 4.71 3.14 1.82 1.16 0.743 0.527 0.368
+*  (some suppliers list 52.0 for 0.35 mm^2). Interpolated as R20 x CSA, so
+*  the value scales with 1/CSA between points and beyond the ends.
+*  Table B, I90 [A] [EST]: approximate rating of a single automotive cable in
+*  free air, 40 degC ambient, 90 degC conductor (dT = 50 K) (Anixter
+*  "Current Ratings for Automotive Cables"):
+*    CSA  0.35 0.5  0.75 1    1.5  2.5 4    6    10   16   25    35    50
+*    I90  10   13   16.5 19.5 24.5 34  42   51   68   88   114   136   158
+*  Interpolated as I90 / CSA^0.6, held beyond the ends.
+*
+*  Analyses: .tran; .ac (the temperature is frozen at T0 there, i.e. R(T0)).
+*  The thermal state is held at T0 in the DC operating point (time = 0),
+*  heating starts at t > 0.
+* ----------------------------------------------------------------------------
+.subckt WIRE A B T GND
++ LEN=1 CSA=2.5 R20=0 ALPHA=3.9293m RC=0 TAMB=25 T0=-1000
++ LPM=0 HGT=10m KFILL=0.7 IREF=0 DTREF=50 KINS=1.3 CV=3.45meg TMAX=105
++ RDAMP=100
+
+* ---------------- defaults from the tables ------------------------------------
+*  R20 x CSA [Ohm mm^2/m] at the table points (exact products of table A)
+.param KR20 = {table(CSA, 0.35,19.04m, 0.5,18.55m, 0.75,18.525m, 1,18.5m,
++  1.5,19.05m, 2.5,19m, 4,18.84m, 6,18.84m, 10,18.2m, 16,18.56m, 25,18.575m,
++  35,18.445m, 50,18.4m)}
+.param R20T = {KR20/CSA}
+*  I90 / CSA^0.6 at the table points (table B, full precision)
+.param KI90 = {table(CSA, 0.35,18.774102014033822, 0.5,19.704315364635175,
++  0.75,19.608627037626036, 1,19.5, 1.5,19.209290701236338,
++  2.5,19.620718720338104, 4,18.28156182921861, 6,17.405216344173365,
++  10,17.080827734265146, 16,16.67288223161438, 25,16.52497633185146,
++  35,16.11009427041404, 50,15.110369496682587)}
+.param I90T = {KI90*CSA**0.6}
+.param R20E = {if(R20>0, R20, R20T)}
+.param SM2  = {CSA*1u}
+.param RCU  = {sqrt(SM2/(pi*KFILL))}
+.param LPME = {if(LPM>0, LPM, 2e-7*ln(2*HGT/RCU))}
+.param LW   = {max(LEN*LPME, 1p)}
+.param CP   = {CV*SM2*KINS}
+.param RTH  = {if(IREF>0, DTREF/(IREF**2*R20E*(1+ALPHA*(TAMB+DTREF-20))),
++  50/(I90T**2*R20T*(1+ALPHA*70)))}
+.param IREFE = {if(IREF>0, IREF, sqrt(DTREF/(RTH*R20E*(1+ALPHA*(TAMB+DTREF-20)))))}
+.param T0E  = {if(T0<-273, TAMB, T0)}
+.param RLEN = {LEN*R20E}
+
+* ---------------- electrical path ---------------------------------------------
+*  Vs senses the wire current; Br is the total resistance 2 RC + LEN R'(T)
+*  as a current-controlled voltage; the inductor carries an explicit Rser
+*  (LTspice would add a default series resistance otherwise) and a parallel
+*  damping resistor.
+Vs  A n1 0
+Br  n1 n2 V=I(Vs)*({2*RC} + {RLEN}*(1 + {ALPHA}*(V(tw,GND)-20)))
+Lw  n2 B {LW} Rser=1n Rpar={RDAMP}
+
+* ---------------- thermal state ------------------------------------------------
+*  Conductor temperature [degC] on a normalized 1 F capacitor:
+*  dT/dt = (I^2 R'(T) - (T - TAMB)/Rth') / C'. Held at T0 while time = 0
+*  (DC operating point, and therefore also .ac). No idt(): it forces small
+*  time steps over long simulations.
+Ctw tw GND 1 Rpar=1T
+Btw GND tw I=if(time<=0, ({T0E}-V(tw,GND))*1k,
++  (I(Vs)*I(Vs)*{R20E}*(1 + {ALPHA}*(V(tw,GND)-20)) - (V(tw,GND)-{TAMB})/{RTH})/{CP})
+
+* ---------------- outputs (referred to GND) -------------------------------------
+Btp T GND V=V(tw,GND)
+Btm tm GND V=V(tw,GND) - {TMAX}
+Brw rw GND V={2*RC} + {RLEN}*(1 + {ALPHA}*(V(tw,GND)-20))
+Bpw pw GND V=I(Vs)*I(Vs)*{RLEN}*(1 + {ALPHA}*(V(tw,GND)-20))
+Bir iref GND V={IREFE}
+.ends WIRE

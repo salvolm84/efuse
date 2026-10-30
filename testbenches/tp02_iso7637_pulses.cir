@@ -1,0 +1,58 @@
+* tp02_iso7637_pulses.cir
+* ---------------------------------------------------------------------------
+* ISO 7637-2 generators of models/PULSES_beh.lib, 12 V, checked against the
+* waveform definitions, open circuit (1 MOhm) and into a load equal to the
+* generator impedance (amplitude halves):
+*   A/B  pulse 1   (-150 V, 10 Ohm, td 2 ms, tr 1 us, supply 13.5 V
+*        disconnected for 200 ms), open / 10 Ohm
+*   C/D  pulse 2a  (+112 V, 2 Ohm, td 50 us, tr 1 us, on 13.5 V), open / 2 Ohm
+*   E/F  pulse 3a  (-220 V, 50 Ohm, td 150 ns, tr 5 ns), a burst of 3 pulses
+*        every 100 us, open / 50 Ohm
+*   G    pulse 3b  (+150 V, 50 Ohm), open
+* Times: pulse 1 at 1 ms, 2a at 1 ms, 3a/3b at 0.5 ms.
+* ---------------------------------------------------------------------------
+.include ../models/PULSES_beh.lib
+
+XA a 0 ISO7637_P1_12
+RA a 0 1Meg
+XB b 0 ISO7637_P1_12
+RB b 0 10
+XC c 0 ISO7637_P2A_12
+RC c 0 1Meg
+XD d 0 ISO7637_P2A_12
+RD d 0 2
+XE e 0 ISO7637_P3A_12 TD=0.5m NP=3
+RE e 0 1Meg
+XF f 0 ISO7637_P3A_12 TD=0.5m NP=3
+RF f 0 50
+XG g 0 ISO7637_P3B_12 TD=0.5m
+RG g 0 1Meg
+
+.save V(a) V(b) V(c) V(d) V(e) V(f) V(g)
+* pulse 1: amplitude, td between the 10 % points (-15 V), supply off / back
+.meas tran va_min  min V(a) from 0.9m to 5m
+.meas tran ta_10r  find time when V(a)=-15 fall=1
+.meas tran ta_10f  find time when V(a)=-15 rise=1
+.meas tran ta_dur  param ta_10f-ta_10r
+.meas tran ta_rise trig V(a)=-15 fall=1 targ V(a)=-135 fall=1
+.meas tran va_off  find V(a) at 0.1
+.meas tran va_back find V(a) at 0.25
+.meas tran vb_min  min V(b) from 0.9m to 5m
+* pulse 2a: 13.5 V + 112 V
+.meas tran vc_pk   max V(c)
+.meas tran tc_10r  find time when V(c)=24.7 rise=1
+.meas tran tc_10f  find time when V(c)=24.7 fall=1
+.meas tran tc_dur  param tc_10f-tc_10r
+.meas tran vd_pk   max V(d)
+* pulse 3a / 3b: amplitude, duration, burst period
+.meas tran ve_min  min V(e)
+.meas tran te_10r  find time when V(e)=-8.5 fall=1
+.meas tran te_10f  find time when V(e)=-8.5 rise=1
+.meas tran te_dur  param te_10f-te_10r
+.meas tran te_per  trig V(e)=-8.5 fall=1 targ V(e)=-8.5 fall=2
+.meas tran te_n3   find time when V(e)=-8.5 fall=3
+.meas tran vf_min  min V(f)
+.meas tran vg_pk   max V(g)
+.tran 0 0.3 0 0.5m
+.options plotwinsize=0
+.end

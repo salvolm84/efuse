@@ -1,4 +1,5 @@
-"""Generate the LTspice symbols (.asy) for the behavioral models (eFuse, battery, DC/DC)
+"""Generate the LTspice symbols (.asy) for the behavioral models (eFuse, battery, DC/DC, wire,
+test pulses)
 and the reference parameter sets.
 Writes identical copies to symbols/ (canonical) and schematics/ (so the demo
 schematics find them next to the .asc files)."""
@@ -86,6 +87,12 @@ dcdc = asy("DCDC48_12",
            (-112, -80, 112, 80), dc_pins, "VSET=14 PRATED=700 DCRUN=0",
            ["TEXT 0 -24 Center 2 48V -> 12V", "TEXT 0 8 Center 1 DC/DC 700 W", "LINE Normal -64 40 64 -40"])
 
+wire_pins = [("A", -80, 0, "LEFT"), ("B", 80, 0, "RIGHT"), ("T", 0, -48, "TOP"), ("GND", 0, 48, "BOTTOM")]
+wire = asy("WIRE",
+           "Wiring-harness wire segment: R(T) + contact R + loop L, conductor temperature T [degC] ref. to GND. Needs .include HARNESS_beh.lib",
+           (-64, -32, 64, 32), wire_pins, "LEN=1 CSA=2.5 TAMB=25",
+           ["LINE Normal -48 0 48 0", "TEXT 0 -16 Center 1 WIRE", "TEXT 24 -40 Left 1 T", "TEXT 0 16 Center 1 R(T), L"])
+
 # reference parameter sets (models/REFERENCE_SETS_beh.lib): base-model pins
 REF_INC = "Needs .include BATTERY_beh.lib, DCDC48_12_beh.lib (as used) and REFERENCE_SETS_beh.lib"
 varta = asy("BAT12_VARTA_E39", "12 V 70 Ah AGM, Varta Silver Dynamic AGM E39 (fitted to public data). " + REF_INC,
@@ -100,6 +107,19 @@ rd210 = asy("DCDC_TOSHIBA_RD210", "3 kW 48/12 V converter, Toshiba RD210 referen
             (-112, -80, 112, 80), dc_pins, "VSET=12 DCRUN=0",
             ["TEXT 0 -24 Center 2 48V -> 12V", "TEXT 0 8 Center 1 RD210 3 kW", "LINE Normal -64 40 64 -40"])
 
+# test-pulse sources (models/PULSES_beh.lib): two pins, P (+) at the top
+tp_pins = [("P", 0, -64, "TOP"), ("N", 0, 64, "BOTTOM")]
+TP = {"TP_STEP": ("level change UB -> U1 -> UB (jump start, over-voltage, drop, LV 148)", "UB=13.5 U1=24 TD=10m T1=60",
+                  "STEP"),
+      "TP_CRANK": ("ISO 16750-2 starting profile (cranking)", "UB=14 US6=8 US=9.5", "CRANK"),
+      "TP_LOADDUMP": ("ISO 16750-2 load dump, test A / B (USCL)", "US=101 RI=0.5 TDUR=400m USCL=0", "LOAD DUMP"),
+      "TP_ISO7637": ("ISO 7637-2 pulse (1, 2a, 3a, 3b)", "US=-150 RI=10 TRISE=1u TDUR=2m DISC=1", "ISO 7637"),
+      "TP_RIPPLE": ("ISO 16750-2 superimposed AC, log sweep", "UB=15.5 UPP=1 FMIN=50 FMAX=25k TSW=60", "RIPPLE")}
+tp_syms = {n: asy(n, f"Test-pulse source: {d}; Value may be set to a preset of PULSES_beh.lib with the same pins. "
+                  "Needs .include PULSES_beh.lib", (-48, -48, 48, 48), tp_pins, line,
+                  ["CIRCLE Normal -32 -32 32 32", f"TEXT 0 0 Center 1 {lab}", "TEXT 8 -40 Left 1 +"])
+           for n, (d, line, lab) in TP.items()}
+
 for d in ("symbols", "schematics"):
     os.makedirs(os.path.join(ROOT, d), exist_ok=True)
     write_if_changed(os.path.join(ROOT, d, "VNF1048F.asy"), vnf)
@@ -108,6 +128,9 @@ for d in ("symbols", "schematics"):
     write_if_changed(os.path.join(ROOT, d, "BATTERY.asy"), bat)
     write_if_changed(os.path.join(ROOT, d, "BATTERY_BMS.asy"), bms)
     write_if_changed(os.path.join(ROOT, d, "DCDC48_12.asy"), dcdc)
+    write_if_changed(os.path.join(ROOT, d, "WIRE.asy"), wire)
+    for n, txt in tp_syms.items():
+        write_if_changed(os.path.join(ROOT, d, n + ".asy"), txt)
     write_if_changed(os.path.join(ROOT, d, "BAT12_VARTA_E39.asy"), varta)
     write_if_changed(os.path.join(ROOT, d, "BAT48_A123_8AH.asy"), a123)
     write_if_changed(os.path.join(ROOT, d, "DCDC_TOSHIBA_RD210.asy"), rd210)

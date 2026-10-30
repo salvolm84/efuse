@@ -1,0 +1,54 @@
+* wh02_wire_thermal.cir
+* ---------------------------------------------------------------------------
+* WIRE (models/HARNESS_beh.lib): steady temperature rise and time response
+* of the conductor temperature at constant current (ideal current source
+* from A, B grounded; the wire starts at T0 = TAMB, heating from t = 0+).
+*   XA : 2.5 mm2, IREF = 30 A, DTREF = 50 K, TAMB = 25: 30 A for 2000 s,
+*        then 0 A (cooling)
+*   XB : as XA, 60 A = 2 x IREF for 6000 s
+*   XC : 2.5 mm2, table thermal data (IREF = 0), TAMB = 40, 34 A = the
+*        table rating (90 degC conductor at 40 degC ambient)
+*   XD : 0.5 mm2, table thermal data, TAMB = 85, 10 A
+*   XE : as XA but LEN = 10 m (the temperature does not depend on LEN)
+* Expected (README part 4.5), with g = 1/Rth' - I^2 R20 ALPHA:
+*   dT_inf = I^2 R20 (1 + ALPHA (TAMB - 20)) Rth' / (1 - I^2 R20 ALPHA Rth')
+*     XA, XE: = DTREF = 50 K exactly; XC: = 50 K exactly; XB: ~474 K (the
+*     R(T) feedback: 2 x IREF is 0.8 x the runaway current 1/sqrt(R20 ALPHA Rth'))
+*   T(t) = T_inf - (T_inf - T0) exp(-t/tau_eff),  tau_eff = C'/g,
+*     C' = 3.45e6 x CSA x KINS: XA 80.4 s, XB 190.5 s
+*   cooling of XA after 2000 s (I = 0): tau0 = C' Rth' = 67.4 s,
+*     T(2000 s + tau0) = TAMB + 50 K / e
+* ---------------------------------------------------------------------------
+.include ../models/HARNESS_beh.lib
+* hand values for the crossing levels (same formulas as the model)
+.param AL=3.9293m R25=7.6m C25={3.45e6*2.5e-6*1.3}
+.param RTHA={50/(30**2*R25*(1+AL*55))}
+.param DTB={60**2*R25*(1+AL*5)*RTHA/(1-60**2*R25*AL*RTHA)}
+.param TAU0={C25*RTHA}
+
+XA a 0 ta 0 WIRE LEN=1 CSA=2.5 IREF=30 DTREF=50 TAMB=25
+Ia 0 a PWL(0 30 2000 30 2000.001 0)
+XB b 0 tb 0 WIRE LEN=1 CSA=2.5 IREF=30 DTREF=50 TAMB=25
+Ib 0 b 60
+XC c 0 tc 0 WIRE LEN=1 CSA=2.5 TAMB=40
+Ic 0 c 34
+XD d 0 td 0 WIRE LEN=1 CSA=0.5 TAMB=85
+Id 0 d 10
+XE e 0 te 0 WIRE LEN=10 CSA=2.5 IREF=30 DTREF=50 TAMB=25
+Ie 0 e 30
+
+.save V(a) V(ta) V(tb) V(tc) V(td) V(te) V(xc:iref) V(xd:iref) V(xa:rw) V(xa:pw) I(Ia)
+.meas tran dt_ref  find V(ta)-25 at 2000
+.meas tran t63a    find time when V(ta)={25+(1-exp(-1))*50} cross=1
+.meas tran tcool   find V(ta)-25 at {2000+TAU0}
+.meas tran dt_2    find V(tb)-25 at 6000
+.meas tran t63b    find time when V(tb)={25+(1-exp(-1))*DTB} cross=1
+.meas tran dt_c    find V(tc)-40 at 6000
+.meas tran dt_d    find V(td)-85 at 6000
+.meas tran dt_e    find V(te)-25 at 2000
+.meas tran iref_c  find V(xc:iref) at 1
+.meas tran iref_d  find V(xd:iref) at 1
+.meas tran rw_a    find V(xa:rw) at 2000
+.meas tran pw_a    find V(xa:pw) at 2000
+.tran 0 6000 0 1
+.end

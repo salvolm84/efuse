@@ -85,6 +85,11 @@ def meas_log(path):
         m = re.match(r"^\s*([A-Za-z_]\w*):\s.*?=\s*([-+0-9.eE]+)", line)
         if m:
             out.setdefault(m.group(1).lower(), []).append(float(m.group(2)))
+            continue
+        # trig/targ results: "name=<value> FROM <t1> TO <t2>" (no colon)
+        m = re.match(r"^\s*([A-Za-z_]\w*)=([-+0-9.eE]+)\s+FROM\s", line)
+        if m:
+            out.setdefault(m.group(1).lower(), []).append(float(m.group(2)))
     # stepped .meas tables
     blk = None
     for line in txt.splitlines():

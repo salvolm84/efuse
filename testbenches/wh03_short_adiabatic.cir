@@ -1,0 +1,49 @@
+* wh03_short_adiabatic.cir
+* ---------------------------------------------------------------------------
+* WIRE (models/HARNESS_beh.lib): adiabatic short-circuit heating, compared
+* with IEC 60949. A 1 s rectangular current pulse of 150 A/mm2 (ideal
+* current source from A, B grounded). IREF = 1 mA makes Rth' ~1e10 K m/W,
+* i.e. no cooling (adiabatic), except in X6.
+*   X1..X3 : 1.5 / 2.5 / 6 mm2, pure copper R20 = 1.7241e-8 Ohm m / CSA,
+*            KINS = 1, from 20 degC (225 / 375 / 900 A)
+*   X4     : 2.5 mm2 pure copper, KINS = 1, from 85 degC
+*   X5     : 2.5 mm2, table R20 (7.6 mOhm/m), default KINS = 1.3, from 20 degC
+*   X6     : as X5 with the default (table) thermal data: cooling included
+* Expected (README part 4.5):
+*   IEC 60949: theta_f = (theta_i + 234.5) exp(I^2 t / (K^2 S^2)) - 234.5,
+*     K = 226 A s^0.5/mm2 (copper): X1..X3 160.9 degC after 1 s, X4 261.8
+*     (K is rounded: the exact value with the same constants is 225.7)
+*   model: theta_f = (theta_i + 1/ALPHA - 20) exp(I^2 t R20 ALPHA / C') - (1/ALPHA - 20),
+*     C' = 3.45e6 x CSA x KINS
+*   X6: closed form of the linear ODE with cooling, ~1.2 K below X5 (1 % of
+*       the rise: the cooling in 1 s is small but not zero)
+* ---------------------------------------------------------------------------
+.include ../models/HARNESS_beh.lib
+.param RHO=1.7241e-8 J=150
+
+X1 a1 0 t1 0 WIRE CSA=1.5 R20={RHO/1.5u} KINS=1 IREF=1m TAMB=20
+I1 0 a1 PWL(0 0 1u {J*1.5} 1 {J*1.5} 1.000001 0)
+X2 a2 0 t2 0 WIRE CSA=2.5 R20={RHO/2.5u} KINS=1 IREF=1m TAMB=20
+I2 0 a2 PWL(0 0 1u {J*2.5} 1 {J*2.5} 1.000001 0)
+X3 a3 0 t3 0 WIRE CSA=6 R20={RHO/6u} KINS=1 IREF=1m TAMB=20
+I3 0 a3 PWL(0 0 1u {J*6} 1 {J*6} 1.000001 0)
+X4 a4 0 t4 0 WIRE CSA=2.5 R20={RHO/2.5u} KINS=1 IREF=1m TAMB=85
+I4 0 a4 PWL(0 0 1u {J*2.5} 1 {J*2.5} 1.000001 0)
+X5 a5 0 t5 0 WIRE CSA=2.5 IREF=1m TAMB=20
+I5 0 a5 PWL(0 0 1u {J*2.5} 1 {J*2.5} 1.000001 0)
+X6 a6 0 t6 0 WIRE CSA=2.5 TAMB=20
+I6 0 a6 PWL(0 0 1u {J*2.5} 1 {J*2.5} 1.000001 0)
+
+.save V(t1) V(t2) V(t3) V(t4) V(t5) V(t6) I(I2)
+.meas tran tf1   find V(t1) at 1
+.meas tran tf2   find V(t2) at 1
+.meas tran tf3   find V(t3) at 1
+.meas tran tf4   find V(t4) at 1
+.meas tran tf5   find V(t5) at 1
+.meas tran tf6   find V(t6) at 1
+.meas tran th2   find V(t2) at 0.5
+.meas tran th4   find V(t4) at 0.5
+.meas tran tend6 find V(t6) at 1.5
+.tran 0 1.5 0 1m
+.options plotwinsize=0
+.end

@@ -33,6 +33,8 @@ PINS = {
     "BATTERY": [(0, -80), (0, 80), (80, 0)],
     "BATTERY_BMS": [(0, -96), (0, 96), (112, -32), (-112, 0), (112, 32)],
     "DCDC48_12": [(-128, -32), (128, -32), (0, 96), (-128, 32), (128, 32)],
+    "WIRE": [(-80, 0), (80, 0), (0, -48), (0, 48)],
+    **{n: [(0, -64), (0, 64)] for n in ("TP_STEP", "TP_CRANK", "TP_LOADDUMP", "TP_ISO7637", "TP_RIPPLE")},
 }
 # reference parameter sets: same pins as their base models
 PINS.update(BAT12_VARTA_E39=PINS["BATTERY"], BAT48_A123_8AH=PINS["BATTERY_BMS"],

@@ -1,0 +1,118 @@
+* wh01_resistance_inductance.cir
+* ---------------------------------------------------------------------------
+* WIRE (models/HARNESS_beh.lib): DC resistance and loop inductance.
+* Small-signal impedance Z(f) = V(a)/I_ac of 1 m wire segments driven by a
+* 1 A AC current source from A, B grounded (.ac, the temperature is frozen at
+* T0 = TAMB there).
+*   X01..X13 : the 13 table cross-sections 0.35 .. 50 mm2 at 20 degC
+*   X14..X16 : 1, 2.5 and 16 mm2 at TAMB = 105 degC (insulation rating)
+*   X17      : 2.5 mm2, 5 m long, RC = 0.5 mOhm contact resistance per end
+*   X18      : 2.5 mm2 at HGT = 30 mm above the return
+*   X19      : 2.5 mm2 with a user loop inductance LPM = 1 uH/m
+* Expected (README part 4.5):
+*   |Z(1 Hz)| = R = 2 RC + LEN R20 (1 + ALPHA (TAMB - 20)) (omega L < 1e-3 R)
+*     -> R20 = ISO 6722-1 table at 20 degC; x 1.334 at 105 degC
+*   Im Z(100 kHz)/omega = L = LEN mu0/(2 pi) ln(2 HGT / r),
+*     r = sqrt(CSA/(pi KFILL)), KFILL = 0.7 (|Z| ~ omega L there)
+*   about 0.4 .. 0.8 uH/m for 50 .. 0.35 mm2 at 10 mm
+* ---------------------------------------------------------------------------
+.include ../models/HARNESS_beh.lib
+
+X01 a01 0 t01 0 WIRE LEN=1 CSA=0.35 TAMB=20
+I01 0 a01 0 AC 1
+X02 a02 0 t02 0 WIRE LEN=1 CSA=0.5 TAMB=20
+I02 0 a02 0 AC 1
+X03 a03 0 t03 0 WIRE LEN=1 CSA=0.75 TAMB=20
+I03 0 a03 0 AC 1
+X04 a04 0 t04 0 WIRE LEN=1 CSA=1 TAMB=20
+I04 0 a04 0 AC 1
+X05 a05 0 t05 0 WIRE LEN=1 CSA=1.5 TAMB=20
+I05 0 a05 0 AC 1
+X06 a06 0 t06 0 WIRE LEN=1 CSA=2.5 TAMB=20
+I06 0 a06 0 AC 1
+X07 a07 0 t07 0 WIRE LEN=1 CSA=4 TAMB=20
+I07 0 a07 0 AC 1
+X08 a08 0 t08 0 WIRE LEN=1 CSA=6 TAMB=20
+I08 0 a08 0 AC 1
+X09 a09 0 t09 0 WIRE LEN=1 CSA=10 TAMB=20
+I09 0 a09 0 AC 1
+X10 a10 0 t10 0 WIRE LEN=1 CSA=16 TAMB=20
+I10 0 a10 0 AC 1
+X11 a11 0 t11 0 WIRE LEN=1 CSA=25 TAMB=20
+I11 0 a11 0 AC 1
+X12 a12 0 t12 0 WIRE LEN=1 CSA=35 TAMB=20
+I12 0 a12 0 AC 1
+X13 a13 0 t13 0 WIRE LEN=1 CSA=50 TAMB=20
+I13 0 a13 0 AC 1
+X14 a14 0 t14 0 WIRE LEN=1 CSA=1 TAMB=105
+I14 0 a14 0 AC 1
+X15 a15 0 t15 0 WIRE LEN=1 CSA=2.5 TAMB=105
+I15 0 a15 0 AC 1
+X16 a16 0 t16 0 WIRE LEN=1 CSA=16 TAMB=105
+I16 0 a16 0 AC 1
+X17 a17 0 t17 0 WIRE LEN=5 CSA=2.5 TAMB=20 RC=0.5m
+I17 0 a17 0 AC 1
+X18 a18 0 t18 0 WIRE LEN=1 CSA=2.5 TAMB=20 HGT=30m
+I18 0 a18 0 AC 1
+X19 a19 0 t19 0 WIRE LEN=1 CSA=2.5 TAMB=20 LPM=1u
+I19 0 a19 0 AC 1
+.save V(a01) V(a02) V(a03) V(a04) V(a05) V(a06) V(a07) V(a08) V(a09) V(a10) V(a11) V(a12) V(a13) V(a14) V(a15) V(a16) V(a17) V(a18) V(a19)
+.meas AC r01 find mag(V(a01)) at 1
+.meas AC x01 find im(V(a01)) at 100k
+.meas AC z01 find mag(V(a01)) at 100k
+.meas AC r02 find mag(V(a02)) at 1
+.meas AC x02 find im(V(a02)) at 100k
+.meas AC z02 find mag(V(a02)) at 100k
+.meas AC r03 find mag(V(a03)) at 1
+.meas AC x03 find im(V(a03)) at 100k
+.meas AC z03 find mag(V(a03)) at 100k
+.meas AC r04 find mag(V(a04)) at 1
+.meas AC x04 find im(V(a04)) at 100k
+.meas AC z04 find mag(V(a04)) at 100k
+.meas AC r05 find mag(V(a05)) at 1
+.meas AC x05 find im(V(a05)) at 100k
+.meas AC z05 find mag(V(a05)) at 100k
+.meas AC r06 find mag(V(a06)) at 1
+.meas AC x06 find im(V(a06)) at 100k
+.meas AC z06 find mag(V(a06)) at 100k
+.meas AC r07 find mag(V(a07)) at 1
+.meas AC x07 find im(V(a07)) at 100k
+.meas AC z07 find mag(V(a07)) at 100k
+.meas AC r08 find mag(V(a08)) at 1
+.meas AC x08 find im(V(a08)) at 100k
+.meas AC z08 find mag(V(a08)) at 100k
+.meas AC r09 find mag(V(a09)) at 1
+.meas AC x09 find im(V(a09)) at 100k
+.meas AC z09 find mag(V(a09)) at 100k
+.meas AC r10 find mag(V(a10)) at 1
+.meas AC x10 find im(V(a10)) at 100k
+.meas AC z10 find mag(V(a10)) at 100k
+.meas AC r11 find mag(V(a11)) at 1
+.meas AC x11 find im(V(a11)) at 100k
+.meas AC z11 find mag(V(a11)) at 100k
+.meas AC r12 find mag(V(a12)) at 1
+.meas AC x12 find im(V(a12)) at 100k
+.meas AC z12 find mag(V(a12)) at 100k
+.meas AC r13 find mag(V(a13)) at 1
+.meas AC x13 find im(V(a13)) at 100k
+.meas AC z13 find mag(V(a13)) at 100k
+.meas AC r14 find mag(V(a14)) at 1
+.meas AC x14 find im(V(a14)) at 100k
+.meas AC z14 find mag(V(a14)) at 100k
+.meas AC r15 find mag(V(a15)) at 1
+.meas AC x15 find im(V(a15)) at 100k
+.meas AC z15 find mag(V(a15)) at 100k
+.meas AC r16 find mag(V(a16)) at 1
+.meas AC x16 find im(V(a16)) at 100k
+.meas AC z16 find mag(V(a16)) at 100k
+.meas AC r17 find mag(V(a17)) at 1
+.meas AC x17 find im(V(a17)) at 100k
+.meas AC z17 find mag(V(a17)) at 100k
+.meas AC r18 find mag(V(a18)) at 1
+.meas AC x18 find im(V(a18)) at 100k
+.meas AC z18 find mag(V(a18)) at 100k
+.meas AC r19 find mag(V(a19)) at 1
+.meas AC x19 find im(V(a19)) at 100k
+.meas AC z19 find mag(V(a19)) at 100k
+.ac dec 20 1 10meg
+.end

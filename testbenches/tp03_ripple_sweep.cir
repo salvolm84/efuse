@@ -1,0 +1,36 @@
+* tp03_ripple_sweep.cir
+* ---------------------------------------------------------------------------
+* ISO 16750-2 superimposed AC voltage (ISO16750_RIPPLE12): 2 V p-p, upper
+* peak 16 V, logarithmic sweep 50 Hz -> 25 kHz, shortened to 0.2 s (the
+* standard sweeps in about a minute; the shape is the same), 50 mOhm.
+*   A  open circuit (1 MOhm): levels and the instantaneous frequency,
+*      f(t) = FMIN*(FMAX/FMIN)^(t/TSW)
+*   B  into an ECU input filter: 4.7 uH + 220 uF (ESR 50 mOhm) and a 1 A
+*      load. The ripple at the filter output peaks at the LC resonance
+*      (4.9 kHz, i.e. t = 0.2*ln(98)/ln(500) = 0.148 s) and is attenuated
+*      above it.
+* ---------------------------------------------------------------------------
+.include ../models/PULSES_beh.lib
+
+XA a 0 ISO16750_RIPPLE12 UPP=2 TSW=0.2
+RA a 0 1Meg
+XB b 0 ISO16750_RIPPLE12 UPP=2 TSW=0.2
+Lf b f 4.7u Rser=10m
+Cf f 0 220u Rser=50m
+Rl f 0 15
+
+.save V(a) V(f) I(Lf)
+.meas tran va_max  max V(a)
+.meas tran va_min  min V(a)
+* period at about 1.4 kHz (cycle 200) and at about 13 kHz (cycle 700)
+.meas tran tp_200  trig V(a)=15 rise=200  targ V(a)=15 rise=210
+.meas tran tp_700  trig V(a)=15 rise=700 targ V(a)=15 rise=710
+.meas tran t_200   find time when V(a)=15 rise=200
+.meas tran t_700   find time when V(a)=15 rise=700
+* filter output ripple: low frequency (pass), resonance, high frequency
+.meas tran vf_lo   pp V(f) from 0.02 to 0.03
+.meas tran vf_res  pp V(f) from 0.14 to 0.155
+.meas tran vf_hi   pp V(f) from 0.195 to 0.2
+.tran 0 0.2 0 0.5u
+.options plotwinsize=0
+.end

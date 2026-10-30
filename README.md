@@ -10,10 +10,12 @@ symbols and validated test benches; all of them are documented in this README:
 | Automotive battery, 12 / 24 / 48 V, optional pack BMS | `models/BATTERY_beh.lib` | [2](#2-automotive-battery-model) | bat01–bat07 |
 | 700 W 48 → 12 V buck DC/DC (averaged) | `models/DCDC48_12_beh.lib` | [3](#3-dcdc-converter-model-48-v-to-12-v-700-w) | dc01–dc08 |
 | Parameter sets of real products (Varta AGM, A123 48 V pack, Toshiba 3 kW DC/DC) | `models/REFERENCE_SETS_beh.lib` | [2.11](#211-reference-parameter-sets-from-public-data), [3.9](#39-reference-parameter-set-from-public-data) | ref01–ref02 |
+| Wire / harness segment: R(T), L, contact resistance, self-heating | `models/HARNESS_beh.lib` | [4](#4-wiring-harness-model) | wh01–wh04 |
+| Supply test pulses: ISO 16750-2, ISO 7637-2, LV 148 (sources) | `models/PULSES_beh.lib` | [5](#5-automotive-test-pulses-iso-16750-2-iso-7637-2-lv-148) | tp01–tp05 |
 
 The models share conventions (B-source logic, `[EST]` flags for estimated
 values, `0 = default` parameters) and one regression: `tools/validate.py`
-runs <!--v {m('summary','checks_total'):.0f}-->291<!--/v--> checks of <!--v {m('summary','benches'):.0f}-->57<!--/v--> simulations against datasheets, model
+runs <!--v {m('summary','checks_total'):.0f}-->371<!--/v--> checks of <!--v {m('summary','benches'):.0f}-->66<!--/v--> simulations against datasheets, model
 equations, hand calculations and public product data (validated with LTspice
 26.0.2). The system benches that combine the devices are
 [bat07](#bat07-48-v-pdu-fed-by-the-pack-selectivity-and-load-dump-bat07_pdn_48vcir)
@@ -74,7 +76,9 @@ changelog), then one numbered part per device, then the references.
    [1.13 worked example](#113-designing-with-the-model-worked-example)
 2. [Automotive battery model](#2-automotive-battery-model): 2.1 to 2.11, listed at the start of the section
 3. [DC/DC converter model (48 V to 12 V, 700 W)](#3-dcdc-converter-model-48-v-to-12-v-700-w): 3.1 to 3.9, listed at the start of the section
-4. [References](#4-references)
+4. [Wiring harness model](#4-wiring-harness-model): listed at the start of the section
+5. [Automotive test pulses (ISO 16750-2, ISO 7637-2, LV 148)](#5-automotive-test-pulses-iso-16750-2-iso-7637-2-lv-148): listed at the start of the section
+6. [References](#6-references)
 
 ---
 
@@ -100,6 +104,8 @@ or demo schematic (`schematics/*.asc`) and modify it.
    | battery | `BATTERY.asy` |
    | battery pack with BMS | `BATTERY_BMS.asy` |
    | DC/DC converter | `DCDC48_12.asy` |
+   | wire / harness segment | `WIRE.asy` |
+   | test-pulse sources | `TP_STEP.asy`, `TP_CRANK.asy`, `TP_LOADDUMP.asy`, `TP_ISO7637.asy`, `TP_RIPPLE.asy` |
 
    LTspice lists the symbols next to the schematic at the top of the component
    dialog. Alternatively, add the repository's `symbols/` folder to the symbol
@@ -126,8 +132,10 @@ or demo schematic (`schematics/*.asc`) and modify it.
    versions) and edit its **SpiceLine** attribute, for example
    `VNOM=48 SOC0=0.8 T_PRE=0.3`. Any parameter you do not write keeps its
    default. The parameter tables are in sections [1.6.2](#162-parameters),
-   [2.5](#25-pins-parameters-and-internal-nodes) and
-   [3.4](#34-pins-parameters-and-internal-nodes).
+   [2.5](#25-pins-parameters-and-internal-nodes),
+   [3.4](#34-pins-parameters-and-internal-nodes),
+   [4.4](#44-pins-parameters-and-internal-nodes) and
+   [5.2](#52-shapes-and-parameters).
 7. **Add the analysis.** Use Simulate → Configure Analysis, or a `.tran`
    directive, with a maximum time step that fits the fastest event you want to
    see (table below).
@@ -265,6 +273,17 @@ or demo schematic (`schematics/*.asc`) and modify it.
 7. **Probe.** Useful nodes are `V(u1:il)` (output current), `V(u1:vref)`,
    `V(u1:run)`, `V(u1:hic)` (hiccup) and `V(u1:ploss)` (losses).
 
+### Wire (`WIRE`) and test-pulse sources
+
+* **Wire.** `X1 a b t 0 WIRE LEN=3 CSA=2.5`: tie the fourth pin (GND) to the
+  ground node; `T` is the conductor temperature in °C, an output. Set `IREF`
+  to the rating of the wire in its real routing (bundle, ambient), `T0` for a
+  warm start. Details in [4.3](#43-files-and-quick-start).
+* **Test pulses.** A source replaces the supply (or sits in series with it):
+  `Xld v12 0 ISO16750_LD_B12 TD=50m`. In a schematic, place one of the `TP_*`
+  symbols and set its Value to a preset if you want one. Details in
+  [5.4](#54-quick-start).
+
 ### Example: the three models together
 
 A minimal two-voltage network: a 48 V pack feeds an eFuse channel, which feeds
@@ -332,7 +351,9 @@ efuse/
 │   ├── VNF1048F_beh.lib          eFuse model library (all subcircuits + device models)
 │   ├── BATTERY_beh.lib           battery model library (BATTERY, BATTERY_BMS), section 2
 │   ├── DCDC48_12_beh.lib         700 W 48/12 V DC/DC model library (DCDC48_12), section 3
-│   └── REFERENCE_SETS_beh.lib    parameter sets fitted to public product data, sections 2.11 / 3.9
+│   ├── REFERENCE_SETS_beh.lib    parameter sets fitted to public product data, sections 2.11 / 3.9
+│   ├── HARNESS_beh.lib           wire / harness segment (WIRE): R(T), L, self-heating, part 4
+│   └── PULSES_beh.lib            ISO 16750-2 / ISO 7637-2 / LV 148 test-pulse sources, part 5
 ├── symbols/                      LTspice symbols (canonical copy)
 │   ├── VNF1048F.asy              14-pin controller
 │   ├── EFUSE48_MOD.asy           9-pin complete eFuse channel
@@ -340,14 +361,17 @@ efuse/
 │   ├── BATTERY.asy               3-pin battery (P, N, SOC)
 │   ├── BATTERY_BMS.asy           5-pin battery pack with BMS (P, N, SOC, EN, FLT)
 │   ├── DCDC48_12.asy             5-pin DC/DC (VIN, VOUT, GND, EN, PG)
-│   └── BAT12_VARTA_E39.asy, BAT48_A123_8AH.asy, DCDC_TOSHIBA_RD210.asy   reference sets
+│   ├── BAT12_VARTA_E39.asy, BAT48_A123_8AH.asy, DCDC_TOSHIBA_RD210.asy   reference sets
+│   ├── WIRE.asy                  wire / harness segment
+│   └── TP_STEP.asy, TP_CRANK.asy, TP_LOADDUMP.asy, TP_ISO7637.asy, TP_RIPPLE.asy   test pulses
 ├── schematics/                   ready-to-run schematics (symbols copied alongside)
 │   ├── demo_efuse48_module.asc   module in a 48 V harness: start-up, short, retry
 │   ├── app_vnf1048f_discrete.asc full discrete application (DS13084 Fig. 16 + slew network)
 │   ├── demo_battery.asc          12 V cold crank + 48 V pack: pre-charge, load, short
 │   └── demo_dcdc.asc             48 V feed -> DC/DC -> 12 V battery + switched load
 ├── testbenches/                  tb01..tb36 (eFuse, section 1.10), bat01..bat07 (battery, 2.8),
-│                                 dc01..dc08 (DC/DC, 3.6), ref01..ref02 (reference sets)
+│                                 dc01..dc08 (DC/DC, 3.6), ref01..ref02 (reference sets),
+│                                 wh01..wh04 (harness, 4.7), tp01..tp05 (test pulses, 5.5)
 ├── interview/
 │   └── pdn_48v_12v_interview_guide.md      48 V / 12 V power distribution question bank, a simulation per question
 ├── docs/
@@ -372,23 +396,25 @@ efuse/
 
 ```bash
 pip install -r requirements.txt                                 # once
-tools/run_ltspice.sh -j 6 testbenches/*.cir schematics/*.asc   # all <!--v {m('summary','benches'):.0f}-->57<!--/v--> simulations, ~2 min with 6 jobs
+tools/run_ltspice.sh -j 6 testbenches/*.cir schematics/*.asc   # all <!--v {m('summary','benches'):.0f}-->66<!--/v--> simulations, ~2 min with 6 jobs
 python3 tools/validate.py --export docs/results.json           # checks -> docs/VALIDATION.md, stores the results
 python3 tools/sync_docs.py                                     # updates the numbers quoted in the docs
 python3 tools/plot_results.py                                  # -> docs/img/*.png
 python3 tools/lint_models.py                                   # static checks, no simulation
 ```
 
-* **Checks.** `validate.py` runs <!--v {m('summary','checks_total'):.0f}-->291<!--/v--> checks against datasheets, model equations,
-  hand calculations and public product data, in five groups:
+* **Checks.** `validate.py` runs <!--v {m('summary','checks_total'):.0f}-->371<!--/v--> checks against datasheets, model equations,
+  hand calculations and public product data, in seven groups:
 
   | Group | Checks |
   |---|---|
   | `efuse` (tb01–tb36) | <!--v {m('summary','checks_efuse'):.0f}-->178<!--/v--> |
   | `battery` (bat01–bat07) | <!--v {m('summary','checks_battery'):.0f}-->51<!--/v--> |
   | `dcdc` (dc01–dc08) | <!--v {m('summary','checks_dcdc'):.0f}-->48<!--/v--> |
+  | `harness` (wh01–wh04) | <!--v {m('summary','checks_harness'):.0f}-->35<!--/v--> |
   | `reference` (ref01–ref02) | <!--v {m('summary','checks_reference'):.0f}-->7<!--/v--> |
   | `schematics` | <!--v {m('summary','checks_schematics'):.0f}-->7<!--/v--> |
+  | `pulses` (tp01–tp05) | <!--v {m('summary','checks_pulses'):.0f}-->45<!--/v--> |
 
   `python3 tools/validate.py battery dcdc` checks only the groups you name, for
   example after re-running only those benches. `docs/VALIDATION.md` is
@@ -494,6 +520,15 @@ per-device sections [1.11](#111-assumptions-estimates-and-limitations),
 | Not modeled | SPI protocol and state machine, self-tests, ADC sampling, reverse-current detection, FET avalanche energy limit (VDMOS BV only), CP ripple | OCV hysteresis, aging/SOH, charge vs discharge resistance, cell imbalance, contactor arcing | output OVP, foldback, droop for paralleled units, regulation of the 48 V side (BIDIR only sinks current), separate input/output grounds |
 | Analyses | `.tran`; `.ac` not meaningful (logic) | `.tran`, `.ac` (without the SOC capacitance) | `.tran`, `.ac` with `DCRUN=1` |
 
+* **Wire (`WIRE`).** One lumped thermal node per segment (no gradient along
+  the wire or across the insulation), linear cooling law (conservative at
+  high temperature: thermal runaway above ~2.5 × the rating), free-air
+  ratings as defaults, no skin effect; `.tran` and `.ac`. See
+  [4.8](#48-assumptions-estimates-and-limitations).
+* **Test pulses.** Shapes of the standards with an ideal source resistance;
+  levels from public summaries, [CHECK] where unconfirmed; no generator
+  tolerances. See [5.6](#56-limitations-and-numerical-notes).
+
 ## Known issues
 
 * **Gear integration slows eFuse netlists.** Including `DCDC48_12_beh.lib`
@@ -553,6 +588,18 @@ Follow the pattern of the battery and DC/DC models:
 
 Changes that alter simulation results are marked **(results)**.
 
+* **2026-10-30, new devices: wiring harness and test pulses.**
+  * `models/HARNESS_beh.lib` (`WIRE`): R(T) with ISO 6722 conductor
+    resistances, loop inductance, contact resistance, conductor temperature
+    from a first-order thermal model fitted to the cable rating; benches
+    wh01–wh04 (IEC 60949 adiabatic short, eFuse-to-wire coordination).
+  * `models/PULSES_beh.lib`: ISO 16750-2 (cranking, load dump A/B, jump
+    start, over-voltage, drop, superimposed AC), ISO 7637-2 (pulses 1, 2a,
+    3a, 3b) and LV 148 (E48-02, 60 V) sources with presets; benches
+    tp01–tp05 (generator shapes; E48-02 on the 48 V system; 12 V load dump
+    on an ECU input).
+  * `tools/ltraw.py` reads trig/targ `.meas` results (printed without a
+    colon). Interview questions A6, C8, H7, W1–W3.
 * **2026-10-30, review: regression, model fixes, docs.**
   * Regression: the runner deletes old outputs and fails on incomplete runs;
     a failed `.meas` can no longer pass a check; results carry SHA-256 hashes
@@ -3876,7 +3923,790 @@ X1 vin v12 0 en pg DCDC_TOSHIBA_RD210
 
 ---
 
-## 4. References
+## 4. Wiring harness model
+
+A **generic behavioral model of one wire of the vehicle harness**: a
+single-core copper cable (ISO 6722-1 class, FLRY-B by default) running over
+the chassis, or next to its return wire. The harness is what an eFuse or a
+melting fuse is there to protect, so the model gives both halves of the
+problem: the **electrical path** (temperature-dependent resistance, contact
+resistance, loop inductance) and the **conductor temperature**, so that a
+bench can put the eFuse I²t curve and the wire's limit side by side. It
+follows the same conventions as the [battery](#2-automotive-battery-model):
+one `.lib` file, an LTspice symbol, plain-netlist test benches, and analytic
+checks of every bench in `tools/validate.py`.
+
+> **Scope.** One conductor, one temperature, one linear thermal resistance to
+> ambient. The resistance, the inductance and the rating come from public
+> cable tables (ISO 6722-1 maximum resistance, a supplier's current-rating
+> table) and a textbook inductance formula. The thermal defaults are
+> **estimates [EST]** for a single cable in free air. A cable in a bundle, a
+> conduit or next to the engine runs hotter: fit `IREF` to the rating your
+> harness supplier gives for the real routing
+> ([4.6](#46-fitting-the-parameters-to-a-real-cable)).
+
+* [4.1 How a harness looks from the power network](#41-how-a-harness-looks-from-the-power-network)
+* [4.2 What is modeled, and what is left out](#42-what-is-modeled-and-what-is-left-out)
+* [4.3 Files and quick start](#43-files-and-quick-start)
+* [4.4 Pins, parameters and internal nodes](#44-pins-parameters-and-internal-nodes)
+* [4.5 Equations](#45-equations)
+* [4.6 Fitting the parameters to a real cable](#46-fitting-the-parameters-to-a-real-cable)
+* [4.7 Test benches and results](#47-test-benches-and-results)
+* [4.8 Assumptions, estimates and limitations](#48-assumptions-estimates-and-limitations)
+* [4.9 Numerical notes](#49-numerical-notes)
+
+### 4.1 How a harness looks from the power network
+
+#### 4.1.1 What the rest of the vehicle sees
+
+Seen from the power network, a wire is three things:
+
+* **A resistance that grows with temperature.** Copper's resistance rises by
+  0.39 % per kelvin. A 2.5 mm² wire has 7.6 mΩ/m at 20 °C, and 33 % more at
+  its 105 °C insulation rating. That decides the voltage drop to the load, the
+  loss in the harness and the short-circuit current at the far end. Each
+  crimp, terminal and connector adds a contact resistance of a fraction of a
+  milliohm.
+* **An inductance.** The wire and its return (the chassis, or a return wire)
+  form a loop of about 0.3…0.8 µH per metre. It limits the di/dt of a short
+  circuit (the eFuse's hard-short detection waits for the current to rise),
+  makes the kick when a switch opens, and resonates with input capacitors.
+* **A thermal mass that heats with I²R.** The conductor warms up with a time
+  constant of tens of seconds (thin wires) to many minutes (battery cables)
+  and settles where the heat it generates equals what the insulation and the
+  air carry away. The insulation has a temperature rating (105 °C for a
+  PVC FLRY-B cable); above it, it ages faster, softens, and eventually smokes.
+
+#### 4.1.2 The equivalent circuit
+
+```
+          contacts + conductor R(T)              loop inductance
+   A ──(Vs)──[ 2·RC + LEN·R'(T) ]────────────────/\/\/\/──── B
+                       │                  LEN·LPM, Rser 1 nΩ, ∥ RDAMP
+                       │ I²·R'(T) per metre
+                       ▼
+            ┌──────── tw (conductor temperature, °C) ──── T pin
+            │    C' = CV·CSA·KINS     Rth' to TAMB
+           GND
+```
+
+The thermal part is per metre: heat generated and heat removed both scale
+with the length, so the temperature does not depend on `LEN`. The electrical
+part is per segment (`LEN` metres).
+
+#### 4.1.3 Time scales
+
+| Time scale | Element | What it decides | Bench |
+|---|---|---|---|
+| ns … µs | `LPM` (0.3…0.8 µH/m) | di/dt of a short, eFuse hard-short timing, inductive kick at turn-off | wh01 |
+| µs … s | `R20`, `ALPHA`, `RC` | voltage drop, loss, short-circuit current; in a short (ms … s) the conductor heats adiabatically | wh01, wh03 |
+| s … min | `IREF` (→ Rth'), C' | temperature under overload and in steady state; the wire's time-current limit | wh02, wh04 |
+
+#### 4.1.4 Why the eFuse protects the wire, and how to check it
+
+The eFuse's I²t integrator is a model of a wire: it heats with I² − INOM²
+and trips when a "virtual temperature" is reached (part 1,
+[1.1.1](#111-the-job-protect-the-wire-not-the-load)). The protection is
+coordinated if, for every current, the eFuse trips before the real wire
+reaches its insulation limit `TMAX`. Three things can break this:
+
+* **INOM above the wire's limit current.** A current between the two never
+  trips and slowly overheats the wire. The limit current depends on the
+  ambient: the same wire carries less at 70 °C than at 25 °C.
+* **tNOM too long.** Between INOM and a few times INOM the eFuse waits
+  `tNOM/2^m`; with tNOM = 511 s that is longer than a thin wire's thermal time
+  constant (wh04).
+* **A wire that is already hot.** The eFuse integrator starts from zero once
+  the current drops below INOM, the wire does not.
+
+`WIRE` gives the wire's side of that comparison: its temperature as a
+voltage at the `T` pin, under the same currents the eFuse sees. The wire
+temperature model is linear in T, so its limit curve is a closed form, and
+[wh04](#wh04-efuse-and-wire-coordination-wh04_efuse_wire_coordinationcir)
+compares it with the eFuse curve.
+
+---
+
+### 4.2 What is modeled, and what is left out
+
+The selection criterion is the same as for the other devices: does it change
+a voltage, a current or a protection decision that the network sees?
+
+| Behaviour | Modeled? | Why |
+|---|---|---|
+| Conductor resistance vs temperature, `ALPHA` | **yes** | drop and loss rise by a third at 105 °C; the heating accelerates (R(T) feedback) |
+| ISO 6722-1 resistance table by cross-section | **yes** | one parameter `CSA` gives the default |
+| Contact resistance per end | **yes** | crimps and connectors often dominate a short wire's drop |
+| Loop inductance (wire over its return) | **yes** | short-circuit di/dt, turn-off kick, filter resonances |
+| Conductor temperature, first order, heat capacity of copper + insulation | **yes** | the quantity the eFuse protects |
+| Rating by cross-section (current for a 50 K rise) | **yes** [EST] | default thermal resistance |
+| Adiabatic short-circuit heating | **yes** (same equations) | agrees with IEC 60949 (wh03) |
+| Temperature-dependent cooling (convection, radiation) | no | linear Rth': conservative above ~1.5 × IREF ([4.8](#48-assumptions-estimates-and-limitations)) |
+| Temperature profile along the wire or across the insulation | no | one lumped temperature per segment; split a long wire into segments for hot spots |
+| Mutual heating in a bundle | no | set `IREF` (and `TAMB`) for the bundle |
+| Skin and proximity effect, capacitance to chassis | no | R and L are low-frequency values; at > ~100 kHz R rises |
+| Heating of contacts and terminals | no | the contact resistance only drops voltage |
+| Insulation damage, melting | no | the temperature keeps rising beyond `TMAX`; `tm > 0` flags it |
+
+---
+
+### 4.3 Files and quick start
+
+```
+models/HARNESS_beh.lib       WIRE (single wire segment)
+symbols/WIRE.asy             4-pin symbol (A, B, T, GND)
+testbenches/wh01..wh04       test benches, section 4.7
+docs/img/wh*.png             result plots (tools/plot_results.py)
+```
+
+The library is self-contained and has no helper subcircuits, so it can be
+included next to the other libraries (wh04 includes it with
+`VNF1048F_beh.lib`).
+
+```spice
+.include ../models/HARNESS_beh.lib
+
+* 3 m of 2.5 mm2 FLRY-B from the eFuse to the load, 25 degC: all defaults
+* (7.6 mOhm/m, 0.59 uH/m at 10 mm over the chassis, rated 34 A for 90 degC
+* at 40 degC ambient)
+Xh1 out load th1 0 WIRE LEN=3 CSA=2.5
+
+* the same wire in a hot bundle: the harness supplier rates it 20 A for
+* +50 K at 85 degC; 0.3 mOhm per crimp; starting warm
+Xh2 out2 load2 th2 0 WIRE LEN=3 CSA=2.5 TAMB=85 IREF=20 DTREF=50 RC=0.3m T0=100
+
+* a battery cable with a measured loop inductance
+Xbc vbat bat_bus tbc 0 WIRE LEN=1.5 CSA=25 LPM=0.8u
+```
+
+* **T pin.** The conductor temperature in °C as a voltage, referred to the
+  `GND` pin (as the eFuse module's `TFET`). Leave it unconnected or use it
+  in `.meas` and plots.
+* **GND pin.** Only the reference of the temperature output and of the
+  internal states. Tie it to the ground node (normally 0). No load current
+  flows through it: the wire's return path is whatever your netlist connects
+  to `B` and back.
+* **Direction.** A and B are interchangeable; `I(xh1:Vs)` > 0 flows from A
+  to B.
+* **Two-wire loads.** For a load with its own return wire, use two `WIRE`
+  instances (feed and return) and set `LPM` to the loop inductance divided
+  between them.
+
+---
+
+### 4.4 Pins, parameters and internal nodes
+
+#### 4.4.1 `WIRE` (4 pins)
+
+| Pin | Direction | Meaning |
+|---|---|---|
+| `A` | power | one end of the conductor |
+| `B` | power | the other end |
+| `T` | output | conductor temperature [°C] as a voltage, referred to GND |
+| `GND` | reference | reference of T and of the internal signals; connect to ground |
+
+| Parameter | Default | Unit | Meaning |
+|---|---|---|---|
+| `LEN` | 1 | m | length of the segment |
+| `CSA` | 2.5 | mm² | conductor cross-section (tables: 0.35 … 50 mm²) |
+| `R20` | 0 → table A | Ω/m | conductor resistance at 20 °C (0: ISO 6722-1 maximum by CSA) |
+| `ALPHA` | 3.9293 m | 1/K | temperature coefficient, 1/(234.5 + 20) (annealed copper) |
+| `RC` | 0 | Ω | contact resistance per end (crimp + terminal) |
+| `TAMB` | 25 | °C | ambient temperature |
+| `T0` | −1000 → TAMB | °C | initial conductor temperature (< −273: = TAMB) |
+| `LPM` | 0 → formula | H/m | loop inductance per metre (0: wire at `HGT` over its return) |
+| `HGT` | 10 m [EST] | m | height of the conductor axis over the return plane |
+| `KFILL` | 0.7 [EST] | – | copper fill factor of the stranded conductor (sets its radius) |
+| `IREF` | 0 → table B [EST] | A | current for a steady rise `DTREF` at `TAMB` (0: table B, 50 K at 40 °C ambient) |
+| `DTREF` | 50 | K | rise at `IREF` (used when `IREF` > 0) |
+| `KINS` | 1.3 [EST] | – | heat-capacity factor for the insulation (1 = bare copper) |
+| `CV` | 3.45 meg | J/(m³K) | volumetric heat capacity of copper (IEC 60949) |
+| `TMAX` | 105 | °C | insulation rating (FLRY-B datasheets); only used by the node `tm` |
+| `RDAMP` | 100 | Ω | damping resistor across the inductance |
+
+Table A (R20, ISO 6722-1 maximum at 20 °C, as listed in FLRY-B datasheets)
+and table B (I90, approximate rating of a single automotive cable in free air
+for a 90 °C conductor at 40 °C ambient, i.e. a 50 K rise [EST]):
+
+| CSA [mm²] | 0.35 | 0.5 | 0.75 | 1 | 1.5 | 2.5 | 4 | 6 | 10 | 16 | 25 | 35 | 50 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| R20 [mΩ/m] | 54.4 | 37.1 | 24.7 | 18.5 | 12.7 | 7.6 | 4.71 | 3.14 | 1.82 | 1.16 | 0.743 | 0.527 | 0.368 |
+| I90 [A] | 10 | 13 | 16.5 | 19.5 | 24.5 | 34 | 42 | 51 | 68 | 88 | 114 | 136 | 158 |
+| LPM at 10 mm [µH/m] | 0.78 | 0.75 | 0.71 | 0.68 | 0.64 | 0.59 | 0.54 | 0.50 | 0.45 | 0.40 | 0.36 | 0.32 | 0.29 |
+| Rth' [K·m/W] | 7.21 | 6.25 | 5.83 | 5.57 | 5.14 | 4.46 | 4.72 | 4.80 | 4.66 | 4.37 | 4.06 | 4.02 | 4.27 |
+| τ0 = C'·Rth' [s] | 11 | 14 | 20 | 25 | 35 | 50 | 85 | 129 | 209 | 313 | 455 | 632 | 957 |
+
+Between table points R20 is interpolated as R20·CSA (it scales with
+1/CSA) and I90 as I90/CSA^0.6; beyond the ends these ratios are held. The
+last three rows are derived (section 4.5, `KINS` = 1.3). Some suppliers list
+52.0 mΩ/m for 0.35 mm²; set `R20` if yours does.
+
+#### 4.4.2 Internal nodes you can probe
+
+All are referred to GND. Use `V(xh1:tw)` for an instance `Xh1`.
+
+| Node | Meaning |
+|---|---|
+| `tw` | conductor temperature [°C] (= pin T) |
+| `tm` | `tw − TMAX` [K]: > 0 means the insulation rating is exceeded |
+| `rw` | total resistance A → B [Ω], 2·RC + LEN·R'(T) |
+| `pw` | power dissipated in the conductor [W] (contacts excluded) |
+| `iref` | effective IREF [A] (constant): the current for a `DTREF` rise at `TAMB` |
+| `I(xh1:Vs)` | wire current, > 0 from A to B |
+
+---
+
+### 4.5 Equations
+
+**Electrical path.**
+
+```
+R'(T) = R20 · (1 + ALPHA · (T − 20))                         [Ω/m]
+V(A) − V(B) = I · (2·RC + LEN·R'(T)) + L · dI/dt,   L = LEN · LPM
+LPM (default) = µ0/(2π) · ln(2·HGT / r),   r = sqrt(CSA / (π·KFILL))
+```
+
+The inductance formula is the external inductance of a round conductor at
+height `HGT` over a conducting plane (its image is the return); the internal
+inductance (µ0/8π = 0.05 µH/m at DC, less with skin effect) is neglected.
+`RDAMP` (100 Ω) across L moves the inductive corner of |Z| to
+RDAMP/(2π·L), above 20 MHz for a few metres of wire.
+
+**Thermal state.** Per metre, with I the wire current:
+
+```
+C'   = CV · CSA · KINS                                            [J/(K·m)]
+Rth' = DTREF / (IREF² · R20 · (1 + ALPHA·(TAMB + DTREF − 20)))     IREF > 0
+Rth' = 50 / (I90² · R20_table · (1 + ALPHA·70))                    IREF = 0 (table B: 90 °C at 40 °C)
+dT/dt = (I² · R'(T) − (T − TAMB)/Rth') / C',      T(0) = T0
+```
+
+The ODE is linear in T. At a constant current it has the closed form
+
+```
+g        = 1/Rth' − I² · R20 · ALPHA
+T_inf    = (I² · R20 · (1 − 20·ALPHA) + TAMB/Rth') / g
+T(t)     = T_inf + (T0 − T_inf) · exp(−g·t / C')
+ΔT_inf   = T_inf − TAMB = I²·R20·(1 + ALPHA·(TAMB − 20))·Rth' / (1 − I²·R20·ALPHA·Rth')
+τ_eff    = C' / g
+```
+
+so `IREF` gives exactly `DTREF`, the time constant grows with the current
+(the hotter wire generates more heat), and above
+`I_run = 1/sqrt(R20·ALPHA·Rth')` (2.55 × the table rating for every
+cross-section with the table data) g < 0: there is no steady state, the
+temperature grows exponentially (thermal runaway of the linear model).
+
+**Limit current.** The highest current whose steady temperature stays at or
+below `TMAX`:
+
+```
+I_lim = sqrt((TMAX − TAMB) / (R20 · Rth' · (1 + ALPHA·(TMAX − 20))))
+```
+
+For the 1.5 mm² default at 60 °C ambient this is 22.7 A; at 70 °C it is
+20.0 A (the wh04 scenario).
+
+**Short circuit (adiabatic).** Without cooling (`Rth'` → ∞), with pure
+copper (`R20 = ρ20/CSA`, ρ20 = 1.7241·10⁻⁸ Ω·m) and `KINS = 1`:
+
+```
+T_f = (T_i + 1/ALPHA − 20) · exp(I²·t · R20·ALPHA / C') − (1/ALPHA − 20)
+    = (T_i + 234.5) · exp(I²·t / (K²·S²)) − 234.5,    K = sqrt(CV·(234.5 + 20)/ρ20) = 225.7 A·s^0.5/mm²
+```
+
+which is the IEC 60949 adiabatic formula (K = 226 A·s^0.5/mm² for copper, S
+in mm²). With the table R20 (ISO 6722-1 maximum, ~10 % above pure copper) and
+`KINS = 1.3`, the exponent is 15 % smaller than for bare copper: the
+insulation's heat capacity is counted.
+
+---
+
+### 4.6 Fitting the parameters to a real cable
+
+| Parameter | How to get it |
+|---|---|
+| `CSA`, `R20` | the cable datasheet: maximum (or typical) conductor resistance at 20 °C; aluminium cable: R20 from the datasheet and `ALPHA` = 4.03 m/K |
+| `RC` | measured drop across a crimped terminal at a known current (typically 0.1…0.5 mΩ per crimp, more for connectors) |
+| `IREF`, `DTREF`, `TAMB` | the harness supplier's current rating for the real routing (bundle size, conduit, ambient): for example "20 A for a 50 K rise at 85 °C" → `IREF=20 DTREF=50 TAMB=85`. Or a measurement: a thermocouple on the conductor under a constant current until it settles |
+| `KINS` | from the thermal time constant of the same measurement: τ_eff = C'/g, so KINS = τ_eff · g / (CV · CSA) |
+| `LPM` | measured loop inductance of the installed wire (LCR meter at 10…100 kHz, divided by the length), or `HGT` = the routing height over the chassis |
+| `TMAX` | the cable datasheet's rating (FLRY-B PVC: 105 °C for 3000 h). ISO 6722 temperature classes: A 85 °C, B 100 °C, C 125 °C, D 150 °C (ISO 6722:2002; check your edition) |
+
+The wire's time-current limit for a given starting temperature follows from
+the closed form (section 4.5); `tools/plot_results.py` (`wh04`) draws it next
+to the eFuse curve.
+
+---
+
+### 4.7 Test benches and results
+
+All values are simulated `.meas` results. `docs/VALIDATION.md` lists the
+<!--v {m('summary','checks_harness'):.0f}-->35<!--/v--> harness checks, each against a closed form of the
+model, the ISO 6722-1 table or IEC 60949. All of them pass.
+
+#### wh01: resistance and loop inductance (`wh01_resistance_inductance.cir`)
+
+**What we simulate.** The small-signal impedance Z(f) = V(A)/I of 1 m wire
+segments, driven by a 1 A AC current source (`.ac`, where the temperature is
+held at T0).
+
+**Setup.** All 13 table cross-sections at 20 °C; 1, 2.5 and 16 mm² at
+105 °C; 5 m of 2.5 mm² with 0.5 mΩ contact resistance per end; 2.5 mm² at
+HGT = 30 mm and with a user inductance of 1 µH/m.
+
+**Expected.** |Z(1 Hz)| = R (ωL < 10⁻³ R). Im Z(100 kHz)/ω = L. At 105 °C
+R = 1.334 × R20.
+
+| Quantity | Expected | Simulated |
+|---|---|---|
+| R, 0.35 mm², 20 °C | 54.4 mΩ/m | <!--v {m('wh01_resistance_inductance','r01')*1e3:.2f}-->54.40<!--/v--> mΩ/m |
+| R, 2.5 mm², 20 °C | 7.60 mΩ/m | <!--v {m('wh01_resistance_inductance','r06')*1e3:.3f}-->7.600<!--/v--> mΩ/m |
+| R, 50 mm², 20 °C | 0.368 mΩ/m | <!--v {m('wh01_resistance_inductance','r13')*1e3:.4f}-->0.3680<!--/v--> mΩ/m |
+| R, 2.5 mm², 105 °C | 10.14 mΩ/m | <!--v {m('wh01_resistance_inductance','r15')*1e3:.2f}-->10.14<!--/v--> mΩ/m |
+| 5 m of 2.5 mm² + 2 × 0.5 mΩ | 39.0 mΩ | <!--v {m('wh01_resistance_inductance','r17')*1e3:.2f}-->39.00<!--/v--> mΩ |
+| L, 0.35 mm², HGT 10 mm | 0.783 µH/m | <!--v {m('wh01_resistance_inductance','x01')/(2*3.141592653589793*1e5)*1e6:.3f}-->0.783<!--/v--> µH/m |
+| L, 2.5 mm², HGT 10 mm | 0.586 µH/m | <!--v {m('wh01_resistance_inductance','x06')/(2*3.141592653589793*1e5)*1e6:.3f}-->0.586<!--/v--> µH/m |
+| L, 50 mm², HGT 10 mm | 0.287 µH/m | <!--v {m('wh01_resistance_inductance','x13')/(2*3.141592653589793*1e5)*1e6:.3f}-->0.287<!--/v--> µH/m |
+| L, 2.5 mm², HGT 30 mm | 0.806 µH/m | <!--v {m('wh01_resistance_inductance','x18')/(2*3.141592653589793*1e5)*1e6:.3f}-->0.806<!--/v--> µH/m |
+| \|Z(100 kHz)\|, 2.5 mm², 1 m | 0.369 Ω | <!--v {m('wh01_resistance_inductance','z06'):.3f}-->0.369<!--/v--> Ω |
+
+All 13 resistances match the table within 0.002 % and all inductances the
+formula within 0.003 %. The inductance falls only logarithmically with the
+cross-section: a 50 mm² battery cable still has 0.29 µH/m, and tripling
+the height over the chassis adds 0.22 µH/m. Above R'/(2π·L') (0.2 kHz for
+50 mm², 11 kHz for 0.35 mm²) the wire is an inductor.
+
+**Things to try.** Route a 48 V feed 30 mm away from the chassis and see the
+hard-short di/dt of [tb18](#interview-companion-benches-tb15tb36) change.
+
+![wh01](docs/img/wh01_resistance_inductance.png)
+
+---
+
+#### wh02: steady temperature and time response (`wh02_wire_thermal.cir`)
+
+**What we simulate.** The conductor temperature at a constant current, from
+TAMB, for five wires in one netlist.
+
+**Setup.**
+* XA: 2.5 mm², `IREF=30` (50 K), 25 °C; 30 A for 2000 s, then 0 A.
+* XB: the same wire at 60 A = 2 × IREF.
+* XC: 2.5 mm² with the table thermal data at 40 °C, 34 A (its table rating).
+* XD: 0.5 mm², table data, 85 °C, 10 A.
+* XE: as XA, but 10 m long.
+
+**Expected.** The closed forms of section 4.5: XA, XC and XE rise by exactly
+50 K, XB by much more than 4 × 50 K because R grows with the temperature, and
+the 63 % points are at τ_eff.
+
+| Quantity | Expected | Simulated |
+|---|---|---|
+| XA: rise at IREF | 50 K (= DTREF) | <!--v {m('wh02_wire_thermal','dt_ref'):.2f}-->50.00<!--/v--> K |
+| XA: τ_eff at IREF | 80.4 s | <!--v {m('wh02_wire_thermal','t63a'):.1f}-->80.4<!--/v--> s |
+| XA: cooling, rise left after τ0 = C'·Rth' = 67.4 s | 50 K/e = 18.39 K | <!--v {m('wh02_wire_thermal','tcool'):.2f}-->18.39<!--/v--> K |
+| XB: rise at 2 × IREF | 474.0 K | <!--v {m('wh02_wire_thermal','dt_2'):.1f}-->474.0<!--/v--> K |
+| XB: τ_eff at 2 × IREF | 190.5 s | <!--v {m('wh02_wire_thermal','t63b'):.1f}-->190.5<!--/v--> s |
+| XC: rise at the table rating (34 A, 40 °C) | 50 K | <!--v {m('wh02_wire_thermal','dt_c'):.2f}-->50.00<!--/v--> K |
+| XD: 0.5 mm², 10 A, 85 °C | 32.05 K | <!--v {m('wh02_wire_thermal','dt_d'):.2f}-->32.05<!--/v--> K |
+| XD: effective IREF at 85 °C (node `iref`) | 12.18 A | <!--v {m('wh02_wire_thermal','iref_d'):.2f}-->12.18<!--/v--> A |
+| XE: rise, 10 m long | 50 K | <!--v {m('wh02_wire_thermal','dt_e'):.2f}-->50.00<!--/v--> K |
+| XA: R and loss at 75 °C (nodes `rw`, `pw`) | 9.242 mΩ, 8.318 W | <!--v {m('wh02_wire_thermal','rw_a')*1e3:.3f}-->9.242<!--/v--> mΩ, <!--v {m('wh02_wire_thermal','pw_a'):.3f}-->8.318<!--/v--> W |
+
+Doubling the current multiplies the loss by 4 at constant R, but the rise by
+9.5 here: at 2 × IREF the wire is at 0.80 of its runaway current, and the
+time constant is 2.4 × longer. The numbers above 105 °C are those of the
+linear model; a real cable sheds more heat when hot (radiation), so the model
+is on the safe side there ([4.8](#48-assumptions-estimates-and-limitations)).
+XD shows the ambient effect: a 0.5 mm² wire rated 13 A at 40 °C carries only
+12.2 A for the same 50 K rise at 85 °C, and 85 °C + 50 K is already above
+its 105 °C rating.
+
+**Things to try.** Set `KINS=1` (bare copper): τ shrinks by 1.3. Give XA a
+PWL current profile from a drive cycle and read the peak temperature.
+
+![wh02](docs/img/wh02_wire_thermal.png)
+
+---
+
+#### wh03: short circuit, adiabatic heating vs IEC 60949 (`wh03_short_adiabatic.cir`)
+
+**What we simulate.** A 1 s rectangular pulse of 150 A/mm² (375 A in
+2.5 mm²) with the cooling switched off (`IREF=1m`, Rth' ≈ 10¹⁰ K·m/W).
+
+**Setup.** X1–X3: 1.5, 2.5 and 6 mm² of pure copper (R20 = ρ20/CSA,
+`KINS=1`) from 20 °C. X4: 2.5 mm² from 85 °C. X5: 2.5 mm² with the table R20
+and `KINS=1.3`. X6: as X5 with the default (table) cooling.
+
+**Expected.** IEC 60949: θf = (θi + 234.5)·exp(I²t/(K²S²)) − 234.5 with
+K = 226 A·s^0.5/mm², the same for every cross-section at the same current
+density. The model's own constants give K = 225.7, i.e. +0.5 K.
+
+| Case | IEC 60949 (K = 226) | Model closed form | Simulated |
+|---|---|---|---|
+| X1–X3: pure Cu, from 20 °C, after 1 s | 160.9 °C | 161.4 °C | <!--v {m('wh03_short_adiabatic','tf1'):.1f}-->161.4<!--/v--> / <!--v {m('wh03_short_adiabatic','tf2'):.1f}-->161.4<!--/v--> / <!--v {m('wh03_short_adiabatic','tf3'):.1f}-->161.4<!--/v--> °C |
+| X2 after 0.5 s | 82.7 °C | 82.9 °C | <!--v {m('wh03_short_adiabatic','th2'):.1f}-->82.9<!--/v--> °C |
+| X4: pure Cu, from 85 °C, after 1 s | 261.8 °C | 262.5 °C | <!--v {m('wh03_short_adiabatic','tf4'):.1f}-->262.5<!--/v--> °C |
+| X5: table R20, KINS 1.3, adiabatic | – | 135.62 °C | <!--v {m('wh03_short_adiabatic','tf5'):.2f}-->135.62<!--/v--> °C |
+| X6: as X5 with cooling | – | 134.40 °C | <!--v {m('wh03_short_adiabatic','tf6'):.2f}-->134.40<!--/v--> °C |
+
+The default cable heats more slowly than the IEC conductor (135.6 instead of
+161.4 °C): its insulation adds 30 % heat capacity, partly offset by the ISO
+maximum R20, which is 10 % above pure annealed copper (7.6 instead of
+6.9 mΩ/m for 2.5 mm²). The cooling during the 1 s pulse is only 1.2 K. In a
+real short the protection is much faster: the eFuse's hard-short latch opens
+in microseconds (tb02), and 10 ms at 375 A heats a 2.5 mm² wire by about
+1 K.
+
+**Things to try.** Find the I²t that takes a 0.35 mm² wire from 85 to 160 °C
+(the short-time limit often used for PVC) and compare with the eFuse's
+hard-short threshold × its reaction time.
+
+![wh03](docs/img/wh03_short_adiabatic.png)
+
+---
+
+#### wh04: eFuse and wire coordination (`wh04_efuse_wire_coordination.cir`)
+
+**What we simulate.** An `EFUSE48_MOD` channel (INOM = 21.8 A) feeds a
+15 A load through 2 m of 1.5 mm² wire (table data: 24.5 A for 90 °C at 40 °C)
+at TAMB = 60 °C. At 1 s an overload raises the current to x = I/INOM =
+1.09, 1.2, 1.32 or 1.6. The same overloads run with two I²t settings:
+tNOM = 15 s (TNOM_CODE 7) and tNOM = 511 s (TNOM_CODE 255).
+
+**Setup.** 48 V source with 10 mΩ + 1 µH, 100 µF bus capacitor; resistive
+loads switched at 1 s; the wire starts at its steady preload temperature
+(`T0`, ~78 °C); 8 runs of 135 s (`.step`, max step 10 ms, ~15 s in all).
+
+**Expected.** The eFuse trips after tNOM/2^m, m = floor(log2(32(x² − 1)))
+(part 1, [1.7.6](#176-the-efuse-i²t-curve)); the wire's peak temperature is
+the closed form at the trip time. The wire's limit current at 60 °C,
+22.7 A, is above the highest current that does not trip within tNOM
+(INOM·sqrt(1 + 1/32) = 22.1 A), so with a short enough tNOM every current is
+covered.
+
+| x (current) | tNOM 15 s: trip | peak T | tNOM 511 s: trip | wire at 105 °C | peak T |
+|---|---|---|---|---|---|
+| <!--v {m('wh04_efuse_wire_coordination','x_ol',0):.2f}-->1.09<!--/v--> (<!--v {m('wh04_efuse_wire_coordination','i_ol',0):.1f}-->23.8<!--/v--> A) | <!--v {m('wh04_efuse_wire_coordination','t_fl',0)-1.0005:.2f}-->3.75<!--/v--> s | <!--v {m('wh04_efuse_wire_coordination','twmax',0):.1f}-->80.9<!--/v--> °C | <!--v {m('wh04_efuse_wire_coordination','t_fl',4)-1.0005:.1f}-->127.8<!--/v--> s | <!--v {m('wh04_efuse_wire_coordination','t105',4)-1.0005:.1f}-->76.6<!--/v--> s | <!--v {m('wh04_efuse_wire_coordination','twmax',4):.1f}-->108.4<!--/v--> °C |
+| <!--v {m('wh04_efuse_wire_coordination','x_ol',1):.2f}-->1.20<!--/v--> (<!--v {m('wh04_efuse_wire_coordination','i_ol',1):.1f}-->26.2<!--/v--> A) | <!--v {m('wh04_efuse_wire_coordination','t_fl',1)-1.0005:.2f}-->1.88<!--/v--> s | <!--v {m('wh04_efuse_wire_coordination','twmax',1):.1f}-->80.0<!--/v--> °C | <!--v {m('wh04_efuse_wire_coordination','t_fl',5)-1.0005:.1f}-->63.9<!--/v--> s | <!--v {m('wh04_efuse_wire_coordination','t105',5)-1.0005:.1f}-->39.0<!--/v--> s | <!--v {m('wh04_efuse_wire_coordination','twmax',5):.1f}-->112.8<!--/v--> °C |
+| <!--v {m('wh04_efuse_wire_coordination','x_ol',2):.2f}-->1.32<!--/v--> (<!--v {m('wh04_efuse_wire_coordination','i_ol',2):.1f}-->28.8<!--/v--> A) | <!--v {m('wh04_efuse_wire_coordination','t_fl',2)-1.0005:.2f}-->0.94<!--/v--> s | <!--v {m('wh04_efuse_wire_coordination','twmax',2):.1f}-->79.3<!--/v--> °C | <!--v {m('wh04_efuse_wire_coordination','t_fl',6)-1.0005:.1f}-->31.9<!--/v--> s | <!--v {m('wh04_efuse_wire_coordination','t105',6)-1.0005:.1f}-->25.5<!--/v--> s | <!--v {m('wh04_efuse_wire_coordination','twmax',6):.1f}-->109.7<!--/v--> °C |
+| <!--v {m('wh04_efuse_wire_coordination','x_ol',3):.2f}-->1.60<!--/v--> (<!--v {m('wh04_efuse_wire_coordination','i_ol',3):.1f}-->34.9<!--/v--> A) | <!--v {m('wh04_efuse_wire_coordination','t_fl',3)-1.0005:.2f}-->0.47<!--/v--> s | <!--v {m('wh04_efuse_wire_coordination','twmax',3):.1f}-->79.1<!--/v--> °C | <!--v {m('wh04_efuse_wire_coordination','t_fl',7)-1.0005:.1f}-->16.0<!--/v--> s | <!--v {m('wh04_efuse_wire_coordination','t105',7)-1.0005:.1f}-->13.4<!--/v--> s | <!--v {m('wh04_efuse_wire_coordination','twmax',7):.1f}-->109.4<!--/v--> °C |
+
+* **tNOM = 15 s protects the wire.** The trips match tNOM/2^m within 0.02 %,
+  and the wire never gets more than 3 K above its preload temperature.
+* **tNOM = 511 s does not.** In every case the wire crosses 105 °C 2.6…51 s
+  before the eFuse trips, and peaks at 108…113 °C. The eFuse "thinks" the
+  wire has a long time constant; this one has 35 s.
+* **INOM alone is not the answer.** The same 1.5 mm² wire at 70 °C ambient
+  has a limit current of 20.0 A, below INOM: a 21 A load would overheat it
+  without any trip, whatever tNOM. The ambient of the routing decides.
+* The coordination chart (bottom panel) shows why: the wire's
+  time-to-105 °C curve lies between the two eFuse curves. At high currents
+  (> ~40 A) the 511 s curve and the wire curve run almost parallel, because
+  both become I²t constants: the margin there is set by the ratio of the two
+  I²t values, not by tNOM alone.
+
+**Things to try.** Start the wire at TAMB (`T0` omitted): with tNOM = 511 s
+the larger overloads then stay below 105 °C (x = 1.32 and 1.6 peak at ~101
+and ~96 °C), only x = 1.09 and 1.2 still overheat it. That is the trap of
+testing coordination with a cold wire. Set `TAMB=70`: the 15 s setting still
+trips every overload in time, but a steady 21 A (x = 0.96, no trip) takes the
+wire to ~109 °C.
+
+![wh04](docs/img/wh04_efuse_wire_coordination.png)
+
+---
+
+### 4.8 Assumptions, estimates and limitations
+
+**[EST] values** (defaults, not guaranteed by a standard):
+
+| Item | Default | Basis |
+|---|---|---|
+| R20 by CSA | ISO 6722-1 maximum | FLRY-B datasheets that quote ISO 6722-1 (Manex, Anixter); a real cable is a few % below the maximum |
+| Rating by CSA (table B) | 10 … 158 A for a 50 K rise at 40 °C | Anixter "Current Ratings for Automotive Cables", 90 °C column, single cable in free air; other suppliers differ by ±10…20 % (Siechem lists 38 A for 2.5 mm² at 80 °C conductor) |
+| KINS | 1.3 | PVC insulation of a 2.5 mm² FLRY-B (~2.6 mm², ~1.5·10⁶ J/(m³K)) holds ~45 % of the copper's heat capacity; about two thirds of it counted, since the insulation lags the conductor |
+| HGT | 10 mm | a wire clipped to the body or a bracket |
+| KFILL | 0.7 | FLRY-B conductor diameters (Siechem: 2.2 mm for 2.5 mm², 1.35 mm for 1 mm²) |
+| TMAX | 105 °C | FLRY-B PVC rating in the datasheets (−40 … +105 °C); ISO 6722 class B is 100 °C |
+
+**Simplifications and limitations:**
+
+* **Linear cooling.** Rth' is constant, so the heat removed grows linearly
+  with T − TAMB. Real convection and radiation grow faster, so the model
+  overestimates the temperature well above the rating (wh02 XB: 474 K at
+  2 × IREF) and predicts a runaway that a real wire may not reach before
+  it settles. Below ~1.5 × IREF and around TMAX the error is small. Fit
+  `IREF` near the operating point you care about.
+* **One temperature per segment.** No hot spot along the wire (at a
+  connector, inside a grommet) and no gradient across the insulation (the
+  conductor is hotter than the insulation surface). Split a wire into
+  segments with different `TAMB`/`IREF` for a hot spot.
+* **Free-air defaults.** A bundle derates each wire (Anixter: × 0.8 for 2
+  wires, × 0.5 for 8). Use the harness supplier's rating for the bundle.
+* **Contact resistance does not heat.** Crimps and terminals have their own
+  thermal limits; check them separately.
+* **Low-frequency R and L.** No skin effect: above ~10…100 kHz R rises and L
+  falls slightly. No capacitance to chassis.
+* **No damage model.** The temperature can rise past TMAX, the melting point
+  or anything else; `tm` and the T pin are what a bench checks.
+
+---
+
+### 4.9 Numerical notes
+
+The wire is a simple model, but it follows the library rules
+([Numerical guidance](#numerical-guidance-for-behavioural-models)); all four
+benches run in 4…15 s.
+
+* **Normalized state, no `idt()`.** The temperature is the voltage of a 1 F
+  capacitor driven by `(I²R'(T) − (T − TAMB)/Rth')/C'` (K/s). It is
+  well-scaled for every cross-section: a 1 F capacitor holding 25…500 V,
+  rates up to ~100 K/s in a short.
+* **Unique DC operating point.** The state is held at `T0` while time = 0,
+  so a current that already flows in the operating point (wh02, wh04) does
+  not move it; heating starts at t > 0. In `.ac` the temperature is frozen at
+  `T0` as well, so the impedance is R(T0) + jωL.
+* **No `min()`/`max()` in feedback, no kinks.** The only `table()` and
+  `max()` are in `.param` lines (table defaults, a 1 pH floor on L); the
+  state equation is a smooth polynomial of T.
+* **Inductor.** `Rser=1n` is explicit (LTspice adds a default series
+  resistance otherwise), and `RDAMP` = 100 Ω in parallel damps the ringing
+  of ideal current steps (wh03 drives 900 A steps into 6 mm²).
+* **Node names.** The internal state is `tw`, not `t`: SPICE node names are
+  case-insensitive and `t` would short the `T` pin.
+* **Max time step.** Thermal events are slow: 1 s steps are fine for minutes
+  of heating (wh02), 1 ms for a 1 s short (wh03). In a system bench the
+  eFuse decides the step (wh04: 10 ms max step, the trip is resolved by
+  LTspice's step control).
+
+---
+
+## 5. Automotive test pulses (ISO 16750-2, ISO 7637-2, LV 148)
+
+`models/PULSES_beh.lib` turns the supply disturbances of the automotive
+standards into LTspice sources, so that a power network built from the models
+of this library can be put through the same tests as the hardware: a cranking
+dip, a load dump, the fast ISO 7637-2 transients, the 48 V over-voltage tests.
+Each source is a test generator: an open-circuit voltage that follows the
+definition of the standard, applied through the generator's internal
+resistance `RI`.
+
+> **Standards.** The levels come from public summaries of the standards (see
+> [References](#6-references)); the standards themselves are not public.
+> Values that no public source confirmed are flagged **[CHECK]** in the
+> library. ISO 16750-2 was revised in 2023 (for example, the superimposed AC
+> test now extends to 200 kHz), and VDA 320 / LV 148 are being replaced by
+> ISO 21780: set the levels of the edition your test plan cites.
+
+* [5.1 What the sources are](#51-what-the-sources-are)
+* [5.2 Shapes and parameters](#52-shapes-and-parameters)
+* [5.3 Presets](#53-presets)
+* [5.4 Quick start](#54-quick-start)
+* [5.5 Test benches and results](#55-test-benches-and-results)
+* [5.6 Limitations and numerical notes](#56-limitations-and-numerical-notes)
+
+### 5.1 What the sources are
+
+A test generator in a lab is a voltage source with a defined output
+impedance. The DUT (here: the simulated network) loads it, so the voltage at
+the DUT is lower than the open-circuit test level whenever current flows. The
+models do the same: every source has pins `P` and `N`, and the open-circuit
+voltage is applied through `RI`. Into a load equal to `RI` the amplitude
+halves, which is how the standards specify the generators (and what tp01 and
+tp02 check).
+
+The sources are functions of time, not models of an alternator or a relay:
+they do not react to the load except through `RI`. Use the battery, DC/DC and
+eFuse models for the network, and these sources for the stimulus.
+
+### 5.2 Shapes and parameters
+
+| Source | Shape | Parameters (defaults) |
+|---|---|---|
+| `TP_STEP` | UB until `TD`, linear edge `TF` to `U1`, hold `T1`, edge `TR` back | `UB` 13.5, `U1` 24, `TD` 10 ms, `TF` 1 ms, `T1` 60 s, `TR` 1 ms, `RI` 10 mΩ |
+| `TP_CRANK` | ISO 16750-2 starting profile: UB → (TF) US6, hold T6, → (T7) US, hold T8, → (TR) UB | level I: `UB` 14, `US6` 8, `US` 9.5, `TF` 5 ms, `T6` 15 ms, `T7` 50 ms, `T8` 1 s, `TR` 40 ms |
+| `TP_LOADDUMP` | UA + (US − UA)·g(t − TD); `USCL` > 0 clamps it (test B) | `UA` 13.5, `US` 101, `TRISE` 10 ms, `TDUR` 400 ms, `RI` 0.5 Ω, `USCL` 0 |
+| `TP_ISO7637` | `NP` pulses every `TREP`: UA + US·g(t'); `DISC=1` disconnects UA for `T2` from each pulse start (pulse 1) | pulse 1: `US` −150, `TRISE` 1 µs, `TDUR` 2 ms, `RI` 10 Ω, `T2` 200 ms |
+| `TP_RIPPLE` | UB + UPP/2·sin(φ), frequency swept logarithmically `FMIN` → `FMAX` in `TSW` | `UB` 15.5, `UPP` 1, 50 Hz → 25 kHz in 60 s, `RI` 50 mΩ |
+
+The pulse shape of the load dump and of the ISO 7637-2 pulses is
+
+```
+g(t') = t'/T0                   0 ≤ t' < T0        linear rise,      T0  = TRISE/0.8
+g(t') = exp(−(t' − T0)/TAU)     t' ≥ T0            exponential decay, TAU = (TDUR − 0.9·T0)/ln 10
+```
+
+so `TRISE` is the 10 % → 90 % rise time and `TDUR` the duration between the
+10 % points of the rising and the falling edge, as the standards define tr
+and td. `US` is always the open-circuit amplitude (the test level).
+
+The ISO 16750-2 starting-profile segment order (fall, US6, rise to US, US,
+recovery) is inferred from the parameter names of the standard's table
+**[CHECK]** against its figure.
+
+### 5.3 Presets
+
+Wrappers with the levels of the standards, same pins (`P N`); `TD` and the
+listed parameters can still be set.
+
+| Preset | Standard, test | Level |
+|---|---|---|
+| `ISO16750_CRANK_L1`, `_L2`, `_L4` | ISO 16750-2 starting profile, 12 V | US6 / US = 8 / 9.5 V (T8 1 s), 4.5 / 6.5 V (10 s), 6 / 6.5 V (10 s) |
+| `ISO16750_LD_A12`, `_B12` | ISO 16750-2 load dump, 12 V, test A / B | US 79…101 V (default 101), RI 0.5…4 Ω (0.5), td 40…400 ms (400), tr ≤ 10 ms; B: US* 35 V |
+| `ISO16750_LD_A24`, `_B24` | ISO 16750-2 load dump, 24 V | US 151…202 V (202), RI 1…8 Ω (1), td 100…350 ms (350); B: US* 58 V **[CHECK]** |
+| `ISO16750_JUMP12` | jump start | 24 V for 60 s |
+| `ISO16750_OV12` | long-term over-voltage (regulator failure) | 18 V for 60 min |
+| `ISO16750_DROP12` | momentary drop | 10.8 → 4.5 V for 100 ms **[CHECK]** |
+| `ISO16750_RIPPLE12` | superimposed AC | 1 / 2 / 4 V p-p (`UPP`), upper peak 16 V, 50 Hz → 25 kHz, RI 50 mΩ |
+| `ISO7637_P1_12` | ISO 7637-2 pulse 1 (inductive load disconnected) | −75 / −112 / −150 V (−150), 10 Ω, td 2 ms, tr 1 µs, supply off 200 ms |
+| `ISO7637_P2A_12` | pulse 2a (current interrupted in a harness) | +37 / +55 / +112 V (+112), 2 Ω, td 50 µs, tr 1 µs |
+| `ISO7637_P3A_12`, `_P3B_12` | pulses 3a / 3b (switching transients) | −112 / −165 / −220 V, +75 / +112 / +150 V, 50 Ω, td 150 ns, tr 5 ns, bursts (`NP`, `TREP` 100 µs **[CHECK]**) |
+| `LV148_E48_02` | LV 148 / VDA 320 E48-02, 48 V transient over-voltage | 70 V for 40 ms (edges 1 ms [EST]) |
+| `LV148_OV60` | 48 V long-term over-voltage | 60 V for 60 min |
+
+The defaults of the ranges are the harshest corner (highest US, lowest RI,
+longest td): change them to the levels your specification requires.
+
+### 5.4 Quick start
+
+```spice
+.include ../models/PULSES_beh.lib
+* 12 V supply with a load dump (test B, central suppression) at 50 ms
+Xld v12 0 ISO16750_LD_B12 TD=50m
+* the 48 V bus driven by the E48-02 generator instead of a battery
+Xe48 bus 0 LV148_E48_02 TD=60m UB=48
+```
+
+In a schematic, place `symbols/TP_LOADDUMP.asy` (or `TP_STEP`, `TP_CRANK`,
+`TP_ISO7637`, `TP_RIPPLE`) and edit its Value to a preset name if you want
+one: the presets have the same two pins. A source replaces the battery (it
+is the supply), or sits in series with it for a superimposed disturbance.
+Fast pulses (2a, 3a/3b) need a time step that resolves them; the sources
+force breakpoints at their defining points (start, 10 % / 90 % of the rise,
+peak, the falling 10 % point), so a `.tran` with a coarse maximum step still
+hits the peak exactly, but the circuit's response needs its own step.
+
+### 5.5 Test benches and results
+
+<!--v {m('summary','checks_pulses'):.0f}-->45<!--/v--> checks in the `pulses` group of `tools/validate.py`.
+
+#### tp01: ISO 16750-2 shapes (`tp01_iso16750_shapes.cir`)
+
+**What we simulate.** Each ISO 16750-2 generator open circuit, and the load
+dump also into a load equal to its RI, measured against its definition.
+
+| Quantity | Definition | Simulated |
+|---|---|---|
+| starting profile level I: US6 / US | 8 / 9.5 V | <!--v {m('tp01_iso16750_shapes','va_min'):.2f}-->8.00<!--/v--> / <!--v {m('tp01_iso16750_shapes','va_us'):.2f}-->9.50<!--/v--> V |
+| load dump A: peak, open circuit | 101 V | <!--v {m('tp01_iso16750_shapes','vb_pk'):.2f}-->101.00<!--/v--> V |
+| load dump A: tr (10–90 %) / td (10 %–10 %) | 10 / 400 ms | <!--v {m('tp01_iso16750_shapes','tb_rise')*1e3:.2f}-->10.00<!--/v--> / <!--v {m('tp01_iso16750_shapes','tb_dur')*1e3:.1f}-->400.0<!--/v--> ms |
+| load dump A into 0.5 Ω | US/2 = 50.5 V | <!--v {m('tp01_iso16750_shapes','vc_pk'):.2f}-->50.50<!--/v--> V |
+| load dump B: clamp | US* = 35 V | <!--v {m('tp01_iso16750_shapes','vd_pk'):.2f}-->35.00<!--/v--> V |
+| momentary drop: level, duration | 4.5 V, 100 ms + edges | <!--v {m('tp01_iso16750_shapes','ve_min'):.2f}-->4.50<!--/v--> V, <!--v {m('tp01_iso16750_shapes','te_dur')*1e3:.1f}-->101.0<!--/v--> ms |
+
+![tp01](docs/img/tp01_iso16750_shapes.png)
+
+#### tp02: ISO 7637-2 pulses (`tp02_iso7637_pulses.cir`)
+
+**What we simulate.** Pulses 1, 2a, 3a and 3b (12 V) open circuit and into
+R = RI, including the supply disconnection of pulse 1 and a 3a burst.
+
+| Quantity | Definition | Simulated |
+|---|---|---|
+| pulse 1: amplitude open / into 10 Ω | −150 / −75 V | <!--v {u(m('tp02_iso7637_pulses','va_min'),'.1f')}-->−150.0<!--/v--> / <!--v {u(m('tp02_iso7637_pulses','vb_min'),'.1f')}-->−75.0<!--/v--> V |
+| pulse 1: tr / td | 1 µs / 2 ms | <!--v {m('tp02_iso7637_pulses','ta_rise')*1e6:.2f}-->1.00<!--/v--> µs / <!--v {m('tp02_iso7637_pulses','ta_dur')*1e3:.3f}-->2.000<!--/v--> ms |
+| pulse 1: supply during / after T2 | 0 / 13.5 V | <!--v {abs(m('tp02_iso7637_pulses','va_off')):.2f}-->0.00<!--/v--> / <!--v {m('tp02_iso7637_pulses','va_back'):.2f}-->13.50<!--/v--> V |
+| pulse 2a: peak open / into 2 Ω, td | 125.5 / 62.75 V, 50 µs | <!--v {m('tp02_iso7637_pulses','vc_pk'):.2f}-->125.50<!--/v--> / <!--v {m('tp02_iso7637_pulses','vd_pk'):.2f}-->62.75<!--/v--> V, <!--v {m('tp02_iso7637_pulses','tc_dur')*1e6:.2f}-->50.00<!--/v--> µs |
+| pulse 3a: peak, td, burst period | −206.5 V, 150 ns, 100 µs | <!--v {u(m('tp02_iso7637_pulses','ve_min'),'.1f')}-->−206.5<!--/v--> V, <!--v {m('tp02_iso7637_pulses','te_dur')*1e9:.1f}-->150.0<!--/v--> ns, <!--v {m('tp02_iso7637_pulses','te_per')*1e6:.1f}-->100.0<!--/v--> µs |
+
+![tp02](docs/img/tp02_iso7637_pulses.png)
+
+#### tp03: superimposed AC and an input filter (`tp03_ripple_sweep.cir`)
+
+**What we simulate.** The 2 V p-p ripple swept from 50 Hz to 25 kHz (in
+0.2 s instead of a minute, same shape), open circuit and through an ECU input
+filter (4.7 µH, 220 µF / 50 mΩ, 1 A load). The filter passes the low
+frequencies, amplifies around its resonance (4.9 kHz) and attenuates above.
+
+| Quantity | Hand calculation | Simulated |
+|---|---|---|
+| peaks | 16 / 14 V | <!--v {m('tp03_ripple_sweep','va_max'):.2f}-->16.00<!--/v--> / <!--v {m('tp03_ripple_sweep','va_min'):.2f}-->14.00<!--/v--> V |
+| 10 periods from cycle 200 / 700 | log sweep: 1566 / 456 µs | <!--v {m('tp03_ripple_sweep','tp_200')*1e6:.0f}-->1566<!--/v--> / <!--v {m('tp03_ripple_sweep','tp_700')*1e6:.0f}-->456<!--/v--> µs |
+| filter output, below / at / above resonance | 2 V·\|H\|: 1.99 / 2.95 / 0.20 V p-p | <!--v {m('tp03_ripple_sweep','vf_lo'):.2f}-->1.99<!--/v--> / <!--v {m('tp03_ripple_sweep','vf_res'):.2f}-->2.95<!--/v--> / <!--v {m('tp03_ripple_sweep','vf_hi'):.2f}-->0.20<!--/v--> V p-p |
+
+![tp03](docs/img/tp03_ripple_sweep.png)
+
+#### tp04: LV 148 E48-02 on the 48 V network (`tp04_lv148_e48_02_pdn.cir`)
+
+**What we simulate.** The 70 V / 40 ms transient over-voltage of LV 148 on
+the 48 V bus of a two-voltage system (generator → feed → 220 µF bus → eFuse →
+700 W DC/DC → 12 V battery and 10 A). Three designs: (0) the 58 V TVS of the
+eFuse benches on the bus and the DC/DC's default 60 V input OVP, (1) no TVS,
+(2) no TVS and an input OVP of 75 V.
+
+| Quantity | Case 0: 58 V TVS | Case 1: no TVS | Case 2: OVP 75 V |
+|---|---|---|---|
+| bus peak | <!--v {m('tp04_lv148_e48_02_pdn','vbus_pk',0):.1f}-->69.5<!--/v--> V | <!--v {m('tp04_lv148_e48_02_pdn','vbus_pk',1):.1f}-->70.2<!--/v--> V | <!--v {m('tp04_lv148_e48_02_pdn','vbus_pk',2):.1f}-->70.0<!--/v--> V |
+| TVS current / energy | <!--v {m('tp04_lv148_e48_02_pdn','itvs_av',0):.1f}-->33.7<!--/v--> A for 40 ms, **<!--v {m('tp04_lv148_e48_02_pdn','e_tvs',0):.0f}-->94<!--/v--> J** | – | – |
+| DC/DC during the pulse | stopped (OVP) | stopped (OVP) | running |
+| 12 V net minimum (from <!--v {m('tp04_lv148_e48_02_pdn','v12_pre',0):.2f}-->12.68<!--/v--> V) | <!--v {m('tp04_lv148_e48_02_pdn','v12_min',0):.2f}-->12.37<!--/v--> V | <!--v {m('tp04_lv148_e48_02_pdn','v12_min',1):.2f}-->12.37<!--/v--> V | <!--v {m('tp04_lv148_e48_02_pdn','v12_min',2):.2f}-->12.68<!--/v--> V |
+| eFuse faults | none | none | none |
+
+**What it shows.** A 58 V TVS (≈ 64 V breakdown) cannot coexist with E48-02:
+against a 10 mΩ generator it clamps nothing and absorbs tens of joules, far
+beyond any TVS rating, and the KVL check (70 V − V_bus)/20 mΩ reproduces its
+current. Without it the bus reaches the full 70 V, which is the VNF1048F's
+limit: the 48 V components need 70 V ratings with margin, and the protection
+against faster transients must start above 70 V. The DC/DC with a 60 V input
+OVP stops for the duration of the pulse (the 12 V battery carries the net,
+so nobody notices, but E48-02 requires full function); with the OVP above
+70 V it passes.
+
+![tp04](docs/img/tp04_lv148_e48_02_pdn.png)
+
+#### tp05: 12 V load dump on an ECU input (`tp05_loaddump_12v_tvs.cir`)
+
+**What we simulate.** A 12 V ECU input (TVS, 100 µF, 1 A) under the load dump:
+(0) test A with a 27 V-breakdown TVS (24 V stand-off class), (1) test B
+(central suppression to 35 V) with the same TVS, (2) test B with a 38 V TVS.
+
+| Quantity | Hand calculation | Case 0 | Case 1 | Case 2 |
+|---|---|---|---|---|
+| ECU input peak | TVS clamp / 35 V·13.5/14 | <!--v {m('tp05_loaddump_12v_tvs','vecu_pk',0):.1f}-->30.1<!--/v--> V | <!--v {m('tp05_loaddump_12v_tvs','vecu_pk',1):.1f}-->27.5<!--/v--> V | <!--v {m('tp05_loaddump_12v_tvs','vecu_pk',2):.1f}-->33.7<!--/v--> V |
+| TVS peak current | (V_oc − V)/RI − V/R_load | <!--v {m('tp05_loaddump_12v_tvs','itvs_pk',0):.0f}-->138<!--/v--> A | <!--v {m('tp05_loaddump_12v_tvs','itvs_pk',1):.1f}-->12.8<!--/v--> A | ≈ 0 |
+| TVS energy | static solution of the same circuit | **<!--v {m('tp05_loaddump_12v_tvs','e_tvs',0):.0f}-->452<!--/v--> J** | <!--v {m('tp05_loaddump_12v_tvs','e_tvs',1):.0f}-->98<!--/v--> J | 0 |
+
+**What it shows.** Without central suppression a local TVS has to absorb
+hundreds of joules, which only dedicated load-dump TVS parts survive. With
+central suppression the generator is limited to 35 V, but a local TVS that
+breaks down below US* still conducts for the whole pulse: choose its
+breakdown above US*, then the ECU only has to withstand 35 V.
+
+![tp05](docs/img/tp05_loaddump_12v_tvs.png)
+
+### 5.6 Limitations and numerical notes
+
+* **Shapes, not generators.** The sources follow the shape definitions;
+  real generators have tolerances (tr, td, amplitude ±10 %) and their own
+  impedance characteristics. Only `RI` is modeled.
+* **Single events.** Repetition is modeled for ISO 7637-2 (`NP`, `TREP`);
+  the load dump and the 16750-2 profiles are single events (the standards
+  repeat them minutes apart, which is a sequence of separate simulations).
+* **Long tests** (`ISO16750_OV12`, `LV148_OV60`: one hour) are fine for the
+  electrical behaviour but slow with switching details; relax the time step.
+* **Breakpoints.** LTspice does not know the corners of a B-source shape; a
+  helper (`TP_BRK`, 1 nV PULSE sources into 1 GΩ) forces time points at the
+  defining points of every pulse, so the peaks and the 10 % points are hit
+  exactly even in a purely resistive circuit. A tracking RC was tried first
+  to make the time-step control follow the decay: it is stiff and made the
+  trapezoidal integration ring (runs took minutes instead of seconds).
+* **Trig/targ measurements.** LTspice prints them as `name=value FROM …`
+  (no colon); `tools/ltraw.py` reads both forms.
+
+---
+
+## 6. References
 
 * STMicroelectronics, *VNF1048F – High-side switch controller with intelligent
   fuse protection for 12 V, 24 V and 48 V automotive applications*, datasheet
@@ -3905,3 +4735,53 @@ X1 vin v12 0 en pg DCDC_TOSHIBA_RD210
 * R. D. Middlebrook, *Input filter considerations in design and application of
   switching regulators*, IEEE IAS Annual Meeting, 1976 (negative input
   resistance and filter stability, dc06/dc07).
+* ISO 16750-2, *Road vehicles — Environmental conditions and testing for
+  electrical and electronic equipment — Part 2: Electrical loads* (2012; 2023
+  edition), and ISO 7637-2, *Electrical disturbances from conduction and
+  coupling — Part 2: Electrical transient conduction along supply lines only*
+  (2011). The levels in `models/PULSES_beh.lib` (part 5) were taken from public
+  summaries, not from the standards themselves:
+  * Texas Instruments, TIC12400-Q1 datasheet (SCPS260C), tables of the
+    ISO 16750-2 cranking profile (levels I, II, IV) and of the load dump with
+    centralized suppression (UA 13.5 V, US 79–101 V, US* 35 V, td 40–400 ms):
+    https://www.ti.com/document-viewer/lit/html/SCPS260C
+  * Analog Devices, *LTspice: Models of ISO 7637-2 & ISO 16750-2 Transients*
+    and *Low Quiescent Current Surge Stopper: Robust Automotive Supply
+    Protection for ISO 7637-2 and ISO 16750-2 Compliance* (LT Journal; jump
+    start 24 V / 60 s, over-voltage 18 V / 60 min, superimposed AC 1/2/4 V p-p,
+    50 Hz–25 kHz, 50–100 mΩ):
+    https://www.analog.com/en/resources/technical-articles/ltspice-models-of-iso-7637-2-iso-16750-2-transients.html
+  * Noiseken, *ISO 7637-2 Ed. 3 (2011) test overview* (pulse levels, tr, td,
+    open-circuit and loaded amplitudes):
+    https://www.noiseken.co.jp/home/wp-content/uploads/2023/02/ISO7637-2Ed.32011の試験概要.pdf
+  * Load-dump generator and TVS application notes (24 V system: US 151–202 V,
+    RI 1–8 Ω, td 100–350 ms), e.g. Panjit, *Automotive Grade Load Dump TVS*.
+* VDA 320 / LV 148, *Electric and electronic components in motor vehicles —
+  48 V on-board power supply* (E48-02: 70 V for 40 ms; long-term 60 V for
+  60 min; operating range 36–52 V), as summarized in NXP AN11967 and TI
+  SNVA900; superseded by ISO 21780.
+* ISO 6722-1:2011, *Road vehicles — 60 V and 600 V single-core cables —
+  Part 1: Dimensions, test methods and requirements for copper conductor
+  cables* (conductor resistance at 20 °C, temperature classes). Values
+  taken as listed in the FLRY-B datasheets below.
+* Manex, *FLRY data sheet* (FLRY-A / FLRY-B, ISO 6722-1, −40 … +105 °C):
+  maximum conductor resistance at 20 °C 0.35 … 70 mm², conductor
+  construction and outer diameters,
+  https://www.tme.com/Document/f8a9a7c10c1c6256b4627461a2c08bec/FLRY_EN.pdf
+* Anixter, *Automotive Wire, FLRY-B thin wall* and *Current Ratings for
+  Automotive Cables* (pages 2.20 and 2.43): current rating of a single cable
+  in free air at 40 °C ambient for 90 °C and 105 °C conductor temperature,
+  0.22 … 120 mm², grouping factors, https://objects.eanixter.com/PD379251-AN.PDF
+* Siechem, *FLRY-B wire* data (conductor diameters, current rating at 80 °C
+  conductor / 40 °C ambient), https://www.siechem.com/?pods_product=flry-b
+* ISO 6722:2002, *Road vehicles — 60 V and 600 V single-core cables*
+  (temperature classes A −40 … 85 °C, B … 100 °C, C … 125 °C, D … 150 °C;
+  withdrawn, check the current ISO 6722-1 edition).
+* IEC 60949:1988, *Calculation of thermally permissible short-circuit
+  currents, taking into account non-adiabatic heating effects* (adiabatic
+  formula, K = 226 A·s^0.5/mm², β = 234.5 K, σc = 3.45·10⁶ J/(m³K),
+  ρ20 = 1.7241·10⁻⁸ Ω·m for copper).
+* IEC 60228:2004, *Conductors of insulated cables* (annealed copper,
+  α20 = 1/254.5 K⁻¹ = 3.93·10⁻³ K⁻¹).
+* F. W. Grover, *Inductance Calculations*, Dover (external inductance of a
+  round wire over a ground plane, µ0/(2π)·ln(2h/r) for h ≫ r).

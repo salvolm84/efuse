@@ -1,0 +1,71 @@
+* wh04_efuse_wire_coordination.cir
+* ---------------------------------------------------------------------------
+* System: does the eFuse protect the wire? An EFUSE48_MOD channel (INOM =
+* 21.8 mV / 1 mOhm = 21.8 A) feeds a 15 A load through a 2 m, 1.5 mm2 WIRE
+* (FLRY-B table data: rated 24.5 A at 40 degC ambient for 90 degC) in a hot
+* location, TAMB = 60 degC; insulation rating TMAX = 105 degC. The wire
+* starts at its steady preload temperature (~78 degC). At 1 s an overload
+* raises the channel current to x = I/INOM = 1.09, 1.2, 1.32 or 1.6.
+*   CASE 0..3 : TNOM_CODE = 7   (tNOM = 15 s):  coordinated
+*   CASE 4..7 : TNOM_CODE = 255 (tNOM = 511 s): mis-coordinated
+* Expected:
+*   eFuse trip after tNOM / 2^m, m = floor(log2(32 (x^2 - 1))):
+*     x = 1.09 / 1.2 / 1.32 / 1.6 -> m = 2 / 3 / 4 / 5
+*     tNOM 15 s: 3.75 / 1.88 / 0.94 / 0.47 s;  tNOM 511 s: 128 / 64 / 32 / 16 s
+*   wire peak temperature (at the trip) = closed form of the linear ODE from
+*   the temperature at 1 s with the measured current (README part 4.5):
+*     tNOM 15 s : peak ~81 degC < TMAX in all four cases (protected); the wire
+*                 limit at 60 degC, 22.7 A, is also above the highest current
+*                 that never trips (INOM sqrt(1 + 1/32) = 22.1 A, trips after tNOM)
+*     tNOM 511 s: the wire crosses TMAX 3 .. 50 s before the eFuse trips
+* Run time ~15 s for 8 x 135 s simulated: max step 10 ms (the trip itself is
+* resolved by LTspice's step control).
+* ---------------------------------------------------------------------------
+.include ../models/VNF1048F_beh.lib
+.include ../models/HARNESS_beh.lib
+.param CASE=0
+.param XO={table(CASE, 0,1.09, 1,1.2, 2,1.32, 3,1.6, 4,1.09, 5,1.2, 6,1.32, 7,1.6)}
+.param TC={if(CASE<3.5, 7, 255)}
+* series resistance battery + shunt + FET + wire (hot), for the load values
+.param RSER=45m
+.param RP={48/15 - RSER}
+.param RL={48/(XO*21.8) - RSER}
+.param ROL={1/(1/RL - 1/RP)}
+* steady preload temperature of the wire (same formulas as the model)
+.param AL=3.9293m R15=12.7m
+.param RTH15={50/(24.5**2*R15*(1+AL*70))}
+.param TPRE={60 + 15**2*R15*(1+AL*40)*RTH15/(1-15**2*R15*AL*RTH15)}
+
+Vbat bat 0 48
+Rbat bat b1 10m
+Lbat b1 vbat 1u
+Cbus vbat 0 100u Rser=30m
+
+X1 vbat out 0 en byp clr diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12
++ VDS_CODE=14 TNOM_CODE={TC}
+Dfw 0 out EF_SCH100V
+XW out load tw 0 WIRE LEN=2 CSA=1.5 TAMB=60 T0={TPRE}
+Cload load 0 47u Rser=20m
+Rpre load 0 {RP}
+Rol load ol {ROL}
+Sol ol 0 gol 0 SOL
+Vgol gol 0 PWL(0 0 1 0 1.001 1)
+.model SOL SW(Ron=2m Roff=100k Vt=0.5 Vh=-0.2)
+
+Ven en 0 PWL(0 0 1m 0 1.001m 3.3)
+Vbyp byp 0 0
+Vclr clr 0 0
+
+.save V(out) V(load) V(tw) I(xw:Vs) V(x1:xu:xa) V(x1:xu:fd) V(x1:xu:fusel) V(diag)
+.meas tran i_pre  avg I(xw:Vs) from 0.5 to 0.95
+.meas tran tw0    find V(tw) at 1
+.meas tran i_ol   avg I(xw:Vs) from 1.05 to 1.1
+.meas tran x_ol   avg V(x1:xu:xa) from 1.05 to 1.1
+.meas tran t_fl   find time when V(x1:xu:fusel)=0.5 rise=1
+.meas tran twmax  max V(tw)
+.meas tran t105   find time when V(tw)=105 rise=1
+.meas tran i_105  find I(xw:Vs) when V(tw)=105 rise=1
+.meas tran i_end  avg I(xw:Vs) from 134 to 135
+.step param CASE list 0 1 2 3 4 5 6 7
+.tran 0 135 0 10m
+.end

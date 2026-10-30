@@ -9,8 +9,9 @@ and exits non-zero if any check fails.
     python3 tools/validate.py --export docs/results.json   # also store the results
     python3 tools/validate.py --json docs/results.json     # check stored results (CI)
 
-Groups: efuse (tb01..tb36), battery (bat01..bat07), dcdc (dc01..dc08),
-reference (ref01..ref02, public product data), schematics (demo/app .asc).
+Groups: efuse (tb01..tb36), battery (bat01..bat07), dcdc (dc01..dc08), harness (wh01..wh04),
+harness (wh01..wh04), pulses (tp01..tp05), reference (ref01..ref02, public
+product data), schematics (demo/app .asc).
 
 Besides the checks, a full run verifies the integrity of the results: every
 bench (testbenches/*.cir, schematics/*.asc) has results and at least one
@@ -751,6 +752,169 @@ def dcdc():
     check(t, "48 V pack: no BMS trip", m(t, "fltb_max"), -0.01, 0.01, "V", "selectivity")
 
 
+def harness():
+    """Wiring-harness benches wh01..wh04 (WIRE model equations, ISO 6722-1 table, IEC 60949)."""
+    # ---- wire segment (models/HARNESS_beh.lib), analytic references --------------
+    AL = 3.9293e-3
+    CSA = [0.35, 0.5, 0.75, 1, 1.5, 2.5, 4, 6, 10, 16, 25, 35, 50]
+    R20 = dict(zip(CSA, [54.4e-3, 37.1e-3, 24.7e-3, 18.5e-3, 12.7e-3, 7.6e-3, 4.71e-3, 3.14e-3, 1.82e-3,
+                         1.16e-3, 0.743e-3, 0.527e-3, 0.368e-3]))          # ISO 6722-1 max, Ohm/m
+    I90 = dict(zip(CSA, [10, 13, 16.5, 19.5, 24.5, 34, 42, 51, 68, 88, 114, 136, 158]))  # A, 40 -> 90 degC
+
+
+    def w_rth(s, iref=0, dtref=50, tamb=25, r20=None):
+        r20 = R20[s] if r20 is None else r20
+        if iref > 0:
+            return dtref / (iref ** 2 * r20 * (1 + AL * (tamb + dtref - 20)))
+        return 50 / (I90[s] ** 2 * R20[s] * (1 + AL * 70))
+
+
+    def w_lpm(s, hgt=10e-3, kfill=0.7):
+        return 2e-7 * math.log(2 * hgt / math.sqrt(s * 1e-6 / (math.pi * kfill)))
+
+
+    def w_temp(i, t, t0, tamb, rth, cp, r20):
+        """Closed form of dT/dt = (I^2 R20 (1 + AL (T - 20)) - (T - TAMB)/Rth) / C' at constant I."""
+        g = 1 / rth - i * i * r20 * AL
+        tinf = (i * i * r20 * (1 - 20 * AL) + tamb / rth) / g
+        return tinf + (t0 - tinf) * math.exp(-g * t / cp), tinf, cp / g
+
+
+    def w_cp(s, kins=1.3):
+        return 3.45e6 * s * 1e-6 * kins
+
+
+    t = "wh01_resistance_inductance"
+    w = 2 * math.pi * 1e5
+    err_r = [abs(m(t, f"r{k:02d}") / R20[s] - 1) for k, s in enumerate(CSA, 1)]
+    check(t, "R at 20 degC vs ISO 6722-1 table, max error (13 CSA)", 100 * vmax(err_r), 0, 0.01, "%",
+          "ISO 6722-1 max. conductor resistance")
+    err_h = [abs(m(t, f"r{k}") / (R20[s] * (1 + AL * 85)) - 1) for k, s in zip((14, 15, 16), (1, 2.5, 16))]
+    check(t, "R at 105 degC (1 / 2.5 / 16 mm2), max error", 100 * vmax(err_h), 0, 0.01, "%",
+          "R20 (1 + ALPHA 85 K) = 1.334 R20")
+    r17 = 2 * 0.5e-3 + 5 * R20[2.5]
+    check(t, "5 m + 2 x 0.5 mOhm contact resistance", m(t, "r17") * 1e3, r17 * 0.9999e3, r17 * 1.0001e3, "mOhm",
+          "2 RC + LEN R20 = 39 mOhm")
+    err_l = [abs(m(t, f"x{k:02d}") / w / w_lpm(s) - 1) for k, s in enumerate(CSA, 1)]
+    check(t, "L per metre vs mu0/(2 pi) ln(2 HGT/r), max error (13 CSA)", 100 * vmax(err_l), 0, 0.05, "%",
+          f"{w_lpm(50) * 1e6:.3f} .. {w_lpm(0.35) * 1e6:.3f} uH/m at HGT 10 mm")
+    l18 = w_lpm(2.5, hgt=30e-3)
+    check(t, "L per metre at HGT = 30 mm (2.5 mm2)", m(t, "x18") / w * 1e6, 0.9995e6 * l18, 1.0005e6 * l18, "uH/m",
+          f"{l18 * 1e6:.3f} uH/m")
+    check(t, "L with LPM = 1 uH/m (user value)", m(t, "x19") / w * 1e6, 0.9995, 1.0005, "uH/m", "LPM")
+    check(t, "L of 5 m (2.5 mm2) = 5 x L per metre", m(t, "x17") / w * 1e6, 0.9995e6 * 5 * w_lpm(2.5),
+          1.0005e6 * 5 * w_lpm(2.5), "uH", "LEN x LPM")
+    err_z = []
+    for k, s in enumerate(CSA, 1):
+        jwl = 1j * w * w_lpm(s)
+        err_z.append(abs(m(t, f"z{k:02d}") / abs(R20[s] + 1 / (1 / jwl + 1 / 100.0)) - 1))
+    check(t, "|Z(100 kHz)| vs R + jwL || RDAMP, max error (13 CSA)", 100 * vmax(err_z), 0, 0.05, "%",
+          "R20 + jw LPM || 100 Ohm")
+
+    t = "wh02_wire_thermal"
+    rth_a = w_rth(2.5, iref=30); cp25 = w_cp(2.5)
+    check(t, "steady rise at IREF = 30 A", m(t, "dt_ref"), 49.99, 50.01, "K", "DTREF = 50 K exactly")
+    _, _, tau_a = w_temp(30, 0, 25, 25, rth_a, cp25, R20[2.5])
+    check(t, "time constant at IREF (63 % of the rise)", m(t, "t63a"), 0.998 * tau_a, 1.002 * tau_a, "s",
+          f"C'/(1/Rth' - I^2 R20 ALPHA) = {tau_a:.1f} s")
+    check(t, "cooling: rise left after tau0 = C' Rth'", m(t, "tcool"), 50 / math.e - 0.02, 50 / math.e + 0.02, "K",
+          f"50 K / e, tau0 = {cp25 * rth_a:.1f} s")
+    tb_, tinf_b, tau_b = w_temp(60, 1e9, 25, 25, rth_a, cp25, R20[2.5])
+    check(t, "steady rise at 2 x IREF (R(T) feedback)", m(t, "dt_2"), 0.999 * (tinf_b - 25), 1.001 * (tinf_b - 25),
+          "K", "I^2 R20 (1+ALPHA(TAMB-20)) Rth' / (1 - I^2 R20 ALPHA Rth')")
+    check(t, "time constant at 2 x IREF", m(t, "t63b"), 0.997 * tau_b, 1.003 * tau_b, "s", f"tau_eff = {tau_b:.1f} s")
+    check(t, "table rating 34 A at 40 degC (2.5 mm2): rise", m(t, "dt_c"), 49.99, 50.01, "K",
+          "table B: 90 degC conductor")
+    check(t, "table rating: effective IREF", m(t, "iref_c"), 33.999, 34.001, "A", "I90(2.5 mm2) = 34 A")
+    rth_d = w_rth(0.5)
+    _, tinf_d, _ = w_temp(10, 0, 85, 85, rth_d, w_cp(0.5), R20[0.5])
+    check(t, "0.5 mm2, 10 A at 85 degC (table data): rise", m(t, "dt_d"), tinf_d - 85 - 0.02, tinf_d - 85 + 0.02, "K",
+          f"closed form {tinf_d - 85:.2f} K")
+    iref_d = math.sqrt(50 / (rth_d * R20[0.5] * (1 + AL * (85 + 50 - 20))))
+    check(t, "0.5 mm2 at 85 degC: effective IREF", m(t, "iref_d"), 0.9999 * iref_d, 1.0001 * iref_d, "A",
+          f"50 K rise at 85 degC: {iref_d:.2f} A")
+    check(t, "LEN = 10 m: same rise (LEN cancels)", m(t, "dt_e"), 49.99, 50.01, "K", "per-metre thermal model")
+    r75 = R20[2.5] * (1 + AL * 55)
+    check(t, "resistance at 75 degC (node rw)", m(t, "rw_a") * 1e3, 0.9999e3 * r75, 1.0001e3 * r75, "mOhm",
+          "R20 (1 + ALPHA 55 K)")
+    check(t, "conductor loss at 30 A (node pw)", m(t, "pw_a"), 0.9999 * 900 * r75, 1.0001 * 900 * r75, "W",
+          "I^2 R'(75 degC)")
+
+    t = "wh03_short_adiabatic"
+    rho = 1.7241e-8
+
+
+    def iec(ti, i, tt, s, k=226.0):
+        return (ti + 234.5) * math.exp(i * i * tt / (k * k * s * s)) - 234.5
+
+
+    def adiab(ti, i, tt, r20, cp):
+        return (ti + 1 / AL - 20) * math.exp(i * i * tt * r20 * AL / cp) - (1 / AL - 20)
+
+
+    err_iec, err_mod = [], []
+    for k, s in zip((1, 2, 3), (1.5, 2.5, 6)):
+        err_iec.append(abs(m(t, f"tf{k}") - iec(20, 150 * s, 1, s)))
+        err_mod.append(abs(m(t, f"tf{k}") - adiab(20, 150 * s, 1, rho / (s * 1e-6), w_cp(s, 1))))
+    check(t, "150 A/mm2 for 1 s from 20 degC vs IEC 60949 (K = 226), max error", vmax(err_iec), 0, 1.0, "K",
+          f"IEC 60949: {iec(20, 375, 1, 2.5):.1f} degC (1.5 / 2.5 / 6 mm2)")
+    check(t, "same vs the exact adiabatic closed form (K = 225.7), max error", vmax(err_mod), 0, 0.05, "K",
+          "pure copper, KINS = 1")
+    check(t, "half-way (0.5 s) vs IEC 60949", m(t, "th2"), iec(20, 375, 0.5, 2.5) - 0.5, iec(20, 375, 0.5, 2.5) + 0.5,
+          "degC", f"{iec(20, 375, 0.5, 2.5):.1f} degC")
+    check(t, "from 85 degC vs IEC 60949", m(t, "tf4"), iec(85, 375, 1, 2.5) - 1.5, iec(85, 375, 1, 2.5) + 1.5,
+          "degC", f"{iec(85, 375, 1, 2.5):.1f} degC")
+    check(t, "from 85 degC vs exact closed form", m(t, "tf4"), adiab(85, 375, 1, rho / 2.5e-6, w_cp(2.5, 1)) - 0.05,
+          adiab(85, 375, 1, rho / 2.5e-6, w_cp(2.5, 1)) + 0.05, "degC", "pure copper, KINS = 1")
+    a5 = adiab(20, 375, 1, R20[2.5], w_cp(2.5))
+    check(t, "table R20, KINS = 1.3 vs model closed form", m(t, "tf5"), a5 - 0.05, a5 + 0.05, "degC",
+          f"adiabatic, R20 7.6 mOhm/m: {a5:.2f} degC")
+    t6, _, _ = w_temp(375, 1, 20, 20, w_rth(2.5), w_cp(2.5), R20[2.5])
+    check(t, "with the default cooling (table thermal data)", m(t, "tf6"), t6 - 0.05, t6 + 0.05, "degC",
+          f"linear ODE: {t6:.2f} degC ({a5 - t6:.1f} K below adiabatic)")
+    t6e, _, _ = w_temp(0, 0.5, m(t, "tf6"), 20, w_rth(2.5), w_cp(2.5), R20[2.5])
+    check(t, "cooling 0.5 s after the pulse", m(t, "tend6"), t6e - 0.05, t6e + 0.05, "degC", "tau0 = C' Rth' = 50 s")
+
+    t = "wh04_efuse_wire_coordination"
+    tamb, tmax, s = 60, 105, 1.5
+    rth, cp = w_rth(s), w_cp(s)
+    _, tpre, _ = w_temp(m(t, "i_pre"), 0, tamb, tamb, rth, cp, R20[s])
+    check(t, "wire at its steady preload temperature (15 A, 60 degC)", m(t, "tw0"), tpre - 0.1, tpre + 0.1, "degC",
+          f"closed form {tpre:.1f} degC")
+    err_tt, err_tw, err_105, peak_ok, margin = [], [], [], [], []
+    for k in range(8):
+        tnom = 15 if k < 4 else 511
+        x = m(t, "x_ol", k)
+        mm = max(0, math.floor(math.log2(32 * (x * x - 1)))) if x > 1 else NAN
+        ttrip = tnom / 2 ** mm
+        dtt = m(t, "t_fl", k) - 1.0005                     # from the middle of the 1 ms switch edge
+        err_tt.append(abs(dtt / ttrip - 1))
+        tw, tinf, tau = w_temp(m(t, "i_ol", k), dtt, m(t, "tw0", k), tamb, rth, cp, R20[s])
+        err_tw.append(abs(m(t, "twmax", k) - tw))
+        if k < 4:
+            peak_ok.append(m(t, "twmax", k))
+            if not failed(t, "t105", k):
+                peak_ok.append(NAN)
+        else:
+            # the current falls slightly (~0.2 %) as the wire heats: mean of the two ends
+            _, tinf, tau = w_temp((m(t, "i_ol", k) + m(t, "i_105", k)) / 2, 0, tamb, tamb, rth, cp, R20[s])
+            t105 = -tau * math.log((tinf - tmax) / (tinf - m(t, "tw0", k)))
+            err_105.append(abs((m(t, "t105", k) - 1.0005) / t105 - 1))
+            margin.append(m(t, "t_fl", k) - m(t, "t105", k))
+    check(t, "eFuse trip time vs tNOM/2^m, max error (8 cases)", 100 * vmax(err_tt), 0, 1, "%",
+          "stepwise I2t curve, x = 1.09 .. 1.6")
+    check(t, "wire peak temperature vs closed form at the trip, max error", vmax(err_tw), 0, 0.5, "K",
+          "linear ODE from T(1 s), measured current")
+    check(t, "tNOM 15 s: highest wire temperature (4 overloads)", vmax(peak_ok), -math.inf, tmax, "degC",
+          "coordinated: < TMAX, no TMAX crossing")
+    check(t, "tNOM 511 s: time to TMAX vs closed form, max error", 100 * vmax(err_105), 0, 1, "%",
+          "linear ODE, mean current 1 s .. crossing")
+    check(t, "tNOM 511 s: eFuse trips after the wire reached TMAX (min. lead)", vmin(margin), 1, math.inf, "s",
+          "mis-coordinated in all 4 overloads")
+    check(t, "after the trip: channel current", vmax(abs(m(t, "i_end", k)) for k in range(8)) * 1e3, 0, 5, "mA",
+          "latched off (OUT bias only)")
+
+
 def schematics():
     """Demo and application schematics."""
     # ---- schematics ----------------------------------------------------------------
@@ -771,6 +935,107 @@ def schematics():
 
 
 
+def pulses():
+    """Test-pulse generators tp01..tp05 (definitions of the standards, hand calculations)."""
+    # ---- shape of TP_LOADDUMP / TP_ISO7637 (models/PULSES_beh.lib) ----------------
+    def tp_g(t, trise, tdur):
+        t0 = trise / 0.8
+        tau = (tdur - 0.9 * t0) / math.log(10)
+        return 0.0 if t < 0 else (t / t0 if t < t0 else math.exp(-(t - t0) / tau))
+
+    t = "tp01_iso16750_shapes"
+    check(t, "crank level I: minimum (US6)", m(t, "va_min"), 7.99, 8.01, "V", "ISO 16750-2 level I: 8 V")
+    check(t, "crank level I: plateau (US)", m(t, "va_us"), 9.49, 9.51, "V", "level I: 9.5 V")
+    check(t, "crank: fall mid-point", m(t, "ta_fall") * 1e3, 12.45, 12.55, "ms", "TD + TF/2 = 12.5 ms")
+    check(t, "crank: recovery mid-point", m(t, "ta_rec"), 1.099, 1.101, "s", "TD+TF+T6+T7+T8+TR/2 = 1.100 s")
+    check(t, "load dump A: open-circuit peak", m(t, "vb_pk"), 100.9, 101.1, "V", "US = 101 V")
+    check(t, "load dump A: rise time 10-90 %", m(t, "tb_rise") * 1e3, 9.95, 10.05, "ms", "tr = 10 ms")
+    check(t, "load dump A: duration between 10 % points", m(t, "tb_dur") * 1e3, 398, 402, "ms", "td = 400 ms")
+    check(t, "load dump A into RI: peak", m(t, "vc_pk"), 50.4, 50.6, "V", "US/2 into R = RI")
+    check(t, "load dump B: clamp", m(t, "vd_pk"), 34.95, 35.05, "V", "US* = 35 V")
+    check(t, "momentary drop: level", m(t, "ve_min"), 4.49, 4.51, "V", "4.5 V [CHECK]")
+    check(t, "momentary drop: duration at mid-edge", m(t, "te_dur") * 1e3, 100.9, 101.1, "ms", "100 ms + 1 ms edges")
+    t = "tp02_iso7637_pulses"
+    check(t, "pulse 1: open-circuit amplitude", m(t, "va_min"), -150.5, -149.5, "V", "US = -150 V")
+    check(t, "pulse 1: duration between 10 % points", m(t, "ta_dur") * 1e3, 1.98, 2.02, "ms", "td = 2 ms")
+    check(t, "pulse 1: rise time 10-90 %", m(t, "ta_rise") * 1e6, 0.98, 1.02, "us", "tr = 1 us")
+    check(t, "pulse 1: supply disconnected", abs(m(t, "va_off")), 0, 0.01, "V", "UA off for T2 = 200 ms")
+    check(t, "pulse 1: supply back", m(t, "va_back"), 13.49, 13.51, "V", "UA = 13.5 V")
+    check(t, "pulse 1 into 10 Ohm", m(t, "vb_min"), -75.3, -74.7, "V", "US/2 (RI = 10 Ohm)")
+    check(t, "pulse 2a: peak on the supply", m(t, "vc_pk"), 125.0, 126.0, "V", "UA + 112 V")
+    check(t, "pulse 2a: duration between 10 % points", m(t, "tc_dur") * 1e6, 49.5, 50.5, "us", "td = 50 us")
+    check(t, "pulse 2a into 2 Ohm", m(t, "vd_pk"), 62.5, 63.0, "V", "(UA + US)/2")
+    check(t, "pulse 3a: peak", m(t, "ve_min"), -207.5, -205.5, "V", "UA - 220 V")
+    check(t, "pulse 3a: duration between 10 % points", m(t, "te_dur") * 1e9, 147, 153, "ns", "td = 150 ns")
+    check(t, "pulse 3a: burst period", m(t, "te_per") * 1e6, 99.9, 100.1, "us", "TREP = 100 us")
+    check(t, "pulse 3a: third pulse", m(t, "te_n3") * 1e3, 0.6999, 0.7001, "ms", "TD + 2 TREP")
+    check(t, "pulse 3b: peak", m(t, "vg_pk"), 163.0, 164.0, "V", "UA + 150 V")
+    t = "tp03_ripple_sweep"
+    fmin, fmax, tsw = 50.0, 25e3, 0.2
+    kf = math.log(fmax / fmin)
+
+    def t_cyc(k):  # time of the k-th rising mid-crossing after t = 0
+        return tsw / kf * math.log(1 + k * kf / (fmin * tsw))
+    check(t, "upper peak", m(t, "va_max"), 15.98, 16.02, "V", "16 V")
+    check(t, "lower peak", m(t, "va_min"), 13.98, 14.02, "V", "16 V - 2 V p-p")
+    for n in (200, 700):
+        ref = t_cyc(n + 9) - t_cyc(n - 1)
+        check(t, f"10 periods from cycle {n}", m(t, f"tp_{n}") * 1e6, 0.99e6 * ref, 1.01e6 * ref, "us",
+              f"log sweep: {ref * 1e6:.0f} us")
+
+    def h(f):
+        w = 2 * math.pi * f
+        zs = 0.05 + 0.01 + 1j * w * 4.7e-6
+        zc = 0.05 + 1 / (1j * w * 220e-6)
+        zp = 1 / (1 / zc + 1 / 15)
+        return abs(zp / (zs + zp))
+
+    def f_at(tt):
+        return fmin * (fmax / fmin) ** (tt / tsw)
+    for key, a, b, what in (("vf_lo", 0.02, 0.03, "below resonance"), ("vf_res", 0.14, 0.155, "at the LC resonance"),
+                            ("vf_hi", 0.195, 0.2, "above resonance")):
+        ref = 2 * max(h(f_at(a + (b - a) * i / 200)) for i in range(201))
+        check(t, f"filter output ripple {what}", m(t, key), 0.95 * ref, 1.05 * ref, "V p-p",
+              f"2 V x max |H| = {ref:.2f}")
+    t = "tp04_lv148_e48_02_pdn"
+    check(t, "58 V TVS: current = (70 V - V_bus)/20 mOhm", m(t, "itvs_av", 0) / ((70 - m(t, "vtvs_av", 0)) / 0.02),
+          0.97, 1.03, "", "KVL, generator 10 mOhm + feed 10 mOhm")
+    check(t, "58 V TVS: energy during E48-02", m(t, "e_tvs", 0) / (m(t, "vtvs_av", 0) * m(t, "itvs_av", 0) * 41e-3),
+          0.95, 1.05, "", "V x I x (40 ms + edges)")
+    check(t, "58 V TVS: energy (absolute)", m(t, "e_tvs", 0), 50, 200, "J", "far beyond a TVS's rating")
+    check(t, "no TVS: bus at the generator level", m(t, "vbus_pk", 1), 69.5, 70.5, "V", "70 V (VNF1048F limit)")
+    check(t, "default DC/DC (OVP 60 V) stops during the pulse", vmax([m(t, "run_min", 0), m(t, "run_min", 1)]),
+          -0.01, 0.01, "", "E48-02 requires full function")
+    check(t, "DC/DC with OVP 75 V keeps running", m(t, "run_min", 2), 0.99, 1.01, "", "passes E48-02")
+    check(t, "DC/DC restarts after the pulse", vmin([m(t, "run_end", k) for k in range(3)]), 0.99, 1.01, "",
+          "OVP hysteresis")
+    check(t, "OVP 60 V: the 12 V battery carries the load", m(t, "ib12_on", 1), 9.8, 10.3, "A", "12.6 V / 1.25 Ohm")
+    check(t, "no eFuse fault (all cases)", vmax([m(t, "fltmax", k) for k in range(3)]), -0.01, 0.01, "",
+          "no VS over-voltage shutdown")
+    t = "tp05_loaddump_12v_tvs"
+
+    def tvs_energy(usc, bv, n_=1.5, ibv=1e-3, rs=0.02, ri=0.505, rl=13.5, vt=0.025865):
+        """Static solution: generator (V_oc, RI) || TVS (breakdown, Rs) || R_load, integrated."""
+        e, dt = 0.0, 1e-4
+        for i in range(int(1 / dt)):
+            voc = 13.5 + 87.5 * tp_g(i * dt - 10e-3, 10e-3, 400e-3)
+            if usc > 0:
+                voc = min(voc, usc)
+            lo, hi = 0.0, voc / ri            # TVS current by bisection
+            for _ in range(60):
+                it = (lo + hi) / 2
+                v = (bv + n_ * vt * math.log(it / ibv) + rs * it) if it > ibv else bv * it / ibv
+                lo, hi = (it, hi) if (voc - v) / ri - v / rl > it else (lo, it)
+            e += v * it * dt
+        return e
+    e0, e1 = tvs_energy(0, 27), tvs_energy(35, 27)
+    check(t, "test A, 27 V TVS: energy", m(t, "e_tvs", 0), 0.95 * e0, 1.05 * e0, "J", f"static solution {e0:.0f} J")
+    check(t, "test B, 27 V TVS: energy", m(t, "e_tvs", 1), 0.95 * e1, 1.05 * e1, "J", f"static solution {e1:.0f} J")
+    check(t, "test B, 38 V TVS: ECU input", m(t, "vecu_pk", 2), 0.995 * 35 * 13.5 / 14.005, 1.005 * 35 * 13.5 / 14.005,
+          "V", "35 V x R_load/(R_load + RI)")
+    check(t, "test B, 38 V TVS: no TVS current", m(t, "itvs_pk", 2), 0, 1e-3, "A", "BV above US*")
+
+
 def reference():
     """Reference parameter sets (models/REFERENCE_SETS_beh.lib) against public product data."""
     t = "ref01_reference_sets"
@@ -789,11 +1054,13 @@ def reference():
           "RD210: input 24 .. 54 V")
 
 
-GROUPS = {"efuse": efuse, "battery": battery, "dcdc": dcdc, "reference": reference, "schematics": schematics}
+GROUPS = {"efuse": efuse, "battery": battery, "dcdc": dcdc, "harness": harness, "pulses": pulses, "reference": reference,
+          "schematics": schematics}
 
 
 TITLES = {"efuse": "eFuse (VNF1048F, EFUSE48_MOD)", "battery": "Battery and battery pack (BATTERY, BATTERY_BMS)",
-          "dcdc": "DC/DC converter (DCDC48_12)", "reference": "Reference parameter sets (public product data)",
+          "dcdc": "DC/DC converter (DCDC48_12)", "harness": "Wiring harness (WIRE)",
+          "pulses": "Test pulses (ISO 16750-2, ISO 7637-2, LV 148)", "reference": "Reference parameter sets (public product data)",
           "schematics": "Schematics"}
 
 
