@@ -1,0 +1,110 @@
+* ============================================================================
+*  FAULTS_beh.lib  --  Fault-injection primitives for FMEA simulation
+*
+*  Status    : behavioural fault elements for the power-distribution models.
+*              Every element belongs to one or more fault scenarios (ID, ID2,
+*              ID3) and is active only when the global scenario number FID
+*              equals one of them; FID = 0 is the fault-free (golden) run.
+*              Step the scenario number to run a whole FMEA in one netlist:
+*                  .param FID=0
+*                  X1 a 0 FI_SHORT ID=3 FID={FID} RF=5m TF=30m
+*                  .step param FID list 0 1 2 3
+*              A scenario that combines two faults (dual-point) gives both
+*              elements the same ID (or lists it as ID2 / ID3).
+*  Simulator : LTspice (validated with LTspice 26.0.2; B-sources of time, no
+*              state, no idt())
+*
+*  Contents
+*    FI_SHORT   A B      short / leakage between two nodes (RF)
+*    FI_SERIES  A B      series element: intact (R0) -> open or degraded (RF)
+*    FI_STUCK   IN OUT GND  a logic signal stuck at LEVEL
+*    FI_OFFSET  A B      series voltage offset VOFF (e.g. a ground offset)
+*    FI_X       X GND    helper: fault level x(t) = 0 .. 1 of the scenario
+*
+*  Timing (all elements): the fault starts at TF and develops in TTR
+*  (linear in x). TDUR > 0: it disappears again TDUR after TF (transient
+*  fault). TPER > 0: intermittent, present for DUTY*TPER in every TPER from
+*  TF (e.g. a chafing wire, a loose contact). Faults start at t > 0: a fault
+*  present in the DC operating point can leave the protections without a
+*  consistent DC solution (README, numerical guidance).
+*
+*  Inert when inactive: an element whose scenario is not selected draws no
+*  current (FI_SHORT, FI_OFFSET: exactly 0) or is a 1 uOhm resistor
+*  (FI_SERIES, R0), so the golden run is the fault-free circuit. The
+*  activation is a constant factor (ACT) in front of every source, so an
+*  inactive element has zero derivatives too and does not couple into the
+*  Jacobian.
+* ============================================================================
+
+
+* ----------------------------------------------------------------------------
+*  FI_X -- fault level x(t) of the scenario, 0 (no fault) .. 1 (full fault),
+*  as a voltage on X (ref. to GND); 0 V when the scenario is not selected.
+* ----------------------------------------------------------------------------
+.subckt FI_X X GND ID=1 ID2=0 ID3=0 FID=0 TF=10m TTR=1u TDUR=0 TPER=0 DUTY=0.5
+.param ACT = {(ID>0 & abs(FID-ID)<0.5) | (ID2>0 & abs(FID-ID2)<0.5) | (ID3>0 & abs(FID-ID3)<0.5)}
+.param TW  = {if(TPER>0, DUTY*TPER, if(TDUR>0, TDUR, 1e9))}
+.param TP  = {if(TPER>0, TPER, 1e10)}
+*  phase within the current period (one period when TPER = 0)
+Bph ph GND V=if(time<{TF}, -1, time-{TF} - floor((time-{TF})/{TP})*{TP})
+Bx X GND V={ACT}*if(V(ph,GND)<0, 0,
++  limit(V(ph,GND)/{TTR}, 0, 1) - limit((V(ph,GND)-{TW})/{TTR}, 0, 1))
+Rph ph GND 1G
+Rx X GND 1G
+*  time-step breakpoints at the fault edges (none when the scenario is not
+*  selected: an inactive element must not change the golden run)
+Vb b GND PULSE(0 1n {if(ACT, TF, 1e9)} {TTR} {TTR} {max(TW-TTR, TTR)} {TP})
+Rb b GND 1G
+.ends FI_X
+
+
+* ----------------------------------------------------------------------------
+*  FI_SHORT -- conductance x/RF between A and B (a short or a leakage path:
+*  RF = fault resistance, e.g. 5m for a hard short, 1.5 for an overload)
+* ----------------------------------------------------------------------------
+.subckt FI_SHORT A B ID=1 ID2=0 ID3=0 FID=0 TF=10m TTR=1u TDUR=0 TPER=0 DUTY=0.5 RF=5m
+Xx x 0 FI_X ID={ID} ID2={ID2} ID3={ID3} FID={FID} TF={TF} TTR={TTR} TDUR={TDUR} TPER={TPER}
++ DUTY={DUTY}
+.param ACT = {(ID>0 & abs(FID-ID)<0.5) | (ID2>0 & abs(FID-ID2)<0.5) | (ID3>0 & abs(FID-ID3)<0.5)}
+Bs A B I={ACT/RF}*V(A,B)*V(x)
+.ends FI_SHORT
+
+
+* ----------------------------------------------------------------------------
+*  FI_SERIES -- series element, R = R0 + x*(RF - R0): intact (R0 = 1 uOhm)
+*  -> open (RF = 1 MOhm, default) or degraded (e.g. RF = 0.2 Ohm with a slow
+*  TTR: a corroding connector). Insert it into the branch to be opened.
+* ----------------------------------------------------------------------------
+.subckt FI_SERIES A B ID=1 ID2=0 ID3=0 FID=0 TF=10m TTR=1u TDUR=0 TPER=0 DUTY=0.5 R0=1u RF=1Meg
+Xx x 0 FI_X ID={ID} ID2={ID2} ID3={ID3} FID={FID} TF={TF} TTR={TTR} TDUR={TDUR} TPER={TPER}
++ DUTY={DUTY}
+.param ACT = {(ID>0 & abs(FID-ID)<0.5) | (ID2>0 & abs(FID-ID2)<0.5) | (ID3>0 & abs(FID-ID3)<0.5)}
+Bs A B I=V(A,B)/({R0} + {ACT*(RF-R0)}*V(x))
+.ends FI_SERIES
+
+
+* ----------------------------------------------------------------------------
+*  FI_STUCK -- passes the logic signal IN to OUT (through 10 Ohm) and holds
+*  it at LEVEL while the fault is present (an MCU output stuck high or low,
+*  a shorted enable line). Insert it between the driver and the pin.
+* ----------------------------------------------------------------------------
+.subckt FI_STUCK IN OUT GND ID=1 ID2=0 ID3=0 FID=0 TF=10m TTR=1u TDUR=0 TPER=0 DUTY=0.5 LEVEL=0
+Xx x GND FI_X ID={ID} ID2={ID2} ID3={ID3} FID={FID} TF={TF} TTR={TTR} TDUR={TDUR} TPER={TPER}
++ DUTY={DUTY}
+.param ACT = {(ID>0 & abs(FID-ID)<0.5) | (ID2>0 & abs(FID-ID2)<0.5) | (ID3>0 & abs(FID-ID3)<0.5)}
+Bo o GND V=V(IN,GND) + {ACT}*V(x,GND)*({LEVEL} - V(IN,GND))
+Ro o OUT 10
+Rin IN GND 10Meg
+.ends FI_STUCK
+
+
+* ----------------------------------------------------------------------------
+*  FI_OFFSET -- series voltage V(A,B) = x*VOFF (ideal source): a ground
+*  offset, or a supply that drops by VOFF
+* ----------------------------------------------------------------------------
+.subckt FI_OFFSET A B ID=1 ID2=0 ID3=0 FID=0 TF=10m TTR=1u TDUR=0 TPER=0 DUTY=0.5 VOFF=1
+Xx x 0 FI_X ID={ID} ID2={ID2} ID3={ID3} FID={FID} TF={TF} TTR={TTR} TDUR={TDUR} TPER={TPER}
++ DUTY={DUTY}
+.param ACT = {(ID>0 & abs(FID-ID)<0.5) | (ID2>0 & abs(FID-ID2)<0.5) | (ID3>0 & abs(FID-ID3)<0.5)}
+Bo A B V={ACT*VOFF}*V(x)
+.ends FI_OFFSET

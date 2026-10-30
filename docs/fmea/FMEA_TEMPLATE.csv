@@ -1,0 +1,2 @@
+FID,Item,Function,Failure mode,Failure cause,Injection,Expected effect,S,Expected detection,Max detection time [ms],Expected safe state,Criteria
+1,<item>,<function of the item>,<failure mode>,<failure cause>,<fault element and parameters>,<expected effect on the system>,<1-10>,"<DIAG1, DIAG2, FLTB, PG or none>",<ms>,<expected safe state>,<expression; expression>

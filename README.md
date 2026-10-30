@@ -12,10 +12,11 @@ symbols and validated test benches; all of them are documented in this README:
 | Parameter sets of real products (Varta AGM, A123 48 V pack, Toshiba 3 kW DC/DC) | `models/REFERENCE_SETS_beh.lib` | [2.11](#211-reference-parameter-sets-from-public-data), [3.9](#39-reference-parameter-set-from-public-data) | ref01–ref02 |
 | Wire / harness segment: R(T), L, contact resistance, self-heating | `models/HARNESS_beh.lib` | [4](#4-wiring-harness-model) | wh01–wh04 |
 | Supply test pulses: ISO 16750-2, ISO 7637-2, LV 148 (sources) | `models/PULSES_beh.lib` | [5](#5-automotive-test-pulses-iso-16750-2-iso-7637-2-lv-148) | tp01–tp05 |
+| Fault injection for FMEA simulation (elements, device hooks, FMEA tables) | `models/FAULTS_beh.lib` | [6](#6-fault-injection-and-fmea-simulation) | fi01, fm01 |
 
 The models share conventions (B-source logic, `[EST]` flags for estimated
 values, `0 = default` parameters) and one regression: `tools/validate.py`
-runs <!--v {m('summary','checks_total'):.0f}-->371<!--/v--> checks of <!--v {m('summary','benches'):.0f}-->66<!--/v--> simulations against datasheets, model
+runs <!--v {m('summary','checks_total'):.0f}-->426<!--/v--> checks of <!--v {m('summary','benches'):.0f}-->68<!--/v--> simulations against datasheets, model
 equations, hand calculations and public product data (validated with LTspice
 26.0.2). The system benches that combine the devices are
 [bat07](#bat07-48-v-pdu-fed-by-the-pack-selectivity-and-load-dump-bat07_pdn_48vcir)
@@ -78,7 +79,8 @@ changelog), then one numbered part per device, then the references.
 3. [DC/DC converter model (48 V to 12 V, 700 W)](#3-dcdc-converter-model-48-v-to-12-v-700-w): 3.1 to 3.9, listed at the start of the section
 4. [Wiring harness model](#4-wiring-harness-model): listed at the start of the section
 5. [Automotive test pulses (ISO 16750-2, ISO 7637-2, LV 148)](#5-automotive-test-pulses-iso-16750-2-iso-7637-2-lv-148): listed at the start of the section
-6. [References](#6-references)
+6. [Fault injection and FMEA simulation](#6-fault-injection-and-fmea-simulation): listed at the start of the section
+7. [References](#7-references)
 
 ---
 
@@ -353,7 +355,8 @@ efuse/
 │   ├── DCDC48_12_beh.lib         700 W 48/12 V DC/DC model library (DCDC48_12), section 3
 │   ├── REFERENCE_SETS_beh.lib    parameter sets fitted to public product data, sections 2.11 / 3.9
 │   ├── HARNESS_beh.lib           wire / harness segment (WIRE): R(T), L, self-heating, part 4
-│   └── PULSES_beh.lib            ISO 16750-2 / ISO 7637-2 / LV 148 test-pulse sources, part 5
+│   ├── PULSES_beh.lib            ISO 16750-2 / ISO 7637-2 / LV 148 test-pulse sources, part 5
+│   └── FAULTS_beh.lib            fault-injection elements for FMEA simulation, part 6
 ├── symbols/                      LTspice symbols (canonical copy)
 │   ├── VNF1048F.asy              14-pin controller
 │   ├── EFUSE48_MOD.asy           9-pin complete eFuse channel
@@ -371,12 +374,14 @@ efuse/
 │   └── demo_dcdc.asc             48 V feed -> DC/DC -> 12 V battery + switched load
 ├── testbenches/                  tb01..tb36 (eFuse, section 1.10), bat01..bat07 (battery, 2.8),
 │                                 dc01..dc08 (DC/DC, 3.6), ref01..ref02 (reference sets),
-│                                 wh01..wh04 (harness, 4.7), tp01..tp05 (test pulses, 5.5)
+│                                 wh01..wh04 (harness, 4.7), tp01..tp05 (test pulses, 5.5),
+│                                 fi01, fm01 (fault injection, 6.2 / 6.5)
 ├── interview/
 │   └── pdn_48v_12v_interview_guide.md      48 V / 12 V power distribution question bank, a simulation per question
 ├── docs/
 │   ├── img/                      result plots (generated)
 │   ├── VALIDATION.md             pass/fail report vs datasheet and hand calculations (generated)
+│   ├── fmea/                     FMEA tables (CSV, template) and effects reports (generated .md)
 │   └── results.json              all .meas results of the last full run (generated, used by CI)
 └── tools/
     ├── run_ltspice.sh            batch runner (native LTspice or macOS CrossOver build)
@@ -384,6 +389,7 @@ efuse/
     ├── plot_results.py           regenerates docs/img/*.png
     ├── validate.py               checks the results and their integrity, regenerates docs/VALIDATION.md
     ├── lint_models.py            static checks: subckt/symbol pins, instance nodes and parameters, includes
+    ├── fmea.py, fmea_report.py   FMEA tables -> checks and docs/fmea/<bench>.md
     ├── sync_docs.py              keeps the simulated numbers quoted in the docs up to date
     ├── make_symbols.py           regenerates the .asy symbols
     ├── make_schematics.py        regenerates the demo .asc schematics
@@ -396,15 +402,16 @@ efuse/
 
 ```bash
 pip install -r requirements.txt                                 # once
-tools/run_ltspice.sh -j 6 testbenches/*.cir schematics/*.asc   # all <!--v {m('summary','benches'):.0f}-->66<!--/v--> simulations, ~2 min with 6 jobs
+tools/run_ltspice.sh -j 6 testbenches/*.cir schematics/*.asc   # all <!--v {m('summary','benches'):.0f}-->68<!--/v--> simulations, ~2 min with 6 jobs
 python3 tools/validate.py --export docs/results.json           # checks -> docs/VALIDATION.md, stores the results
 python3 tools/sync_docs.py                                     # updates the numbers quoted in the docs
 python3 tools/plot_results.py                                  # -> docs/img/*.png
+python3 tools/fmea_report.py                                   # -> docs/fmea/<bench>.md
 python3 tools/lint_models.py                                   # static checks, no simulation
 ```
 
-* **Checks.** `validate.py` runs <!--v {m('summary','checks_total'):.0f}-->371<!--/v--> checks against datasheets, model equations,
-  hand calculations and public product data, in seven groups:
+* **Checks.** `validate.py` runs <!--v {m('summary','checks_total'):.0f}-->426<!--/v--> checks against datasheets, model equations,
+  hand calculations and public product data, in eight groups:
 
   | Group | Checks |
   |---|---|
@@ -415,6 +422,7 @@ python3 tools/lint_models.py                                   # static checks, 
   | `reference` (ref01–ref02) | <!--v {m('summary','checks_reference'):.0f}-->7<!--/v--> |
   | `schematics` | <!--v {m('summary','checks_schematics'):.0f}-->7<!--/v--> |
   | `pulses` (tp01–tp05) | <!--v {m('summary','checks_pulses'):.0f}-->45<!--/v--> |
+  | `fmea` (fi01, fm01 vs `docs/fmea/*.csv`) | <!--v {m('summary','checks_fmea'):.0f}-->55<!--/v--> |
 
   `python3 tools/validate.py battery dcdc` checks only the groups you name, for
   example after re-running only those benches. `docs/VALIDATION.md` is
@@ -525,6 +533,9 @@ per-device sections [1.11](#111-assumptions-estimates-and-limitations),
   high temperature: thermal runaway above ~2.5 × the rating), free-air
   ratings as defaults, no skin effect; `.tran` and `.ac`. See
   [4.8](#48-assumptions-estimates-and-limitations).
+* **Fault injection.** Electrical faults at the models' level of detail;
+  detection only by the modeled hardware diagnostics; nominal values. See
+  [6.6](#66-limits).
 * **Test pulses.** Shapes of the standards with an ideal source resistance;
   levels from public summaries, [CHECK] where unconfirmed; no generator
   tolerances. See [5.6](#56-limitations-and-numerical-notes).
@@ -588,6 +599,15 @@ Follow the pattern of the battery and DC/DC models:
 
 Changes that alter simulation results are marked **(results)**.
 
+* **2026-10-30, fault injection for FMEA simulation.** `models/FAULTS_beh.lib`
+  (FI_SHORT, FI_SERIES, FI_STUCK, FI_OFFSET), fault hooks in `EFUSE48_MOD`
+  (FET stuck-on / stuck-off) and `BATTERY_BMS` (welded switch, spurious trip),
+  inactive by default. They draw no current, but the larger netlist changes
+  LTspice's time steps: time-step-sensitive results move by up to ~1 %
+  (e.g. the tb13 hand-over current 41.4 → 41.2 A), no check changes;
+  FMEA table format and template, `tools/fmea.py`, `tools/fmea_report.py`,
+  group `fmea`; benches fi01 (elements) and fm01 (13 faults on the 48 V /
+  12 V system). Interview question G4.
 * **2026-10-30, new devices: wiring harness and test pulses.**
   * `models/HARNESS_beh.lib` (`WIRE`): R(T) with ISO 6722 conductor
     resistances, loop inductance, contact resistance, conductor temperature
@@ -3280,7 +3300,7 @@ disconnect.
 | Quantity | tb10 (ideal 48 V / 20 mΩ) | bat07 (pack model, SOC 80 %) |
 |---|---|---|
 | CH2 isolation time | <!--v {m('tb10_zonal_system','dt_trip2')*1e6:.2f}-->9.09<!--/v--> µs | <!--v {m('bat07_pdn_48v','dt_trip2')*1e6:.2f}-->8.96<!--/v--> µs |
-| CH2 peak current | <!--v {m('tb10_zonal_system','ipk2'):.0f}-->320<!--/v--> A | <!--v {m('bat07_pdn_48v','ipk2'):.0f}-->328<!--/v--> A |
+| CH2 peak current | <!--v {m('tb10_zonal_system','ipk2'):.0f}-->320<!--/v--> A | <!--v {m('bat07_pdn_48v','ipk2'):.0f}-->327<!--/v--> A |
 | bus minimum during the short | <!--v {m('tb10_zonal_system','vbus_min'):.1f}-->33.6<!--/v--> V | <!--v {m('bat07_pdn_48v','vbus_min'):.1f}-->34.1<!--/v--> V |
 | DC/DC input minimum / stays enabled | <!--v {m('tb10_zonal_system','vdc_min'):.1f}-->42.3<!--/v--> V / yes | <!--v {m('bat07_pdn_48v','vdc_min'):.1f}-->43.2<!--/v--> V / yes |
 | pack current peak during the short / BMS trip | – | <!--v {m('bat07_pdn_48v','ibat_pk'):.0f}-->83<!--/v--> A / no |
@@ -4493,7 +4513,7 @@ definition of the standard, applied through the generator's internal
 resistance `RI`.
 
 > **Standards.** The levels come from public summaries of the standards (see
-> [References](#6-references)); the standards themselves are not public.
+> [References](#7-references)); the standards themselves are not public.
 > Values that no public source confirmed are flagged **[CHECK]** in the
 > library. ISO 16750-2 was revised in 2023 (for example, the superimposed AC
 > test now extends to 200 kHz), and VDA 320 / LV 148 are being replaced by
@@ -4706,7 +4726,178 @@ breakdown above US*, then the ECU only has to withstand 35 V.
 
 ---
 
-## 6. References
+## 6. Fault injection and FMEA simulation
+
+A system FMEA lists, for every item, its failure modes, their effects, how
+each is detected and what the safe state is. The simulation can put numbers
+on those columns for the electrical faults: does the eFuse, the BMS or the
+DC/DC react, how fast, how high do the voltages and currents go before it
+does, and where does the system end up. `models/FAULTS_beh.lib` provides the
+fault elements, the device models have built-in fault hooks for the failures
+inside them, and an FMEA table (CSV) states what each scenario should do;
+`tools/validate.py` checks it and `tools/fmea_report.py` writes the effects
+report.
+
+* [6.1 How it works: one netlist, one scenario per FMEA row](#61-how-it-works-one-netlist-one-scenario-per-fmea-row)
+* [6.2 Fault elements](#62-fault-elements)
+* [6.3 Fault hooks in the device models](#63-fault-hooks-in-the-device-models)
+* [6.4 The FMEA table](#64-the-fmea-table)
+* [6.5 Demo: the 48 V / 12 V system (fm01)](#65-demo-the-48-v--12-v-system-fm01)
+* [6.6 Limits](#66-limits)
+
+### 6.1 How it works: one netlist, one scenario per FMEA row
+
+Every fault element carries the number of the scenario it belongs to (`ID`,
+and `ID2`, `ID3` for elements shared by several scenarios). A global
+parameter `FID` selects the scenario, and `.step param FID` runs them all in
+one simulation; `FID = 0` is the fault-free (golden) run:
+
+```spice
+.include ../models/FAULTS_beh.lib
+.param FID=0
+.param TF=30m
+Xsc1 m2 0 FI_SHORT ID=1 FID={FID} TF={TF} RF=5m      ; harness short, scenario 1
+Xcon d1 dcin FI_SERIES ID=5 FID={FID} TF={TF}        ; open connector, scenario 5
+X2 bus o2 0 en2 0 0 diag2 cs2 tfet2 EFUSE48_MOD ... FI_ID=3 FI_MODE=1 FID={FID} FI_T={TF}
+.step param FID 0 13 1
+```
+
+* **Same topology in every scenario.** Inactive elements are inert: the
+  sources are multiplied by a constant activation factor, so an inactive
+  element draws no current and has zero derivatives (it does not couple into
+  the Jacobian), and FI_SERIES is a 1 µΩ resistor. The golden run is the
+  fault-free circuit.
+* **Dual-point faults** (a latent fault plus a second one) give both elements
+  the same scenario number: in fm01, scenario 3 is a shorted FET (latent)
+  plus a harness short.
+* **Faults start at TF > 0,** after the start-up. A fault present in the DC
+  operating point can leave the protections without a consistent DC solution.
+* **The detections are `.meas`** of the first reaction after the fault:
+  `t_diag1`, `t_diag2` (eFuse DIAG low), `t_fltb` (BMS FLT high), `t_pg`
+  (DC/DC power-good low). Stresses and end states are `.meas` as well.
+
+### 6.2 Fault elements
+
+| Element | Pins | Fault | Parameters (besides `ID`, `ID2`, `ID3`, `FID`, `TF`, `TTR`, `TDUR`, `TPER`, `DUTY`) |
+|---|---|---|---|
+| `FI_SHORT` | A B | short or leakage: conductance x/RF | `RF` 5 mΩ |
+| `FI_SERIES` | A B | series element R0 → RF: open (1 MΩ) or degraded contact | `R0` 1 µΩ, `RF` 1 MΩ |
+| `FI_STUCK` | IN OUT GND | logic signal stuck at LEVEL (insert between driver and pin) | `LEVEL` 0 |
+| `FI_OFFSET` | A B | series voltage offset (ground offset) | `VOFF` 1 V |
+
+The fault level x(t) rises from 0 to 1 in `TTR` (1 µs) at `TF`. `TDUR` > 0
+makes the fault transient (gone after `TDUR`), `TPER` > 0 intermittent
+(present for `DUTY`·`TPER` in every `TPER`: a chafing wire, a loose contact).
+A slow `TTR` with a small `RF` is a degradation (fm01 scenario 6: a
+connector corroding to 0.25 Ω in 5 ms). fi01 checks every element against
+its definition, including that it does nothing in the other scenarios
+(<!--v {m('summary','checks_fmea'):.0f}-->55<!--/v--> checks in the `fmea` group, fi01 and fm01 together).
+
+![fi01](docs/img/fi01_fault_primitives.png)
+
+### 6.3 Fault hooks in the device models
+
+Failures inside a model that no netlist element can reach have built-in hooks,
+inactive by default (`FI_ID=0`); the models need nothing else included.
+
+| Model | Parameters | Modes |
+|---|---|---|
+| `EFUSE48_MOD` | `FI_ID`, `FI_ID2`, `FID`, `FI_MODE`, `FI_MODE2`, `FI_T`, `FI_TTR`, `FI_R` | 1: FET drain-source short (stuck-on), 2: FET gate-source short (stuck-off), both with `FI_R` |
+| `BATTERY_BMS` | `FI_ID`, `FI_ID2`, `FID`, `FI_MODE`, `FI_MODE2`, `FI_T`, `FI_TTR` | 1: disconnect switch welded (stays closed whatever the BMS commands), 2: spurious trip |
+
+`FI_MODE` applies to scenario `FI_ID`, `FI_MODE2` to `FI_ID2`, so one
+instance can fail in two ways in two scenarios (fm01: the pack trips
+spuriously in 12 and has a welded switch in 13). Faults of the DC/DC (a
+failed high-side switch) and of the harness are netlist elements
+(`FI_SHORT` from VIN to VOUT, `FI_SERIES` in a wire).
+
+Numerical note: the hooks have no time-step breakpoint source. Even inactive,
+an extra independent source inside the BMS made dc08 run five times slower
+(the netlist sensitivity of the numerical guidance); the bench's maximum
+time step resolves the onset instead.
+
+### 6.4 The FMEA table
+
+There was no template to follow, so the table follows the structure of the
+AIAG & VDA FMEA (item, function, failure mode, cause, effect, severity) and
+adds the columns the simulation needs. A blank one is
+[`docs/fmea/FMEA_TEMPLATE.csv`](docs/fmea/FMEA_TEMPLATE.csv); a table named
+after a bench (`docs/fmea/<bench>.csv`) is checked automatically.
+
+| Column | Content |
+|---|---|
+| `FID` | scenario number in the bench (0 = golden run) |
+| `Item`, `Function`, `Failure mode`, `Failure cause` | as in the FMEA |
+| `Injection` | the fault element(s) and parameters (documentation) |
+| `Expected effect`, `S` | effect on the system and its severity (1–10) |
+| `Expected detection` | mechanisms that must react: `DIAG1`, `DIAG2`, `FLTB`, `PG`, or `none` (undetected, as expected) |
+| `Max detection time [ms]` | each listed mechanism must react within this time after the fault |
+| `Expected safe state` | where the system must end up |
+| `Criteria` | conditions on the bench's `.meas` (SI units) that make the effect and the safe state numeric, e.g. `v12_max < 16; ipack_end < 1` |
+
+`tools/validate.py` (group `fmea`) turns every row into checks: one for the
+detection, one per criterion. `tools/fmea_report.py` writes
+[`docs/fmea/<bench>.md`](docs/fmea/fm01_pdn_fmea.md) with the simulated
+detection times next to the expectations; CI checks that it matches the
+stored results. The occurrence and detection ratings of the FMEA stay
+engineering judgement: the simulation answers *whether and how fast* a fault
+is detected and *what it does*, not how often it happens.
+
+### 6.5 Demo: the 48 V / 12 V system (fm01)
+
+**What we simulate.** The dc08 system (48 V pack with BMS → eFuse CH1 → DC/DC
+→ 12 V battery, 10 A and 100 µF; eFuse CH2 → motor) with 13 faults, each
+injected at 30 ms. The table is
+[`docs/fmea/fm01_pdn_fmea.csv`](docs/fmea/fm01_pdn_fmea.csv), the full
+effects report [`docs/fmea/fm01_pdn_fmea.md`](docs/fmea/fm01_pdn_fmea.md).
+
+| FID | Failure | Detected by (delay) | Key result |
+|---|---|---|---|
+| 1 | CH2 harness hard short | DIAG2 (<!--v {(m('fm01_pdn_fmea','t_diag2',1)-30e-3)*1e6:.1f}-->9.2<!--/v--> µs) | bus dips to <!--v {m('fm01_pdn_fmea','vbus_min',1):.0f}-->34<!--/v--> V, 12 V unaffected |
+| 2 | CH2 resistive short (overload) | DIAG2 (<!--v {(m('fm01_pdn_fmea','t_diag2',2)-30e-3)*1e3:.1f}-->15.7<!--/v--> ms, I²t) | CH2 off |
+| 3 | CH2 FET shorted (latent) + harness short | DIAG2 (<!--v {(m('fm01_pdn_fmea','t_diag2',3)-30e-3)*1e6:.0f}-->9<!--/v--> µs), FLTB (<!--v {(m('fm01_pdn_fmea','t_fltb',3)-30e-3)*1e6:.0f}-->318<!--/v--> µs) | CH2 cannot open; the pack clears it at <!--v {m('fm01_pdn_fmea','ipack_pk',3):.0f}-->1083<!--/v--> A: whole 48 V net lost |
+| 4 | CH1 FET stuck off (gate-source short) | DIAG1 (<!--v {(m('fm01_pdn_fmea','t_diag1',4)-30e-3)*1e6:.0f}-->16<!--/v--> µs, VGS_LOW), PG | 12 V net on the battery |
+| 5 | CH1 connector open | PG only (<!--v {(m('fm01_pdn_fmea','t_pg',5)-30e-3)*1e6:.0f}-->535<!--/v--> µs) | the eFuse sees an open load: no diagnosis |
+| 6 | CH1 connector degraded to 0.25 Ω | **none** | **<!--v {m('fm01_pdn_fmea','p_con',6):.0f}-->69<!--/v--> W in the contact** |
+| 7 | DC/DC high-side switch short | DIAG1 (<!--v {(m('fm01_pdn_fmea','t_diag1',7)-30e-3)*1e6:.0f}-->14<!--/v--> µs), PG | 12 V peak <!--v {m('fm01_pdn_fmea','v12_max',7):.1f}-->14.3<!--/v--> V (the battery clamps) |
+| 8 | 48 V wire chafed onto the 12 V net | DIAG2 (<!--v {(m('fm01_pdn_fmea','t_diag2',8)-30e-3)*1e6:.0f}-->15<!--/v--> µs) | **12 V net at <!--v {m('fm01_pdn_fmea','v12_max',8):.1f}-->25.7<!--/v--> V** before CH2 opens |
+| 9 | 12 V battery terminal open | none | DC/DC alone: peak <!--v {m('fm01_pdn_fmea','v12_max',9):.1f}-->15.2<!--/v--> V, then <!--v {m('fm01_pdn_fmea','v12_end',9):.1f}-->14.0<!--/v--> V |
+| 10 | 12 V battery ground strap degraded | none | 12 V net up to <!--v {m('fm01_pdn_fmea','v12_max',10):.2f}-->14.05<!--/v--> V |
+| 11 | CH2 enable stuck high | none | motor still on (<!--v {m('fm01_pdn_fmea','ich2_end',11):.1f}-->12.7<!--/v--> A) after the switch-off command |
+| 12 | BMS spurious trip | FLTB, PG | 48 V net off, 12 V on the battery |
+| 13 | BMS switch welded (latent) + 48 V bus short | FLTB (<!--v {(m('fm01_pdn_fmea','t_fltb',13)-30e-3)*1e6:.0f}-->202<!--/v--> µs) | **no safe state: <!--v {m('fm01_pdn_fmea','ipack_end',13):.0f}-->1386<!--/v--> A keep flowing** |
+
+![fm01](docs/img/fm01_pdn_fmea.png)
+
+**What it shows.** The single faults on the harness and on CH1 are detected
+in microseconds, but three rows are undetected by hardware (6, 9–11), and
+two of them deserve attention: a degrading connector dissipates tens of
+watts with an unchanged current, which only a temperature or voltage-drop
+plausibility check could see, and a stuck enable needs a firmware
+plausibility check (current while commanded off, as in tb35). The dual-point
+rows show why latent faults matter: a shorted FET turns a channel short into
+a loss of the whole 48 V net (row 3), and a welded pack switch leaves a bus
+short without any protection (row 13); both need periodic tests of the
+switch that would have opened. Row 8 puts 25 V on the 12 V loads for tens
+of µs before CH2 opens: what the 12 V ECUs have to withstand (A6, C7).
+
+### 6.6 Limits
+
+* **Electrical faults only,** in the models' level of detail: a short, an
+  open, a contact degradation, a stuck signal, the hooked device faults.
+  Thermal runaway, arcing, mechanical failures are not modeled; their
+  electrical consequence can be injected.
+* **Detection is what the hardware models show** (eFuse latches and DIAG, BMS
+  FLT, DC/DC PG). Firmware diagnostics need behavioural blocks in the bench
+  (as the pre-charge supervisor of tb14).
+* **Typical values.** One run per scenario with nominal parameters; worst
+  cases need corners (`.step` over a second parameter).
+* **Not evidence on its own** for ISO 26262: it supports the FMEA's effect
+  and detection reasoning and points to what to test.
+
+---
+
+## 7. References
 
 * STMicroelectronics, *VNF1048F – High-side switch controller with intelligent
   fuse protection for 12 V, 24 V and 48 V automotive applications*, datasheet

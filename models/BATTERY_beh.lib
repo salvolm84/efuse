@@ -16,8 +16,8 @@
 *    BATTERY_BMS   battery pack with BMS: BATTERY + disconnect switch,
 *                  protections (OV, UV, overcurrent, short circuit),
 *                  pre-charge, enable input and fault output                 5 pins
-*    BAT_LATCH / BAT_DGL / BAT_DGLR  helper primitives (SR latch, deglitch
-*                  filter, restartable timer)
+*    BAT_LATCH / BAT_DGL / BAT_DGLR / BAT_FIX  helper primitives (SR latch,
+*                  deglitch filter, restartable timer, fault-hook level)
 *
 *  What is modeled (and why it matters at system level)
 *    * open-circuit voltage as a function of state of charge (bus voltage
@@ -207,6 +207,9 @@ Lb  n5 P {LB} Rser=1n Rpar=100
 *  restarts the pre-charge timer. With EN high already at t = 0 the pack
 *  starts connected (bus assumed charged).
 *  Re-arm: EN low clears the fault latch; the next EN rising edge re-closes.
+*  FI_ID, FI_ID2, FID, FI_MODE (for FI_ID), FI_MODE2 (for FI_ID2), FI_T,
+*  FI_TTR: built-in fault hook for FMEA
+*  simulation (README part 6); inactive by default.
 *
 *  Parameter    12 V class   48 V class
 *    V_OV         15.0         54.0         [V]
@@ -228,6 +231,7 @@ Lb  n5 P {LB} Rser=1n Rpar=100
 + V_OV=0 V_UV=0 I_OC=0 I_SC=0 RSW_ON=0 V_CLAMP=0
 + T_OV=100m T_UV=1 T_OC=1 T_SC=100u T_SW=10u RSW_OFF=10Meg R_PRE=10 T_PRE=0
 + VTH_LOGIC=1.5
++ FI_ID=0 FI_ID2=0 FID=0 FI_MODE=1 FI_MODE2=1 FI_T=10m FI_TTR=1u
 
 .param C48  = {VNOM>=36}
 .param KV   = {if(C48, VNOM/48, VNOM/12)}
@@ -265,6 +269,7 @@ Xdsc sc_r sc N BAT_DGL T={T_SC}
 Ren EN N 1Meg
 Ben cmd N V=V(EN,N)>{VTH_LOGIC}
 Bfs flt_s N V=V(ov,N)>0.5 | V(uv,N)>0.5 | V(oc,N)>0.5 | V(sc,N)>0.5
++  | ({FIA*(FIM==2)}>0.5 & V(fix,N)>0.5)
 Bfr flt_r N V=V(cmd,N)<0.5
 Xfl flt_s flt_r fl N BAT_LATCH DCS=0
 *  on = commanded and no fault; main switch closes T_PRE after on. The
@@ -289,6 +294,15 @@ Bx N x I=(V(m,N)-V(x,N))*if(time<=0, 1k, 5/{T_SW})
 Bsw bs P I=V(bs,P)*(1/({RON}*({RSW_OFF}/{RON})**(1-V(x,N))) + V(pre,N)/{R_PRE})
 +  + sgn(V(bs,P))*max(abs(V(bs,P))-{VCL}, 0)/1m
 
+* ---------------- built-in fault hook (FMEA simulation) ----------------------
+*  inactive unless FID = FI_ID/FI_ID2 (modes FI_MODE/FI_MODE2).  Mode 1: disconnect switch welded
+*  (stays closed with RSW_ON whatever the BMS commands); mode 2: spurious
+*  trip (the fault latch sets without a cause)
+.param FIA = {(FI_ID>0 & abs(FID-FI_ID)<0.5) | (FI_ID2>0 & abs(FID-FI_ID2)<0.5)}
+.param FIM = {if(FI_ID>0 & abs(FID-FI_ID)<0.5, FI_MODE, if(FI_ID2>0 & abs(FID-FI_ID2)<0.5, FI_MODE2, 0))}
+Xfi fix N BAT_FIX ID={FI_ID} ID2={FI_ID2} FID={FID} TF={FI_T} TTR={FI_TTR}
+Bwe bs P I={FIA*(FIM==1)/RON}*V(bs,P)*V(fix,N)
+
 * ---------------- fault output -------------------------------------------------
 Bflt flt_o N V=3.3*(V(fl,N)>0.5)
 Rflt flt_o FLT 100
@@ -301,6 +315,18 @@ Rtop P N 1G
 * ----------------------------------------------------------------------------
 *  Helper primitives (logic levels 0/1 V referred to local GND)
 * ----------------------------------------------------------------------------
+*  BAT_FIX -- fault level of a built-in fault hook: 0 V, or 0 .. 1 V from FI_T
+*  (in FI_TTR) when the scenario number FID equals FI_ID or FI_ID2 (as FI_X
+*  of models/FAULTS_beh.lib, which this library does not need). No
+*  breakpoint source: an extra independent source in the BMS slowed dc08
+*  fivefold even when inactive; the bench's maximum time step resolves the
+*  onset.
+.subckt BAT_FIX X GND ID=0 ID2=0 FID=0 TF=10m TTR=1u
+.param ACT = {(ID>0 & abs(FID-ID)<0.5) | (ID2>0 & abs(FID-ID2)<0.5)}
+Bx X GND V={ACT}*limit((time-{TF})/{TTR}, 0, 1)
+Rx X GND 1G
+.ends BAT_FIX
+
 *  Set-dominant SR latch. Regenerative hold (Q snaps to 0 or 1 in ~0.1 us);
 *  forced to reset in the DC operating point (time = 0) unless S is active,
 *  so the DC solution is unique. DCS=0: S cannot set it in the DC operating

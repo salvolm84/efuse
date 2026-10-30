@@ -10,7 +10,8 @@ and exits non-zero if any check fails.
     python3 tools/validate.py --json docs/results.json     # check stored results (CI)
 
 Groups: efuse (tb01..tb36), battery (bat01..bat07), dcdc (dc01..dc08), harness (wh01..wh04),
-harness (wh01..wh04), pulses (tp01..tp05), reference (ref01..ref02, public
+harness (wh01..wh04), pulses (tp01..tp05), fmea (fm01, against docs/fmea/*.csv),
+reference (ref01..ref02, public
 product data), schematics (demo/app .asc).
 
 Besides the checks, a full run verifies the integrity of the results: every
@@ -1036,6 +1037,34 @@ def pulses():
     check(t, "test B, 38 V TVS: no TVS current", m(t, "itvs_pk", 2), 0, 1e-3, "A", "BV above US*")
 
 
+def fmea_checks():
+    """Fault-injection benches against their FMEA tables (docs/fmea/<bench>.csv)."""
+    import fmea  # noqa: E402
+    t = "fi01_fault_primitives"
+    vf = 10 * (10 / 11) / (10 + 10 / 11)            # 10 V, 10 Ohm into 10 Ohm || 1 Ohm
+    check(t, "golden run (FID 0): no element acts", vmax([abs(m(t, k) - 5) for k in ("va_post", "vb_in", "vc_on")]),
+          0, 1e-3, "V", "inactive elements are inert")
+    check(t, "FI_SHORT 1 Ohm, scenario 1", m(t, "va_post", 1), 0.999 * vf, 1.001 * vf, "V", f"{vf:.4f} V")
+    check(t, "FI_SHORT not in scenario 2", m(t, "va_post", 2), 4.999, 5.001, "V", "ID = 1 only")
+    check(t, "transient short (ID 1, ID2 2): present in both", vmax([abs(m(t, "vb_in", k) - vf) for k in (1, 2)]),
+          0, 1e-3, "V", "TDUR = 2 ms")
+    check(t, "transient short: gone after TDUR", vmin([m(t, "vb_out", k) for k in (1, 2)]), 4.999, 5.001, "V", "")
+    check(t, "intermittent short: average", m(t, "vc_avg", 2), 0.99 * (0.3 * vf + 0.7 * 5), 1.01 * (0.3 * vf + 0.7 * 5),
+          "V", "DUTY 0.3 of TPER")
+    check(t, "FI_SERIES open: current", m(t, "id_post", 1) * 1e3, 0, 0.1, "mA", "1 MOhm")
+    check(t, "FI_SERIES degraded to 10 Ohm: current", m(t, "ie_post", 2), 0.499, 0.501, "A", "10 V / 20 Ohm")
+    check(t, "FI_STUCK at 3.3 V", m(t, "vf_min", 1), 3.29, 3.31, "V", "clock held high")
+    check(t, "FI_OFFSET 1 V: current", m(t, "ig_post", 2), 0.899, 0.901, "A", "(10 - 1) V / 10 Ohm")
+    for bench, path in fmea.tables().items():
+        res(bench)                     # results must exist
+
+        def r(key, k, b=bench):
+            return m(b, key, k)
+        for row in fmea.rows(path):
+            for what, v, lo, hi, unit, ref in fmea.evaluate(r, bench, row)[0]:
+                check(bench, what, v, lo, hi, unit, ref)
+
+
 def reference():
     """Reference parameter sets (models/REFERENCE_SETS_beh.lib) against public product data."""
     t = "ref01_reference_sets"
@@ -1054,13 +1083,14 @@ def reference():
           "RD210: input 24 .. 54 V")
 
 
-GROUPS = {"efuse": efuse, "battery": battery, "dcdc": dcdc, "harness": harness, "pulses": pulses, "reference": reference,
+GROUPS = {"efuse": efuse, "battery": battery, "dcdc": dcdc, "harness": harness, "pulses": pulses, "fmea": fmea_checks, "reference": reference,
           "schematics": schematics}
 
 
 TITLES = {"efuse": "eFuse (VNF1048F, EFUSE48_MOD)", "battery": "Battery and battery pack (BATTERY, BATTERY_BMS)",
           "dcdc": "DC/DC converter (DCDC48_12)", "harness": "Wiring harness (WIRE)",
-          "pulses": "Test pulses (ISO 16750-2, ISO 7637-2, LV 148)", "reference": "Reference parameter sets (public product data)",
+          "pulses": "Test pulses (ISO 16750-2, ISO 7637-2, LV 148)",
+          "fmea": "FMEA simulation (fault injection)", "reference": "Reference parameter sets (public product data)",
           "schematics": "Schematics"}
 
 

@@ -14,6 +14,7 @@ of the network and of its main devices:
 |---|---|
 | 48 V system, zonal architecture, standards, supply test pulses | A1–A3, A6, C8, H7 |
 | eFuse and PDU: protection, power stage, inrush, thermal, faults, safety, validation | B–H (except C4–C8, D5, H5–H7), I, J1–J5 |
+| System FMEA and fault simulation | G4 |
 | Batteries: source impedance, cold crank, pack disconnect (load dump), pack pre-charge, models from datasheets | A4, A5, D5, H5, J6 |
 | Wiring harness: wire sizing, R(T), short-time heating, eFuse-to-wire coordination | W1–W3 |
 | DC/DC converter: the converter as a load, input-filter stability, pre-biased start, 12 V-side protection, models from datasheets | C4–C7, H6, J4, J7 |
@@ -107,6 +108,7 @@ A scoring sheet is at the end.
 | F3, J5 | tb35 | stuck-on FET, sense crack, sneak path, wire temperature |
 | G2 | tb31 | retries into a short and into an overload |
 | G3 | tb32 | hardware HSC vs VDS monitor vs firmware |
+| G4 | fm01, fi01 | FMEA simulation: 13 faults of the 48 V / 12 V system, detection, effects, dual-point faults |
 | H1 | tb03, tb06, tb14, tb16, tb18, tb35 | which bench covers which part of the validation plan |
 | H2 | tb02 (post-processed) | probe bandwidth, saturation and skew |
 | H3 | tb18 | trip delay vs set-up inductance |
@@ -258,7 +260,7 @@ relay replacement.
   G3), a weaker battery or a smaller input capacitor would break the selectivity.
 * [`bat07`](../testbenches/bat07_pdn_48v.cir) repeats the bench with the 48 V
   pack model (SOC 80 %) instead of the ideal source: CH2 trips in <!--v {m('bat07_pdn_48v','dt_trip2')*1e6:.1f}-->9.0<!--/v--> µs, the bus
-  dips to <!--v {m('bat07_pdn_48v','vbus_min'):.1f}-->34.1<!--/v--> V, and the pack current peaks at only **<!--v {m('bat07_pdn_48v','ibat_pk'):.0f}-->83<!--/v--> A** while <!--v {m('bat07_pdn_48v','ipk2'):.0f}-->328<!--/v--> A flows
+  dips to <!--v {m('bat07_pdn_48v','vbus_min'):.1f}-->34.1<!--/v--> V, and the pack current peaks at only **<!--v {m('bat07_pdn_48v','ibat_pk'):.0f}-->83<!--/v--> A** while <!--v {m('bat07_pdn_48v','ipk2'):.0f}-->327<!--/v--> A flows
   into the short. The pack's BMS (I_SC 1 kA for 100 µs) does not trip.
 * *Ask:* "Where do the other 240 A come from?" Expected: the bus and input
   capacitors next to the PDU. The pack sits behind 2 µH of main harness and
@@ -1617,6 +1619,59 @@ VDS monitor alone, and by "firmware" (CS readback + 1 ms task).
   monitor is a useful second hardware layer.
 * *Ask:* "Which protections may live in firmware, then?" Expected: I²t
   coordination, retries and power modes, with a hardware fallback.
+
+### G4. How would you use simulation in the system FMEA (or FMEDA) of the power distribution, and what can it not tell you? (L2–L3)
+
+**Expected answer**
+* Simulation answers the **effect** and **detection** columns for electrical
+  faults with numbers: which mechanism reacts (eFuse latch / DIAG, BMS, the
+  converter's power-good, firmware plausibility), how fast, how high the
+  voltages, currents and energies go before it does, and whether the system
+  reaches its safe state.
+* One model of the system, **one scenario per FMEA row**, the fault-free run
+  as reference; faults injected after the start-up; shorts, opens,
+  degradations (rising contact resistance), stuck signals, and the device's
+  internal failures (FET stuck-on / stuck-off, welded contactor, failed
+  converter switch).
+* **Dual-point faults** matter as much as single ones: a latent fault (a
+  shorted FET, a welded contactor) removes the protection that the second
+  fault needs. This is where periodic tests and the FMEDA's latent-fault
+  metric come from.
+* The **undetected rows** are the output: a degrading connector that heats
+  up at unchanged current, a stuck enable, an open 12 V battery terminal.
+  Each needs a diagnostic (voltage drop, temperature, current-while-off
+  plausibility) or a rationale.
+* What it cannot give: occurrence (failure rates come from FIT data), the
+  real part's parasitics, tolerances unless you simulate corners, firmware
+  behaviour unless you model it, and it is not evidence on its own.
+
+**Follow-ups**
+* "Your simulation shows a fault is detected in 10 µs. What else do you need
+  before you claim diagnostic coverage?" The diagnostic's own failure modes
+  and latent faults, its test interval, tolerance and corner cases, and
+  confirmation on hardware.
+* "How do you keep the FMEA and the simulation consistent over the project?"
+  The FMEA table drives the scenarios and the pass criteria; the regression
+  re-runs them after every design change.
+
+**Red flags:** simulates only the shorts the protections were designed for;
+ignores latent and dual-point faults; claims ISO 26262 coverage from a
+simulation with typical values.
+
+**Simulation:** [`fm01`](../testbenches/fm01_pdn_fmea.cir), the 48 V / 12 V
+system of dc08 with 13 faults from the FMEA table
+[`fm01_pdn_fmea.csv`](../docs/fmea/fm01_pdn_fmea.csv), effects report
+[`fm01_pdn_fmea.md`](../docs/fmea/fm01_pdn_fmea.md).
+
+![fm01](../docs/img/fm01_pdn_fmea.png)
+
+* A latent shorted FET turns a channel short into the loss of the whole 48 V
+  net: the pack clears it after <!--v {(m('fm01_pdn_fmea','t_fltb',3)-30e-3)*1e6:.0f}-->318<!--/v--> µs at <!--v {m('fm01_pdn_fmea','ipack_pk',3):.0f}-->1083<!--/v--> A.
+* With a welded pack switch, a bus short is detected but not cleared:
+  <!--v {m('fm01_pdn_fmea','ipack_end',13):.0f}-->1386<!--/v--> A keep flowing.
+* A connector degraded to 0.25 Ω dissipates <!--v {m('fm01_pdn_fmea','p_con',6):.0f}-->69<!--/v--> W, and nothing reacts.
+* *Show the report and ask:* "Which three rows would you take to the
+  diagnostic concept first, and what would you add?"
 
 ---
 

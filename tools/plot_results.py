@@ -1350,6 +1350,34 @@ def tp05():
     finish(fig, ax, "time [s]", "tp05_loaddump_12v_tvs.png")
 
 
+def fi01():
+    r = raw("fi01_fault_primitives")
+    fig, ax = panels(3, "fi01 - fault elements: permanent, transient and intermittent short, open, degradation, offset")
+    labs = ["FID 0 (golden)", "FID 1", "FID 2"]
+    for k in range(r.nsteps):
+        t = r.get("time", k) * 1e3
+        plot(ax[0], t, r.get("V(c)", k), "intermittent short (ID 2): " + labs[k], k)
+        plot(ax[1], t, r.get("I(Rle)", k), "series degradation (ID 2): " + labs[k], k)
+        plot(ax[2], t, r.get("V(f)", k), "stuck logic (ID 1): " + labs[k], k)
+    ax[0].set_ylabel("V"); ax[1].set_ylabel("A"); ax[2].set_ylabel("V")
+    finish(fig, ax, "time [ms]", "fi01_fault_primitives.png")
+
+
+def fm01():
+    r = raw("fm01_pdn_fmea")
+    fig, ax = panels(3, "fm01 - FMEA simulation of the 48 V / 12 V system: selected scenarios (fault at 30 ms)")
+    sel = [(0, "0 golden"), (1, "1 CH2 short"), (3, "3 stuck FET + short"), (7, "7 DC/DC HS short"),
+           (8, "8 48 V on 12 V"), (13, "13 welded switch + bus short")]
+    for j, (k, lab) in enumerate(sel):
+        t = r.get("time", k) * 1e3
+        w = (t > 29.9) & (t < 31.5)
+        plot(ax[0], t[w], r.get("V(bus)", k)[w], lab, j)
+        plot(ax[1], t[w], r.get("V(b12)", k)[w], lab, j)
+        plot(ax[2], t[w], r.get("I(Lmain)", k)[w], lab, j)
+    ax[0].set_ylabel("48 V bus [V]"); ax[1].set_ylabel("12 V net [V]"); ax[2].set_ylabel("pack current [A]")
+    finish(fig, ax, "time [ms]", "fm01_pdn_fmea.png")
+
+
 ALL = dict(tb01=tb01, tb02=tb02, tb03=tb03, tb04=tb04, tb05=tb05, tb06=tb06,
            tb07=tb07, tb08=tb08, tb09=tb09, tb10=tb10, tb11=tb11, tb12=tb12,
            tb13=tb13, tb14=tb14, tb15=tb15, tb16=tb16, tb17=tb17, tb18=tb18, tb19=tb19,
@@ -1359,7 +1387,8 @@ ALL = dict(tb01=tb01, tb02=tb02, tb03=tb03, tb04=tb04, tb05=tb05, tb06=tb06,
            bat01=bat01, bat02=bat02, bat03=bat03, bat04=bat04, bat05=bat05, bat06=bat06, bat07=bat07,
            dc01=dc01, dc02=dc02, dc03=dc03, dc04=dc04, dc05=dc05, dc06=dc06, dc07=dc07, dc08=dc08,
            wh01=wh01, wh02=wh02, wh03=wh03, wh04=wh04,
-           tp01=tp01, tp02=tp02, tp03=tp03, tp04=tp04, tp05=tp05)
+           tp01=tp01, tp02=tp02, tp03=tp03, tp04=tp04, tp05=tp05,
+           fi01=fi01, fm01=fm01)
 
 if __name__ == "__main__":
     sel = sys.argv[1:] or list(ALL)

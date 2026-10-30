@@ -1,0 +1,108 @@
+* fm01_pdn_fmea.cir
+* ---------------------------------------------------------------------------
+* FMEA simulation of the two-voltage system of dc08: 48 V pack (BATTERY_BMS)
+* -> main harness -> 48 V bus -> eFuse CH1 -> DC/DC (DCDC48_12) -> 12 V
+* battery + 10 A load + 100 uF ECU capacitance; eFuse CH2 -> motor. One scenario per FMEA row
+* (docs/fmea/fm01_pdn_fmea.csv), selected by FID; FID = 0 is the fault-free
+* (golden) run. Every fault starts at TF = 30 ms, after the start-up
+* (CH1 at 1 ms, CH2 at 2 ms). The MCU switches CH2 off at 55 ms.
+*   1  CH2 harness: hard short to ground at the motor (5 mOhm)
+*   2  CH2 harness: resistive short at the motor (1.5 Ohm, overload)
+*   3  CH2 FET drain-source short (latent) + hard short at the motor
+*   4  CH1 FET gate-source short (FET stuck off)
+*   5  CH1 output connector open (DC/DC input side)
+*   6  CH1 output connector degraded: 0 -> 0.25 Ohm in 5 ms
+*   7  DC/DC high-side switch short: 48 V input to 12 V output, 20 mOhm
+*   8  48 V CH2 harness chafed onto the 12 V net (50 mOhm)
+*   9  12 V battery positive terminal open
+*  10  12 V battery ground strap degraded: 0 -> 50 mOhm
+*  11  MCU enable of CH2 stuck high (the 55 ms switch-off is ignored)
+*  12  BMS spurious trip (pack opens without a cause)
+*  13  BMS disconnect switch welded (latent) + short on the 48 V bus
+* The expected effects, detections and pass criteria are in the CSV;
+* tools/validate.py (group fmea) checks them, tools/fmea_report.py writes
+* docs/fmea/fm01_pdn_fmea.md.
+* ---------------------------------------------------------------------------
+.include ../models/VNF1048F_beh.lib
+.include ../models/BATTERY_beh.lib
+.include ../models/DCDC48_12_beh.lib
+.include ../models/FAULTS_beh.lib
+.param FID=0
+.param TF=30m
+
+* ---- 48 V pack (hooks: 12 spurious trip, 13 welded switch), main harness, bus
+Vh hi 0 3.3
+Xbat bat 0 soc48 hi fltb BATTERY_BMS VNOM=48 SOC0=0.8
++ FI_ID=12 FI_MODE=2 FI_ID2=13 FI_MODE2=1 FID={FID} FI_T={TF}
+Lmain bat bus 2u Rser=5m
+Dtvs 0 bus EF_TVS58V
+Cbus bus 0 220u Rser=20m
+Xsh13 bus 0 FI_SHORT ID=13 FID={FID} TF={TF} RF=10m
+
+* ---- CH1 -> DC/DC (hook: 4 gate-source short); connector faults 5, 6
+X1 bus o1 0 en1 0 0 diag1 cs1 tfet1 EFUSE48_MOD RSENSE=1m OVC_CODE=22 HSC_CODE=14
++ VDS_CODE=14 TNOM_CODE=2 FI_ID=4 FI_MODE=2 FI_R=1 FID={FID} FI_T={TF}
+Lh1 o1 d1 1u Rser=10m
+Dfw1 0 o1 EF_SCH100V
+Rbl d1 0 4.7k
+Xcon d1 dcin FI_SERIES ID=5 ID2=6 FID={FID} TF={TF} RF={if(FID==6, 0.25, 1Meg)}
++ TTR={if(FID==6, 5m, 1u)}
+Xdc dcin v12 0 hi pgdc DCDC48_12
+Xhs7 dcin v12 FI_SHORT ID=7 FID={FID} TF={TF} RF=20m
+
+* ---- CH2 -> motor (hook: 3 FET drain-source short); harness faults 1, 2, 3, 8
+X2 bus o2 0 en2 0 0 diag2 cs2 tfet2 EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12
++ VDS_CODE=14 TNOM_CODE=0 FI_ID=3 FI_MODE=1 FI_R=1m FID={FID} FI_T={TF}
+Lh2 o2 m2 1.5u Rser=15m
+Cm2 m2 0 100u Rser=20m
+Lm2 m2 mm 200u
+Rm2 mm 0 3.8
+Dfw2 0 o2 EF_SCH100V
+Xsc1 m2 0 FI_SHORT ID=1 ID2=3 FID={FID} TF={TF} RF=5m
+Xol2 m2 0 FI_SHORT ID=2 FID={FID} TF={TF} RF=1.5
+Xx8 m2 b12 FI_SHORT ID=8 FID={FID} TF={TF} RF=50m
+
+* ---- 12 V net: harness, battery (faults 9, 10), base load
+Lh12 v12 b12 0.5u Rser=2m
+Xbp9 b12 bp12 FI_SERIES ID=9 FID={FID} TF={TF}
+Xb12 bp12 bn12 soc12 BATTERY VNOM=12 SOC0=0.7
+Xbn10 bn12 0 FI_SERIES ID=10 FID={FID} TF={TF} RF=50m TTR=1m
+Rbase b12 0 1.25
+*  ECU input capacitance on the 12 V net (dc08 has none; without it an opening
+*  battery terminal leaves the harness inductance with no path but the load)
+Cecu b12 0 100u Rser=50m
+
+* ---- MCU outputs (fault 11: CH2 enable stuck high)
+Ven1 en1 0 PWL(0 0 1m 0 1.001m 3.3)
+Ven2 en2d 0 PWL(0 0 2m 0 2.001m 3.3 55m 3.3 55.001m 0)
+Xen11 en2d en2 0 FI_STUCK ID=11 FID={FID} TF={TF} LEVEL=3.3
+
+.save V(bus) V(d1) V(dcin) V(v12) V(b12) V(pgdc) V(diag1) V(diag2) V(fltb) V(m2)
+.save I(Lh1) I(Lh2) I(Lh12) I(Lmain) I(xb12:Vi) V(xdc:run) V(x1:xu:flt) V(x2:xu:flt)
+.save V(tfet2) V(x2:drn) V(o2)
+* detection: time from the fault to the first reaction of each mechanism
+.meas tran t_diag1 find time when V(diag1)=1.65 fall=1 td=29m
+.meas tran t_diag2 find time when V(diag2)=1.65 fall=1 td=29m
+.meas tran t_fltb  find time when V(fltb)=1.65 rise=1 td=29m
+.meas tran t_pg    find time when V(pgdc)=1.65 fall=1 td=29m
+* stresses after the fault
+.meas tran vbus_max max V(bus) from 30m to 65m
+.meas tran vbus_min min V(bus) from 30m to 65m
+.meas tran v12_max  max V(b12) from 30m to 65m
+.meas tran v12_min  min V(b12) from 30m to 65m
+.meas tran ich1_pk  max abs(I(Lh1)) from 30m to 65m
+.meas tran ich2_pk  max abs(I(Lh2)) from 30m to 65m
+.meas tran ipack_pk max I(Lmain) from 30m to 65m
+.meas tran e_fet2   integ V(x2:drn,o2)*I(Lh2) from 30m to 65m
+.meas tran tfet2_max max V(tfet2) from 30m to 65m
+.meas tran p_con    avg V(d1,dcin)*I(Lh1) from 40m to 50m
+* state at the end (safe state?)
+.meas tran vbus_end avg V(bus) from 63m to 65m
+.meas tran v12_end  avg V(b12) from 63m to 65m
+.meas tran ich2_end avg I(Lh2) from 63m to 65m
+.meas tran ipack_end avg I(Lmain) from 63m to 65m
+.meas tran run_end  avg V(xdc:run) from 63m to 65m
+.step param FID 0 13 1
+.tran 0 65m 0 1u
+.options plotwinsize=0
+.end

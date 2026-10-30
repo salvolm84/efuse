@@ -1,0 +1,60 @@
+* fi01_fault_primitives.cir
+* ---------------------------------------------------------------------------
+* The fault elements of models/FAULTS_beh.lib on resistive test circuits
+* (10 V source, 10 Ohm), FID stepped 0 (golden), 1, 2:
+*   A  FI_SHORT ID=1 across a 10 Ohm load, RF 1 Ohm, permanent from 1 ms:
+*      V = 10*(10||1)/(10 + 10||1) = 0.833 V
+*   B  FI_SHORT ID=1 ID2=2, transient: from 1 ms for TDUR = 2 ms
+*   C  FI_SHORT ID=2, intermittent: TPER 1 ms, DUTY 0.3 from 1 ms
+*   D  FI_SERIES ID=1 in series with 10 Ohm: open (current -> 0)
+*   E  FI_SERIES ID=2: 0 -> 10 Ohm in 2 ms (degradation): current halves
+*   F  FI_STUCK ID=1 on a 0/3.3 V clock: held at 3.3 V
+*   G  FI_OFFSET ID=2 in a 10 Ohm return: 1 V offset
+* Expected: with FID = 0 nothing changes; each element acts only in its own
+* scenario(s).
+* ---------------------------------------------------------------------------
+.include ../models/FAULTS_beh.lib
+.param FID=0
+Vs s 0 10
+* A
+Ra s a 10
+Rla a 0 10
+Xa a 0 FI_SHORT ID=1 FID={FID} TF=1m RF=1
+* B
+Rb s b 10
+Rlb b 0 10
+Xb b 0 FI_SHORT ID=1 ID2=2 FID={FID} TF=1m TDUR=2m RF=1
+* C
+Rc s c 10
+Rlc c 0 10
+Xc c 0 FI_SHORT ID=2 FID={FID} TF=1m TPER=1m DUTY=0.3 RF=1
+* D
+Xd s d FI_SERIES ID=1 FID={FID} TF=1m
+Rld d 0 10
+* E
+Xe s e FI_SERIES ID=2 FID={FID} TF=1m TTR=2m RF=10
+Rle e 0 10
+* F
+Vclk clk 0 PULSE(0 3.3 0 1u 1u 0.25m 0.5m)
+Xf clk f 0 FI_STUCK ID=1 FID={FID} TF=1m LEVEL=3.3
+Rlf f 0 1Meg
+* G
+Rg s g 10
+Xg g 0 FI_OFFSET ID=2 FID={FID} TF=1m VOFF=1
+
+.save V(a) V(b) V(c) V(d) V(e) V(f) V(g) I(Rld) I(Rle) I(Rg)
+.meas tran va_pre  find V(a) at 0.9m
+.meas tran va_post find V(a) at 4m
+.meas tran vb_in   find V(b) at 2m
+.meas tran vb_out  find V(b) at 4m
+.meas tran vc_on   find V(c) at 2.1m
+.meas tran vc_off  find V(c) at 2.6m
+.meas tran vc_avg  avg V(c) from 2m to 4m
+.meas tran id_post find I(Rld) at 4m
+.meas tran ie_post find I(Rle) at 4m
+.meas tran vf_min  min V(f) from 1.1m to 4m
+.meas tran ig_post find I(Rg) at 4m
+.step param FID list 0 1 2
+.tran 0 5m 0 1u
+.options plotwinsize=0
+.end
