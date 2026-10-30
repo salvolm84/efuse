@@ -1030,11 +1030,23 @@
 "ipk": [
 29.6917877197
 ],
+"t10o": [
+0.000586925541572
+],
+"t90o": [
+0.000982893314625
+],
 "t_full": [
 0.00100241965079
 ],
 "t_on": [
 0.000783200321978
+],
+"t_start": [
+0.000544867225786
+],
+"vcp_min": [
+14.4425468445
 ],
 "vcp_ss": [
 14.4963111877
@@ -1058,6 +1070,9 @@
 ],
 "ipk2": [
 122.241271973
+],
+"ipk_fet": [
+341.892150879
 ],
 "t_trip": [
 0.00300812026688
@@ -1282,6 +1297,10 @@ null,
 82.7994308472,
 7.72618150711
 ],
+"t90o": [
+0.00100050387066,
+null
+],
 "t_vds": [
 null,
 0.00147044029042
@@ -1289,6 +1308,10 @@ null,
 "tjmax": [
 60.4096488953,
 35.2138252258
+],
+"vds_b": [
+0.00707916046018,
+41.2708191211
 ],
 "vout_end": [
 47.930847168,
@@ -1305,6 +1328,9 @@ null,
 "t_uv": [
 0.126525100266
 ],
+"v_rec": [
+4.58339328522
+],
 "vbat_uv": [
 4.46749782562
 ],
@@ -1317,6 +1343,9 @@ null,
 "vgs_70v": [
 13.3731384277
 ],
+"vgs_pk": [
+15.4749069214
+],
 "vout_end": [
 47.8717880249
 ]
@@ -1327,6 +1356,9 @@ null,
 ],
 "t_ot": [
 3.0938918239
+],
+"t_ot2": [
+16.5268065181
 ],
 "tc_clr": [
 107.994247437
@@ -2220,16 +2252,16 @@ null,
 },
 "testbenches/tb22_parallel_fets": {
 "dtj2": [
-0.150842666626
+0.125204086304
 ],
 "dtj3": [
-0.0377330780029
+0.0313205718994
 ],
 "e1": [
-0.703999717304
+0.703999722861
 ],
 "e2": [
-0.0821343901285
+0.0821343879343
 ],
 "fltmax": [
 0.0
@@ -2238,25 +2270,31 @@ null,
 19.7257864482
 ],
 "i1pk": [
-70.5046386719
+70.5048141479
 ],
 "i2on": [
 19.4379406185
 ],
 "i2pk": [
-21.2648944855
+21.2644691467
 ],
 "pf2": [
-0.736888387401
+0.7357425835
 ],
 "pf3": [
-0.368662093417
+0.36812686413
 ],
 "tj1pk": [
-59.043510437
+59.0408592224
+],
+"tj2a": [
+25.0
 ],
 "tj2pk": [
-28.9681129456
+28.9681682587
+],
+"tj3a": [
+25.0
 ]
 },
 "testbenches/tb23_linear_soa": {
@@ -2855,35 +2893,167 @@ null,
 1.35473507117
 ]
 },
+"testbenches/tb36_dcdc_hiccup_vs_efuse": {
+"diagmin": [
+3.29998445511,
+3.29998445511,
+3.29998445511
+],
+"dt_ab": [
+null,
+0.100000006881,
+null
+],
+"fltmax": [
+0.0,
+0.0,
+0.0
+],
+"gcmax": [
+1.0,
+0.0,
+1.0
+],
+"ief_end": [
+8.58687496185,
+0.00130025987769,
+0.0112674850971
+],
+"ief_hic": [
+null,
+null,
+5.92051330908
+],
+"il_lim": [
+17.770573939,
+21.6226453673,
+55.0000000001
+],
+"t_ab": [
+null,
+0.101000006881,
+null
+],
+"t_hic": [
+null,
+null,
+0.0741683828533
+],
+"t_off1": [
+null,
+0.0269077820135,
+0.0741683252396
+],
+"t_pg": [
+0.066676103427,
+null,
+0.066676103427
+],
+"t_pgdc": [
+0.076676404315,
+0.0263943723664,
+null
+],
+"t_run1": [
+0.0716767135817,
+0.0213944079588,
+0.0716767135817
+],
+"t_run2": [
+null,
+0.0313126348955,
+0.124138136327
+],
+"t_run3": [
+null,
+0.0412341135923,
+0.176613674787
+],
+"t_runl": [
+0.0716767135817,
+0.100751075809,
+0.176613674787
+],
+"v12_end": [
+14.0,
+4.6974735005e-34,
+1.04581902328e-26
+],
+"v12_lim": [
+5.77640191203,
+7.69285798308,
+4.54412238414
+],
+"v12_pk1": [
+0.0,
+14.0845985413,
+0.0
+],
+"v12_run2": [
+null,
+0.261328563094,
+7.67145844678e-13
+],
+"vin_hi": [
+48.0369529724,
+30.8982982635,
+48.0369529724
+],
+"vin_lo": [
+28.850291526,
+25.9766082764,
+28.850291526
+],
+"vin_off1": [
+null,
+25.9804325104,
+47.85364151
+],
+"vin_run1": [
+47.9992465973,
+30.0075101852,
+47.9992465973
+],
+"vinmin2": [
+47.7441062927,
+25.9576320648,
+47.8527259827
+],
+"vld_end": [
+47.7865486145,
+25.9632803699,
+47.9996185303
+]
+},
 "validation/inputs": {
 "schematics/app_vnf1048f_discrete": "3d29f1467fbc33d336d6b0aa04bfc438631fb09ba520456fb664e49d17085823",
-"schematics/demo_battery": "92a77dafe16570d711317b5edea78de3b7dea958f95454fc0b6f5fa1e33683bd",
-"schematics/demo_dcdc": "7d0a5363df1cd14fe02b132b90797692ad85da1829e6d0f07a5777e3a331969a",
+"schematics/demo_battery": "6060bf63bb642ad3e372af27fe5733d879ec920fa2f1ff9f1b53981e7289c279",
+"schematics/demo_dcdc": "42d5a2c50c2f54ecdc7a478d980028bf661e25eae536ef4a11d01d48e5e155ba",
 "schematics/demo_efuse48_module": "28447372262c5818ad52e52a4f4a201dc601699fabf8d4a87b360e8ca44e1171",
-"testbenches/bat01_capacity_ocv": "65eff2faa735d18e71c040dfe4e6aaeca99d8c550a3596f4db580920b6cccc33",
-"testbenches/bat02_pulse_temperature": "75e5ff7fec557fddb0861a97edda80f35346b270f5515e27dfc85455dbb9a851",
-"testbenches/bat03_impedance_ac": "65f9946ed4a168a6b1acee0c93b6974ecebe7f8ecb3dcab66b6d56b0d19270c8",
-"testbenches/bat04_cold_crank": "977979582475fb61b7d16070d9b29693547b95b35a45f2468f6ae56963503284",
-"testbenches/bat05_short_circuit": "4f264692d888649b8c8d2ef6bca050b99b50fe9a4d5d1043943dadf53ccf431f",
-"testbenches/bat06_bms_protection": "d45ac6a0d46f16884ae63cfdf2c2082012c6aadc6b87706e983676bcfe76f426",
-"testbenches/bat07_pdn_48v": "8d651bd298aa0471df1d26efdfb27da77026ad2c5c7175a39bcc194ae938c36a",
-"testbenches/dc01_efficiency": "d62a792673c464956714be690b6d516184163e466feac0041f97469dac0b5165",
-"testbenches/dc02_load_transient": "9c6c75c8e5db04269a9b46aedc745b8b9e0089f343fcfeed65ce9bc1e13e0aa1",
-"testbenches/dc03_startup": "05fca665a2caf89753f240c6c9c84ac98b38ab7059e220ce67742a5db0f0de14",
-"testbenches/dc04_short_overload": "0e9050a17170ad59974e9c1bf0956241352ade13d116c245ffaf54ea41ebe513",
-"testbenches/dc05_input_transients": "764f24da04422c81b4ccf92766a098b30616b2e6758f5bed7b1ab6d288b7a64e",
-"testbenches/dc06_impedance_ac": "36b58e2d628ee434c17d5bc29a07e106f3149fd6888ec5f227c18731e954dc37",
-"testbenches/dc07_input_filter_stability": "6b02e6816a0493a3c5696b6d6d3fef641e8ad2b96cd8be1500413926a61d83f1",
-"testbenches/dc08_pdn_48v_12v": "09a2ef18207cbb8243545385c55ae5778cc1357b3a7583facb112f7690902057",
-"testbenches/ref01_reference_sets": "f6f98e77462abba3bc5ae74a78f3e7b4a2ae8d5497a9f586cc5568dbb104f36f",
-"testbenches/ref02_reference_dcdc": "5250f007e0d979ee8b0658b7411d560106628beb5669ae91162f273d4ed25552",
-"testbenches/tb01_startup_inrush": "a64467361c71b50ebcd8e9e41cc27dc2c4a73f49ff99634899e5ac4fb59b1722",
-"testbenches/tb02_hard_short": "97c316224f41d1f8bb3e6af7fbe66233c8f9c23b406c0061bbfb9006e92a28fc",
+"testbenches/bat01_capacity_ocv": "0cd7aff5c88c2013cdbca7735b54a3066099484577e826807c0ebec5b6307a2a",
+"testbenches/bat02_pulse_temperature": "0c3db6e2e5f1c449a274ac24b12103d9fb6ace867d750622fd0ccff7de6b9b5e",
+"testbenches/bat03_impedance_ac": "e6137b21679f13687293e1a670b16fbc56a32e5d3bd4e5fdd76556b51a309d42",
+"testbenches/bat04_cold_crank": "3af456fb490d7568c20537f42e22554a976b94c1a594a503fde8a6daaedec84e",
+"testbenches/bat05_short_circuit": "eabe2323f38d023ba9eada5e8079ed5e0d5532a6ff58168f03349bd49a885b8f",
+"testbenches/bat06_bms_protection": "8d88c4141c8e7d374c4d96292b43874bcaa275adef04fa3c50a55d1f39ca0d53",
+"testbenches/bat07_pdn_48v": "28e5b7fccd7db960004af23d37b985863052be455121c1002e00eeeb49220f05",
+"testbenches/dc01_efficiency": "97562a6794b401dc221d5a08797ffb095fee7751ba4a5586148695e4f4bdc8b5",
+"testbenches/dc02_load_transient": "08947c9501fc47266c50c912a6d325c3c85896535f1950bfc3022d432dceeb2f",
+"testbenches/dc03_startup": "1e80d108661e9acf31c6a352368cae6a2b06300998e3ad69277d1c58a3dce0e7",
+"testbenches/dc04_short_overload": "421417d3bd0e50a411b7c5673e8c86bf3877923ffe455b6f2c8293a5c986515a",
+"testbenches/dc05_input_transients": "d3e4d67753ebe45630574345f2522fa22d4f821b478d60aa88b9905129f01383",
+"testbenches/dc06_impedance_ac": "3583bccfe48f8ceb3e2e20e1aeb8f91fba64b5a4cbc2acd01defaff3a0ac2a48",
+"testbenches/dc07_input_filter_stability": "852384bd311ea7fe992431e8cdf808d2fc6e32ea180eca122cb5c7b94a7ca304",
+"testbenches/dc08_pdn_48v_12v": "6a44a34e562d5872659f4035b747d4bbcc8b0edffeb67c775aec4229744536cd",
+"testbenches/ref01_reference_sets": "14ba59df40e1a5b690f0ee444f43c6ce67e67cc043d05e78663aa5789fa4f02a",
+"testbenches/ref02_reference_dcdc": "a773f8834e99ddde3d9b111bb73e724301aa3443234acbad4c7e20eb231f21ba",
+"testbenches/tb01_startup_inrush": "1aaa406eab521ae17272c300eef14063f05bef4e7fbeb4d04a559a3cbed04cb7",
+"testbenches/tb02_hard_short": "7da326919296cbbc60c0ca864ba0cfb79442ba783ac7c25b5dc3c4c95694315e",
 "testbenches/tb03_i2t_curve": "8033ca281691e0feb6052d9a7566de44a6a9e2d09243723c6a7ea6cf9b14b011",
 "testbenches/tb04_pwm_rms": "b74c6ec7a54558f705132e6f8c0ffdff61e47024cf61310f60b2fabc7b1ae102",
-"testbenches/tb05_vds_desat": "cdc8bf013ea172d73e7cc82c3f02f21849f82a753526377c25af4bec5724060b",
-"testbenches/tb06_supply_transients": "c41e547fcc04fa1ede757b4c8e388312739c8116d9eefb490447701f483a727a",
-"testbenches/tb07_ntc_overtemp": "a6f8ed841d8c6961e126e5121bfd9188f2b53b8bb0f461995a7f378d16149cfa",
+"testbenches/tb05_vds_desat": "004d6e4b88ab44819e9ce7b3f717e97131dd9d9b1b3b2b8cf17466f89b63f04b",
+"testbenches/tb06_supply_transients": "13d7364b32c98583788c0b525f4d51bf7cecd3361deaaab30c7e76ee8404cd40",
+"testbenches/tb07_ntc_overtemp": "a6c20c452e1ebe0104454203fc03e74424aea9248df6b81c37ef5feca0edf27f",
 "testbenches/tb08_standby_autoon": "011063ef8f4f1ea10440103cc722187401ac3becaed342a36fdbc27da83394e0",
 "testbenches/tb09_inductive_turnoff": "76deb76ab3c1280b020e7a3cf3e016357a9e0fc2bfadda4afb94e8bc6d7f9eb5",
 "testbenches/tb10_zonal_system": "fb438aaf77817e573a35a8e754033b001cddb085dace3752a88c9c0317eb0f74",
@@ -2898,7 +3068,7 @@ null,
 "testbenches/tb19_turnoff_speed": "f0ee23e40275920509a4109ad1471907048b94357f5f2385d530cb9a200a3a5e",
 "testbenches/tb20_sense_error": "5c66a5cc16e4e37dbbff86c5858d3b32f72a2fb57d6bf1fe0002f6c415911840",
 "testbenches/tb21_inductive_clamp": "0677d7df1a732672e164eeaf48fe1fa69339c56076c2ec78e76b19c4ac0f7704",
-"testbenches/tb22_parallel_fets": "151b6a24e94009df0168df7226b322229b89a71443bb004a38847eb9b060d098",
+"testbenches/tb22_parallel_fets": "621becac6f8e8ee8801fc876085ef8483fe17c90b18fda482e6fee78b6496ae0",
 "testbenches/tb23_linear_soa": "4d39d2c8eb6c7ac9ed82a233bb581252986ff3f728b8326d3d5aae460b926b5a",
 "testbenches/tb24_back_to_back": "ad86fb69ad0c3637b48a8184fb998215ea61c2aa65c146fb74823b09f503d3bf",
 "testbenches/tb25_supply_clamp": "e38e56d90279ae0b6c4fabb595337dc9a2a520dd059e7117198c60c34904be6a",
@@ -2911,7 +3081,8 @@ null,
 "testbenches/tb32_hw_vs_fw": "33b0887714665e0b46f039ac26f147c31bc1d670648890ca875a8df49fff0e72",
 "testbenches/tb33_design_exercise": "0fca547dd4bb7cafff883849b0ce0971ab0633754d7dae4b080753a93ff85c96",
 "testbenches/tb34_cold_start": "15dd27bb60fc7403a7143e2eb3ab17032a53f63da8291cc902742cbc68079ea9",
-"testbenches/tb35_field_return": "00aaaca186637a84e7f895a1bed9e63d3c6e42d3ab494733c055a3d48a21471f"
+"testbenches/tb35_field_return": "00aaaca186637a84e7f895a1bed9e63d3c6e42d3ab494733c055a3d48a21471f",
+"testbenches/tb36_dcdc_hiccup_vs_efuse": "6c407bd3d13543e72120489310d1bcfc85d39b7835bd84f99353f26f0df68de3"
 },
 "validation/ltspice": {
 "version": [
@@ -2920,7 +3091,7 @@ null,
 },
 "validation/summary": {
 "benches": [
-56
+57
 ],
 "checks_battery": [
 51
@@ -2929,10 +3100,10 @@ null,
 48
 ],
 "checks_efuse": [
-159
+178
 ],
 "checks_passed": [
-272
+291
 ],
 "checks_reference": [
 7
@@ -2941,7 +3112,7 @@ null,
 7
 ],
 "checks_total": [
-272
+291
 ]
 }
 }

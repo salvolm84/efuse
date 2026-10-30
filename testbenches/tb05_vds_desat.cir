@@ -39,6 +39,8 @@ Vclr clr 0 0
 .meas tran vout_end avg V(out) from 9m to 10m
 .meas tran fdmax max V(x1:xu:fd)
 .meas tran tjmax max V(tfet)
+.meas tran t90o  find time when V(out)=43.2 rise=1
+.meas tran vds_b find V(x1:drn,out) at 1.46m
 .step param CSL list 47n 470n
 .tran 0 10m 0 1u
 .options plotwinsize=0

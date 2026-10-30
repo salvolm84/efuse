@@ -6,7 +6,7 @@
 *  Status    : generic averaged model of a regulated, current-limited buck
 *              converter. Default values are engineering estimates for a
 *              typical 700 W 48/12 V DC/DC of a mild-hybrid vehicle, flagged
-*              "[EST]" (see README.md, section 15). Replace them with your converter's
+*              "[EST]" (see README.md, section 3). Replace them with your converter's
 *              data.
 *  Simulator : LTspice (validated with LTspice 26.0.2; B-sources with if(),
 *              limit(); no idt(), no min()/max(), see the notes in the code)
@@ -142,7 +142,7 @@ Bhsr hic_r GND V=V(h,GND)<0
 Xhl hic_s hic_r hic GND DC_LATCH
 *  DCRUN=0: the converter is off in the DC operating point and soft-starts at
 *  t = 0 (as at key-on). DCRUN=1: already running in the operating point
-*  (needed for .ac, where time = 0). See README.md, section 15.8.
+*  (needed for .ac, where time = 0). See README.md, section 3.8.
 Brun run GND V=V(en_l,GND)>0.5 & V(uvok,GND)>0.5 & V(ovp,GND)<0.5 & V(hic,GND)<0.5
 +  & (time>0 | {DCRUN}>0.5)
 

@@ -38,6 +38,9 @@ Vclr clr 0 0
 .meas tran t_rec   find time when V(out)=40 rise=last
 .meas tran fltmax  max V(x1:xu:flt)
 .meas tran vout_end avg V(out) from 155m to 160m
+.meas tran vgs_pk  max V(x1:g,out) from 62m to 64m
+.save V(x1:xu:uvraw)
+.meas tran v_rec   find V(vbat) when V(x1:xu:uvraw)=0.5 fall=1
 .tran 0 160m 0 10u
 .options plotwinsize=0
 .end

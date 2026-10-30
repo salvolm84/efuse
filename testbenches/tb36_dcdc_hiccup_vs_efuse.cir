@@ -1,0 +1,120 @@
+* tb36_dcdc_hiccup_vs_efuse.cir
+* ---------------------------------------------------------------------------
+* Debug scenario J4 with the real converter model: "the 12 V rail from the
+* DC/DC browns out repeatedly right after key-on, but no eFuse fault is
+* logged". 48 V battery -> EFUSE48_MOD with a supervised resistor pre-charge
+* (4.7 Ohm, as tb14) -> 700 W 48/12 V DC/DC (DCDC48_12: UVLO 30/26 V,
+* soft-start 5 ms, 470 uF internal) with 4.2 mF of extra bulk capacitance on
+* its input (4.67 mF in total, tau = 22 ms). The 12 V output feeds a 12 V
+* rail without a battery (a zonal 12 V supply derived from 48 V), 0.5 Ohm
+* (28 A, 390 W at 14 V).
+* Supervisor as tb14: hand-over (eFuse on) at V(load) > 95 % VBAT, checkpoint
+* at 1 tau (> 40 %), timeout 100 ms after the start of the pre-charge.
+*   CASE 0  DC/DC EN gated by the pre-charge power-good (5 ms after the
+*           hand-over) -> hand-over at ~66 ms, one clean start, 12 V at 14 V,
+*           ~8.5 A in the eFuse, no fault anywhere
+*   CASE 1  DC/DC EN tied to key-on (own UVLO only): it starts at 30 V on the
+*           pre-charge ramp. 4.7 Ohm delivers at most ~120 W, the soft-start
+*           needs ~400 W: the input falls to the 26 V UVLO, the converter
+*           stops, the input recharges, it restarts -> repeated 12 V brown-outs
+*           every ~10 ms; the bus never reaches 95 %, the timeout aborts the
+*           pre-charge; the eFuse never switches on, so it logs nothing
+*   CASE 2  EN gated as case 0, plus a 12 V load that needs more than the
+*           converter's 55 A current limit at start-up (0.1 Ohm, e.g. a heater
+*           switched on with the key): the output stays below 50 % of VSET in
+*           current limit -> the converter's own hiccup (~1 ms on, 50 ms off).
+*           The 48 V input stays stiff and the eFuse carries only ~6 A
+* Expected: no eFuse fault in any case; cases 1 and 2 are told apart by the
+* DC/DC input voltage (sawtooth 26..30 V vs a stiff 48 V) and the period.
+* ---------------------------------------------------------------------------
+.include ../models/VNF1048F_beh.lib
+.include ../models/DCDC48_12_beh.lib
+.param CASE=0 RPRE=4.7 T0=1m TCHK={RPRE*4.67m} TTO=100m
+
+Vbat bat 0 48
+Rbat bat b1 10m
+Lbat b1 vbat 1u
+Dtvs 0 vbat EF_TVS58V
+Cbus vbat 0 100u Rser=30m
+
+X1 vbat out 0 en byp clr diag cs tfet EFUSE48_MOD RSENSE=1m OVC_CODE=13 HSC_CODE=12
++ VDS_CODE=14 TNOM_CODE=0
+
+* pre-charge path
+Spre vbat pc pact 0 SPRE
+.model SPRE SW(Ron=50m Roff=10Meg Vt=0.5 Vh=-0.2)
+Rpre pc out {RPRE}
+
+* DC/DC input: harness, bulk capacitance, bleeder (eFuse OUT bias current)
+Lh out o1 1u
+Rh o1 load 10m
+Cblk load 0 4.2m Rser=10m
+Rbl load 0 4.7k
+Dfw 0 out EF_SCH100V
+Xdc load v12 0 dcen pgdc DCDC48_12
+
+* 12 V rail without a battery
+Rl12 v12 0 0.5
+Rhv v12 0 {if(CASE==2, 0.1, 1G)}
+
+* DC/DC enable: key-on (CASE 1) or the pre-charge power-good + 5 ms
+Bdcen dcen_i 0 V=3.3*if({CASE}==1, 1, V(pgd5))
+Rdcen dcen_i dcen 1k
+Cdcen dcen 0 1n
+
+* ---- pre-charge supervisor (MCU), comparator inputs RC-filtered (20 us)
+Rfb vbat vbf 2k
+Cfb vbf 0 10n
+Rfl load vlf 2k
+Cfl vlf 0 10n
+Bpact pact 0 V=(time>{T0}) & !(V(abort)>0.5) & !(V(pgd)>0.5)
+Bpgs pgs 0 V=(V(pact)>0.5) & (V(vlf)>0.95*V(vbf))
+Xpg pgs 0 pg 0 EF_LATCH
+Xpgd pg pgd 0 EF_DGL T=2m
+Xpg5 pg pgd5 0 EF_DGL T=5m
+Babs abs 0 V=(time>{T0}) & !(V(pg)>0.5) & ( ((time>{T0+TCHK}) & (V(vlf)<0.4*V(vbf)))
++  | (time>{T0+TTO}) )
+Xab abs 0 abort 0 EF_LATCH
+Ben en 0 V=3.3*V(pg)
+Vbyp byp 0 0
+Vclr clr 0 0
+
+.save V(vbat) V(out) V(load) V(v12) V(pact) V(pg) V(abort) V(dcen) V(pgdc) I(Rpre) I(Lh)
+.save V(x1:drn) V(x1:xu:gcmd) V(x1:xu:hsht) V(x1:xu:flt) V(diag)
+.save V(xdc:run) V(xdc:il) V(xdc:hic) V(xdc:uvok)
+* supervisor and eFuse
+.meas tran t_pg   find time when V(pg)=0.5 rise=1
+.meas tran t_ab   find time when V(abort)=0.5 rise=1
+.meas tran dt_ab  param t_ab-T0
+.meas tran fltmax max V(x1:xu:flt)
+.meas tran gcmax  max V(x1:xu:gcmd)
+.meas tran diagmin min V(diag) from 2m to 200m
+* converter starts and stops
+.meas tran t_run1 find time when V(xdc:run)=0.5 rise=1
+.meas tran t_off1 find time when V(xdc:run)=0.5 fall=1
+.meas tran t_run2 find time when V(xdc:run)=0.5 rise=2
+.meas tran t_run3 find time when V(xdc:run)=0.5 rise=3
+.meas tran t_runl find time when V(xdc:run)=0.5 rise=last
+.meas tran v12_run2 find V(v12) when V(xdc:run)=0.5 rise=2
+.meas tran vin_run1 find V(load) when V(xdc:run)=0.5 rise=1
+.meas tran vin_off1 find V(load) when V(xdc:run)=0.5 fall=1
+.meas tran v12_pk1 max V(v12) from 0 to 60m
+.meas tran vin_lo min V(load) from 20m to 100m
+.meas tran vin_hi max V(load) from 20m to 100m
+.meas tran t_pgdc find time when V(pgdc)=1.65 rise=1
+* converter hiccup (output side)
+.meas tran t_hic  find time when V(xdc:hic)=0.5 rise=1
+* (CASES 0 and 2 start the converter at the same time, 71.7 ms; CASE 2 is in
+*  current limit from ~73.2 ms until the hiccup at ~74.2 ms)
+.meas tran v12_lim avg V(v12) from 73.5m to 74m
+.meas tran il_lim avg V(xdc:il) from 73.5m to 74m
+.meas tran ief_hic find I(Lh) when V(xdc:hic)=0.5 rise=1
+.meas tran vinmin2 min V(load) from 75m to 200m
+* end state
+.meas tran v12_end avg V(v12) from 190m to 200m
+.meas tran ief_end avg I(Lh) from 190m to 200m
+.meas tran vld_end avg V(load) from 190m to 200m
+.step param CASE list 0 1 2
+.tran 0 200m 0 5u
+.options plotwinsize=0
+.end

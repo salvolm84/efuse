@@ -36,6 +36,7 @@ Vclr clr 0 PWL(0 0 14 0 14.001 3.3 14.01 3.3 14.011 0)
 .meas tran tc_clr find V(x1:tcf) at 14
 .meas tran vout_end avg V(out) from 19 to 20
 .meas tran fdmax  max V(x1:xu:fd)
+.meas tran t_ot2  find time when V(x1:xu:ntcovt)=0.5 rise=2
 .tran 0 20 0 1m
 .options plotwinsize=0
 .end

@@ -362,7 +362,7 @@ def tb14():
 
 
 # ---------------------------------------------------------------------------
-# Interview companion benches (tb15..tb35) and post-processed figures (iv_*).
+# Interview companion benches (tb15..tb36) and post-processed figures (iv_*).
 # See interview/pdn_48v_12v_interview_guide.md.
 # ---------------------------------------------------------------------------
 def ifet(r, k=0, pre="x1:"):
@@ -755,6 +755,35 @@ def tb35():
     finish(fig, ax, "time [s]", "tb35_field_return.png")
 
 
+def tb36():
+    r = raw("tb36_dcdc_hiccup_vs_efuse")
+    m = meas_log(os.path.join(TB, "tb36_dcdc_hiccup_vs_efuse.log"))
+    labs = ["DC/DC EN gated by pre-charge PG", "DC/DC EN at key-on (own UVLO only)",
+            "EN gated + 12 V load above ILIM (0.1 Ohm)"]
+    fig, ax = panels(4, "tb36 - debug J4: pre-charge (4.7 Ohm, 4.67 mF) into the DCDC48_12, 12 V rail without battery")
+    for k, lab in enumerate(labs):
+        t = r.get("time", k) * 1e3
+        run = r.get("V(xdc:run)", k)
+        n = int(np.sum((run[1:] > 0.5) & (run[:-1] <= 0.5)))
+        z = 3 if k == 0 else 2  # case 0 on top where the traces coincide
+        plot(ax[0], t, r.get("V(load)", k), lab, k, zorder=z)
+        plot(ax[1], t, r.get("V(v12)", k), f"{lab}: {n} start(s)", k, zorder=z)
+        plot(ax[2], t, r.get("I(Lh)", k) + r.get("I(Rpre)", k), lab, k, zorder=z)
+        plot(ax[3], t, run * (1 - 0.05 * k), f"DC/DC running, {lab}", k, zorder=z)
+    for y in (26, 30):
+        ax[0].axhline(y, color=INK2, ls="--", lw=0.8)
+    ax[0].text(130, 31.5, "DC/DC UVLO 30 / 26 V", color=INK2, fontsize=8)
+    for a in ax:
+        a.axvline(101, color=INK2, lw=0.8, ls=":")
+    ax[0].text(102, 8, "pre-charge timeout", color=INK2, fontsize=8)
+    nflt = sum(1 for v in m["fltmax"] if v > 0.5)
+    ax[3].text(110, 0.45, f"eFuse latched faults: {nflt} of 3 cases", color=INK2, fontsize=8)
+    ax[0].set_ylabel("DC/DC input [V]"); ax[1].set_ylabel("12 V rail [V]")
+    ax[2].set_ylabel("48 V feed (eFuse +\npre-charge) [A]"); ax[2].set_ylim(-1, 20)
+    ax[3].set_ylabel("logic"); ax[3].set_yticks([0, 1]); ax[3].set_yticklabels(["off", "run"])
+    finish(fig, ax, "time [ms]", "tb36_dcdc_hiccup_vs_efuse.png")
+
+
 def iv_b2():
     """Time scales of the protection layers: datasheet ranges and simulated trips."""
     g = lambda tb, key, k=0: meas_log(os.path.join(TB, tb + ".log"))[key][k]
@@ -1131,7 +1160,7 @@ ALL = dict(tb01=tb01, tb02=tb02, tb03=tb03, tb04=tb04, tb05=tb05, tb06=tb06,
            tb13=tb13, tb14=tb14, tb15=tb15, tb16=tb16, tb17=tb17, tb18=tb18, tb19=tb19,
            tb20=tb20, tb21=tb21, tb22=tb22, tb23=tb23, tb24=tb24, tb25=tb25, tb26=tb26,
            tb27=tb27, tb28=tb28, tb29=tb29, tb30=tb30, tb31=tb31, tb32=tb32, tb33=tb33,
-           tb34=tb34, tb35=tb35, iv_b2=iv_b2, iv_h2=iv_h2, iv_h4=iv_h4,
+           tb34=tb34, tb35=tb35, tb36=tb36, iv_b2=iv_b2, iv_h2=iv_h2, iv_h4=iv_h4,
            bat01=bat01, bat02=bat02, bat03=bat03, bat04=bat04, bat05=bat05, bat06=bat06, bat07=bat07,
            dc01=dc01, dc02=dc02, dc03=dc03, dc04=dc04, dc05=dc05, dc06=dc06, dc07=dc07, dc08=dc08)
 

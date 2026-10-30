@@ -43,6 +43,7 @@ Vclr clr 0 PWL(0 0 6m 0 6.001m 3.3 6.05m 3.3 6.051m 0 10m 0 10.001m 3.3 10.05m 3
 .meas tran t_trip  find time when V(x1:xu:hsht)=0.5 rise=1
 .meas tran dt_trip param t_trip-3m
 .meas tran ipk1    max I(Lbat) from 3m to 3.1m
+.meas tran ipk_fet max I(Lh) from 3m to 3.1m
 .meas tran vbatpk  max V(vbat) from 3m to 3.2m
 .meas tran voutmin min V(out)  from 3m to 3.2m
 .meas tran vdspk   max V(x1:drn,out) from 3m to 3.2m

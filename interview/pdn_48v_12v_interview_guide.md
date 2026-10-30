@@ -13,9 +13,9 @@ of the network and of its main devices:
 | Topic | Questions |
 |---|---|
 | 48 V system, zonal architecture, standards | A1–A3 |
-| eFuse and PDU: protection, power stage, inrush, thermal, faults, safety, validation | B–H (except C4, C5, D5), I, J1–J5 |
-| Batteries: source impedance, cold crank, pack disconnect (load dump), pack pre-charge | A4, A5, D5, J6 |
-| DC/DC converter: the converter as a load, input-filter stability | C4, C5, J7 |
+| eFuse and PDU: protection, power stage, inrush, thermal, faults, safety, validation | B–H (except C4–C7, D5, H5, H6), I, J1–J5 |
+| Batteries: source impedance, cold crank, pack disconnect (load dump), pack pre-charge, models from datasheets | A4, A5, D5, H5, J6 |
+| DC/DC converter: the converter as a load, input-filter stability, pre-biased start, 12 V-side protection, models from datasheets | C4–C7, H6, J4, J7 |
 
 Pick the questions that match the role: a PDU designer should cover B–H in
 depth, while a candidate for battery integration or DC/DC work should get the
@@ -32,21 +32,28 @@ battery or converter questions plus the system ones (A, F).
   *follow-ups* to see whether the knowledge goes beyond the first answer. The
   *expected answer* lists the points a strong answer covers. A candidate does
   not need all of them, but should hit the core ones without prompting.
-* **Red flags.** Each block lists answers that show a real gap, as opposed to
-  forgotten details.
+* **Red flags.** Each question lists answers that show a real gap, as opposed to
+  forgotten details. (The design exercise in section I has scoring hints
+  instead, the quick-fire table in K has neither.)
 * **Numbers.** The figures in the expected answers are typical orders of magnitude, not
   pass/fail criteria. A candidate who reasons correctly with slightly different numbers is fine.
   Values from standards (ISO 21780, LV 148) should be checked against the
   revision your project uses.
-* **Simulation support.** Every question ends with a **Simulation** block: the test
+* **Simulation support.** Most questions end with a **Simulation** block: the test
   bench that reproduces the concept, its plot, the key simulated numbers, and a
-  prompt for showing the waveform to the candidate. Benches tb01–tb14 are
-  described in the README; tb15–tb35 were written for this guide; bat01–bat07
+  prompt for showing the waveform to the candidate. Where no bench reproduces
+  the topic (G1, C7), the block says so and points to the closest benches. The
+  quick-fire checks in K have no Simulation block: their last column names the
+  bench that shows the number, where one exists. Benches tb01–tb14 are
+  described in the README; tb15–tb36 were written for this guide; bat01–bat07
   (12 V battery, 48 V pack with BMS) are described in
-  [README section 14](../README.md#14-automotive-battery-model) and dc01–dc08 (700 W 48/12 V DC/DC) in
-  [README section 15](../README.md#15-dcdc-converter-model-48-v-to-12-v-700-w). The map below lists them. The numbers come
-  from behavioural models with typical values (see the README, section 11,
-  sections 14.9 and 15.7). Use them to check a candidate's reasoning and orders of
+  [README section 2](../README.md#2-automotive-battery-model), dc01–dc08 (700 W 48/12 V DC/DC) in
+  [README section 3](../README.md#3-dcdc-converter-model-48-v-to-12-v-700-w), and ref01–ref02 (reference
+  parameter sets of real products) in
+  [README 2.11](../README.md#211-reference-parameter-sets-from-public-data) and
+  [3.9](../README.md#39-reference-parameter-set-from-public-data). The map below lists them. The numbers come
+  from behavioural models with typical values (see the README, sections 1.11,
+  2.9 and 3.7). Use them to check a candidate's reasoning and orders of
   magnitude, not as pass/fail limits.
 
 Suggested format, 90–120 min:
@@ -80,6 +87,8 @@ A scoring sheet is at the end.
 | C3 | tb25, bat07 | bus capacitance, TVS and its placement, freewheel; TVS energy at a battery disconnect |
 | C4 | dc01, dc02, dc04, dc05, dc08 | the 48/12 V DC/DC as a channel load: constant power, inrush, UVLO, current limit, 12 V battery |
 | C5 | dc06, dc07 | negative input resistance; harness + input filter stability, damping |
+| C6 | dc03 | start-up into a pre-biased 12 V battery: no reverse current; BIDIR sinking; key-off drain |
+| C7 | tb29, dc04 (no bench for a failed converter) | 48 V onto the 12 V net with and without a battery as clamp; 12 V short: hiccup |
 | D1 | tb26 | hard switch-on vs dV/dt control into 1 mF |
 | D2 | tb27, tb13 | half-energy rule for R = 1…100 Ω |
 | D3 | tb11, tb13, tb28 | dV/dt window, methods, bypass + AUTO-ON |
@@ -96,10 +105,13 @@ A scoring sheet is at the end.
 | H2 | tb02 (post-processed) | probe bandwidth, saturation and skew |
 | H3 | tb18 | trip delay vs set-up inductance |
 | H4 | tb03, tb16 (post-processed) | wire damage curve vs fuse curve with tolerance |
+| H5 | ref01 | battery and pack sets fitted to datasheet / paper data, re-running the published tests |
+| H6 | ref02 | DC/DC set fitted to one published efficiency figure and the input range |
 | I | tb33 | the design exercise, simulated |
 | J1 | tb34 | cold start-up: which protection fired |
 | J2 | tb25 | controller over-stress while the FET survives |
-| J3, J4 | tb04, tb14 | PWM RMS trip; DC/DC hiccup without an eFuse fault |
+| J3 | tb04 | PWM RMS trip |
+| J4 | tb36 (tb14 case 3) | DCDC48_12 behind a resistor pre-charge: UVLO hiccup vs the converter's own output hiccup, no eFuse fault |
 | J6 | bat04 | 12 V crank at +25 / −18 / −30 °C, CCA test |
 | J7 | dc07 | DC/DC input oscillating on a long feed with ceramic-only input capacitance |
 
@@ -218,6 +230,10 @@ voltage profile) and [`tb25`](../testbenches/tb25_supply_clamp.cir) (the follow-
   own short-circuit protection (BMS, pyrofuse). Its threshold and delay must sit
   above anything a branch short makes it see. Most of a branch short's first
   microseconds come from the bus capacitance, not from the pack.
+
+**Red flags:** says the eFuse protects the load; has no notion of selectivity;
+forgets the pack's own short-circuit protection upstream; sees the PDU only as a
+relay replacement.
 
 **Simulation:** [`tb10`](../testbenches/tb10_zonal_system.cir), two channels on one bus, short on channel 2.
 
@@ -412,6 +428,9 @@ an instantaneous current threshold.
   at 48 V means VDS × I = kW in the FET. Most 48 V eFuses switch off and latch, and
   the MCU decides about a retry.
 
+**Red flags:** knows only "an overcurrent threshold"; would put the hard-short
+detection in firmware; cannot say why the VDS monitor needs blanking.
+
 **Simulation:** time scales collected from tb02, tb03, tb05 and tb07, and
 [`tb17`](../testbenches/tb17_latch_vs_limit.cir) for the latch-off follow-up.
 
@@ -518,6 +537,9 @@ speed) and [`tb25`](../testbenches/tb25_supply_clamp.cir) (where the energy goes
 * "Where do you place the shunt?" Before the FET (high side), with Kelvin traces
   routed as a pair and away from the high-current path.
 
+**Red flags:** uses uncompensated RDS(on) sensing for an accurate I²t; ignores
+the amplifier offset at low current; no Kelvin connection.
+
 **Simulation:** [`tb20`](../testbenches/tb20_sense_error.cir), fixed settings (VOC 21.8 mV, ideal
 curve) with the sensed resistance off by −10 … +20 %, 40 A overload.
 
@@ -555,6 +577,10 @@ curve) with the sensed resistance off by −10 … +20 %, 40 A overload.
 * "Standby?" The charge pump consumes mA. In sleep mode, use a low-current bypass or turn
   off the pump (quiescent-current budget).
 
+**Red flags:** proposes a bootstrap for a static high-side switch; no VGS
+clamp; does not see that a slow turn-on network also slows the turn-off unless
+there is a separate fast path.
+
 **Simulation:** [`tb06`](../testbenches/tb06_supply_transients.cir) (charge pump vs
 VS), [`tb19`](../testbenches/tb19_turnoff_speed.cir) (fast turn-off path) and
 [`tb08`](../testbenches/tb08_standby_autoon.cir) (stand-by).
@@ -591,6 +617,10 @@ VS), [`tb19`](../testbenches/tb19_turnoff_speed.cir) (fast turn-off path) and
   hot Tj, or make the freewheel carry 10 A peak for a few ms (tb09).
 * "What about the harness inductance of a resistive load?" µH × hundreds of A in a
   short gives mJ, so a freewheel or TVS is still needed.
+
+**Red flags:** assumes the current stops when the FET opens; adds a freewheel
+diode without checking its surge current; ignores the OUT pin's negative
+voltage rating.
 
 **Simulation:** [`tb09`](../testbenches/tb09_inductive_turnoff.cir) and
 [`tb21`](../testbenches/tb21_inductive_clamp.cir), 2 mH / 10 A switched off, three demagnetization paths.
@@ -683,6 +713,9 @@ VS), [`tb19`](../testbenches/tb19_turnoff_speed.cir) (fast turn-off path) and
   the FET is off. Either keep the FET on (synchronous) or block it, and protect the
   bus from over-voltage.
 
+**Red flags:** thinks an off FET blocks in both directions; does not know the
+body diode conducts; expects the current sense to report reverse current.
+
 **Simulation:** [`tb24`](../testbenches/tb24_back_to_back.cir), a back-driven motor (55 V EMF) on a
 single-FET channel and on a back-to-back channel.
 
@@ -719,6 +752,10 @@ single-FET channel and on a back-to-back channel.
   disconnect with the generator running. Then the TVS carries the generator's
   excess current until it has stopped (A5, bat07: 38 A at 70 V, for several
   ms).
+
+**Red flags:** picks the TVS by its breakdown voltage instead of its clamping
+voltage at the peak current; standoff below the maximum operating voltage;
+places the TVS without regard to loop inductance.
 
 **Simulation:** [`tb25`](../testbenches/tb25_supply_clamp.cir), the tb02 short (≈340 A interrupted)
 with the input protection varied.
@@ -843,6 +880,135 @@ and [`dc07`](../testbenches/dc07_input_filter_stability.cir) (three input set-up
   the ceramic C, undamped by the negative input resistance. Add an R–C damper,
   or an electrolytic with ESR.
 
+### C6. The DC/DC is enabled while the 12 V battery is already connected. What must the converter do at start-up, and at key-off? (L2)
+
+**Expected answer**
+* The output is **pre-biased** at the battery voltage (≈ 11.8–12.9 V). A
+  synchronous buck that soft-starts its reference from 0 V and allows negative
+  inductor current pulls the output down towards the reference: it discharges
+  the battery and pushes the energy back into the 48 V input.
+* The soft-start must be pre-bias safe: no negative current (diode emulation)
+  until the reference passes the output voltage, or a reference that starts
+  at the measured output voltage.
+* Once the reference passes the battery voltage, the battery looks like a very
+  large capacitor: a few hundred mV above its OCV already ask for more than the
+  current limit. The converter goes straight into current limit and charges the
+  battery. The 48 V channel sees a step to nearly full input power at the end of
+  the soft-start, not a gentle ramp.
+* A power-good based on VOUT alone means nothing here: the battery holds VOUT
+  above 90 % before the converter has done anything.
+* A **bidirectional** converter (12 V → 48 V support, or pack pre-charge from
+  12 V) sinks by design. The direction then has to be commanded, and a
+  soft-start from 0 V discharges the 12 V battery at the full current limit
+  for the whole ramp.
+* **Key-off:** the converter stays on the battery for weeks. Its output-side
+  leakage (feedback divider, driver supply, power stage) has to be in the
+  100 µA class: 100 µA is ~2.4 Ah in 1000 h, 10 mA would be 7 Ah in a month.
+
+**Follow-ups**
+* "How do you see in the lab that a start is not pre-bias safe?" Current probes
+  on the 12 V battery and on the 48 V input at EN: a battery discharge pulse, or
+  an input current that goes negative, during the soft-start.
+* "What does the 48 V channel see at that moment?" A step to about full power
+  (~15 A at 48 V for 700 W) within a few hundred µs. Harmless for the I²t, but
+  it is the moment a resistor pre-charge or a weak feed collapses (J4).
+* "Where else does the key-off budget go?" The eFuse OUT bias current, the BMS,
+  every ECU on the 12 V net. The converter is one line of the vehicle's
+  quiescent-current budget.
+
+**Red flags:** assumes the converter "starts from zero" whatever is on its
+output; has never heard of a pre-biased start or diode emulation; treats the
+converter's key-off current as irrelevant.
+
+**Simulation:** [`dc03`](../testbenches/dc03_startup.cir), 700 W DC/DC, EN at
+1 ms, four outputs: 2 Ω load; 12 V battery (SOC 50 %, OCV 12.44 V); BIDIR=1
+with the output pulled to 14.5 V; EN low with a battery on the output (key-off).
+
+![dc03](../docs/img/dc03_startup.png)
+
+* 2 Ω load: the output follows the 5 ms ramp and reaches 95 % <!--v {(m('dc03_startup','ta95')-1e-3)*1e3:.2f}-->4.75<!--/v--> ms after EN.
+* Battery on the output: the inductor current never goes below <!--v {m('dc03_startup','ilb_min'):.0f}-->0<!--/v--> A, and the
+  input current stays positive (minimum <!--v {m('dc03_startup','iinb_min')*1e3:.2f}-->1.05<!--/v--> mA, the converter's own supply).
+  The converter starts delivering <!--v {(m('dc03_startup','tb_on')-1e-3)*1e3:.2f}-->4.32<!--/v--> ms after EN, as the reference approaches
+  the battery voltage (5 ms × 12.44/14 ≈ 4.4 ms), and then charges the battery
+  at <!--v {m('dc03_startup','ilb_end'):.0f}-->55<!--/v--> A, its current limit.
+* BIDIR=1: the converter holds 14 V by sinking <!--v {-m('dc03_startup','ilc_end'):.1f}-->9.9<!--/v--> A and returns <!--v {-m('dc03_startup','iinc_end'):.1f}-->2.7<!--/v--> A to the
+  48 V input. During the soft-start, with the reference below 14.5 V, it sinks
+  at its full negative current limit (third panel).
+* Key-off: the battery supplies only <!--v {m('dc03_startup','ibd_off')*1e3:.2f}-->0.10<!--/v--> mA to the converter.
+* *Show the second panel and ask:* "Why is the current zero for 4 ms and then
+  jumps to the limit without a ramp?" Expected: diode emulation blocks the
+  reverse current until the reference exceeds the battery voltage. Above it the
+  battery's mΩ impedance turns any voltage difference into more current than
+  the limit.
+
+### C7. The DC/DC's high-side switch fails short. What protects the 12 V net? (L2–L3)
+
+**Expected answer**
+* A shorted high-side switch connects 48 V to the 12 V net through the output
+  inductor. The regulation has lost control. Something outside the control
+  loop has to **clamp** the 12 V net, and something has to **interrupt** the
+  48 V source.
+* **With the 12 V battery connected**, the battery is the clamp: a few mΩ that
+  hold the net near its voltage while hundreds of amperes flow. That current
+  trips the 48 V channel feeding the converter (HSC) within µs. The 12 V net
+  still sees tens of volts for ~0.1 ms.
+* **Without a battery** nothing clamps: a battery-less zonal 12 V branch, a
+  battery disconnected at its terminal, a 12 V Li-ion battery whose BMS has
+  opened, a blown battery fuse. The 12 V net rises towards 48 V while the 48 V
+  channel carries only the 12 V loads' current, below INOM: no trip.
+* So the protection must not rely on the battery:
+  * an output over-voltage detection independent of the regulator, which opens
+    a second, series element (an input disconnect FET, or the feeding eFuse
+    through a fault line);
+  * or a crowbar that shorts the output on purpose and lets the 48 V eFuse
+    trip;
+  * a latched reaction, fast enough for the 12 V ECUs' over-voltage rating.
+* A 12 V TVS is not the answer: it would have to absorb the full current of the
+  48 V source until something upstream opens.
+* The opposite fault, a **12 V short**: the converter limits at ~1.1 × rated
+  and hiccups, so its average current is small. The short current comes from
+  the 12 V battery (kA), so the 12 V fuses and eFuses are sized by the battery.
+  On a battery-less branch a 12 V fuse may never blow: the whole branch drops
+  instead of the faulty load alone.
+* Often a functional-safety topic: 12 V steering or brake ECUs see the
+  over-voltage.
+
+**Follow-ups**
+* "Your 12 V battery is Li-ion with its own BMS. What changes?" Its BMS may
+  open on the over-voltage or the charge current. The clamp disappears in the
+  middle of the fault, and it becomes the battery-less case.
+* "What do you write into the DC/DC specification?" Output OVP independent of
+  the control loop, the disconnect element, the reaction time, latched
+  behaviour, a fault signal to the PDU, and the 12 V ECUs' rating it protects.
+* "How fast must the 48 V side open?" Faster than the 12 V ECUs' over-voltage
+  withstand time. The first tens of µs are limited only by the 12 V capacitance
+  and the battery, whatever the detection does.
+
+**Red flags:** expects the converter's regulation or current limit to handle its
+own failure; assumes the 12 V battery is always there; relies on the 12 V fuses
+for a fault fed from 48 V.
+
+**Simulation:** no bench reproduces a converter failure: DCDC48_12 has no
+failure modes and no output OVP. The closest benches are
+[`tb29`](../testbenches/tb29_cross_short.cir) (a 48 V wire on the 12 V net is
+electrically the same as a shorted high-side switch: 48 V through an inductance
+onto the 12 V net; plot and table in F1) and
+[`dc04`](../testbenches/dc04_short_overload.cir) for the 12 V short.
+
+* Near the 12 V battery (tb29 case 0) the battery clamps: the 12 V node peaks
+  at <!--v {m('tb29_cross_short','v12max'):.1f}-->33.4<!--/v--> V and stays above 16 V for <!--v {m('tb29_cross_short','dt16')*1e3:.2f}-->0.13<!--/v--> ms; the 48 V eFuse trips on HSC
+  after <!--v {m('tb29_cross_short','dt_hsc')*1e6:.1f}-->16.5<!--/v--> µs.
+* On a branch fed only by the DC/DC (case 1) the 12 V node settles at
+  <!--v {m('tb29_cross_short','v12end',1):.1f}-->47.5<!--/v--> V and the eFuse carries <!--v {m('tb29_cross_short','ifuse',1):.1f}-->17.8<!--/v--> A: no trip. A 12 V over-voltage monitor that
+  switches the 48 V channel off (case 2) still lets the node reach <!--v {m('tb29_cross_short','v12max',2):.1f}-->41.6<!--/v--> V.
+* dc04, 12 V output shorted: the converter limits at <!--v {m('dc04_short_overload','ia_sc'):.0f}-->55<!--/v--> A, hiccups after
+  <!--v {m('dc04_short_overload','dt_off1')*1e3:.1f}-->1.0<!--/v--> ms and retries every <!--v {m('dc04_short_overload','dt_period')*1e3:.0f}-->51<!--/v--> ms. The average output current in the hiccup
+  is <!--v {m('dc04_short_overload','ia_avg'):.1f}-->1.2<!--/v--> A, which no 12 V fuse sized for the normal load will notice.
+* *Ask, on tb29 case 1:* "Which component would you add, and where?" Expected:
+  a 12 V-side over-voltage detection acting on the 48 V feed, or a series
+  disconnect in the converter. Only the 12 V side can see this fault.
+
 ---
 
 ## D. Inrush and capacitive-load pre-charge
@@ -854,6 +1020,16 @@ and [`dc07`](../testbenches/dc07_input_filter_stability.cir) (three input set-up
   1.5 kA). It trips the HSC, stresses the FET, dips the bus and stresses the capacitor
   (ripple current, ESR heating).
 * The eFuse cannot tell this from a short, so the turn-on has to be controlled.
+
+**Follow-ups**
+* "Why not simply raise the HSC threshold?" The FET then has to carry the full
+  inrush, the bus dips for every start, and a real short below the new threshold
+  is no longer caught fast.
+* "What sets the peak if nothing limits it?" The loop: V/R_loop if
+  resistance-limited, ≈ V/√(L/C) if the loop inductance dominates.
+
+**Red flags:** thinks the capacitor's ESR or the wire resistance makes it
+harmless; would filter or blank the HSC to let the inrush through.
 
 **Simulation:** [`tb26`](../testbenches/tb26_hard_turn_on.cir), switching on 1 mF.
 
@@ -922,6 +1098,11 @@ and [`dc07`](../testbenches/dc07_input_filter_stability.cir) (three input set-up
   is rated for ~100 mA. On parts with AUTO-ON (VNF1048F), bypass saturation turns
   the main FET on immediately.
 
+**Red flags:** uses the dV/dt method without checking the FET SOA or the VDS
+blanking window; thinks a linear constant-current pre-charge avoids the
+half-energy loss; forgets that the pre-charge path bypasses the eFuse
+protection.
+
 **Simulation:** [`tb11`](../testbenches/tb11_precharge_dvdt.cir) (the dV/dt
 window), [`tb13`](../testbenches/tb13_precharge_methods.cir) (methods compared) and
 [`tb28`](../testbenches/tb28_bypass_precharge.cir) (the bypass follow-up).
@@ -958,6 +1139,13 @@ window), [`tb13`](../testbenches/tb13_precharge_methods.cir) (methods compared) 
   time (e.g. 480 W × 22 ms ≈ 10 J vs 4 J nominal).
 * **The pre-charge path bypasses the eFuse protection**: limit its current by design, make
   it fail safe, monitor it, and open it when the main channel trips.
+
+**Follow-ups**
+* "VBAT varies from 36 to 52 V. How do you set the hand-over threshold?"
+  Relative to the measured VBAT (a ratio, as in tb14), not as a fixed voltage.
+* "A load draws current during the pre-charge. What happens?" The load voltage
+  settles at the divider point and the hand-over criterion is never met. The
+  timeout must abort, not hand over anyway (tb14 leaky load; J4, tb36).
 
 **Red flags:** fixed timer only; no fault handling; "the pre-charge resistor
 just needs to handle the peak current."
@@ -1049,6 +1237,9 @@ in the resistor is fixed; uses a timer with no voltage check.
   so it measures the board temperature with a lag, not Tj. That makes it a slow over-temperature
   protection only.
 
+**Red flags:** uses the datasheet Rth_ja for a FET on a PDU board; computes the
+loss with RDS(on) at 25 °C; treats the NTC reading as the junction temperature.
+
 **Simulation:** [`tb23`](../testbenches/tb23_linear_soa.cir) (a transient pulse) and
 [`tb07`](../testbenches/tb07_ntc_overtemp.cir) (slow overheating).
 
@@ -1076,6 +1267,18 @@ in the resistor is fixed; uses a timer with no voltage check.
 * A gate drive loop that is short and close to the FET; the controller ground referenced
   correctly (high di/dt ground shifts).
 * Separation of the 48 V and 12 V domains (creepage/clearance, cross-short risk).
+
+**Follow-ups**
+* "How do you check the TVS loop on a layout?" Estimate ~1 nH per mm of loop
+  and multiply by the di/dt of the interrupted current (tb25: 300 nH adds
+  4.5 V at the VS pin); verify at the pin with a short probe ground.
+* "Where do the power and the controller grounds meet?" At one defined point.
+  The high di/dt return current must not flow through the controller's signal
+  ground.
+
+**Red flags:** connects the Kelvin traces somewhere on the power copper; places
+the TVS "somewhere on the input"; no creepage or clearance between the 48 V and
+12 V domains.
 
 **Simulation:** [`tb25`](../testbenches/tb25_supply_clamp.cir) (TVS loop) and [`tb20`](../testbenches/tb20_sense_error.cir)
 (Kelvin path).
@@ -1106,6 +1309,17 @@ in the resistor is fixed; uses a timer with no voltage check.
 * It is covered by dedicated tests in the 48 V standard (cross-short of the supply
   pins).
 
+**Follow-ups**
+* "Which side detects it, and how fast?" The 12 V side (over-voltage or reverse
+  current). Even then the first microseconds reach tens of volts, so the 12 V
+  ECUs must survive the standard's cross-short test.
+* "Why is the branch fed by the DC/DC worse than the one near the battery?" A
+  buck with diode emulation cannot sink current. Nothing clamps the node, and
+  the 48 V eFuse sees a legal current (see also C7).
+
+**Red flags:** expects the 48 V eFuse to trip in every case; relies on a 12 V
+fuse; ignores the high-impedance case.
+
 **Simulation:** [`tb29`](../testbenches/tb29_cross_short.cir), the 48 V load harness touches a 12 V wire.
 
 ![tb29](../docs/img/tb29_cross_short.png)
@@ -1131,6 +1345,16 @@ in the resistor is fixed; uses a timer with no voltage check.
   logic thresholds.
 * Mitigations: defined ground concept, reverse-current-safe interfaces,
   tested per the standard's ground-loss/offset tests.
+
+**Follow-ups**
+* "The ground of a 48 V load opens and the load has a signal line to the PDU.
+  What fails first?" The signal pin and its ESD diode, which now carry the load
+  return current.
+* "How can the PDU detect a lost load ground?" Under-current against the
+  commanded state, implausible signal levels, OUT voltage vs load current.
+
+**Red flags:** treats the ground as ideal; cannot say where the return current
+goes when the ground opens.
 
 **Simulation:** [`tb30`](../testbenches/tb30_ground_fault.cir), a 10 A load ECU whose ground degrades
 or opens, with a logic signal to the PDU.
@@ -1161,6 +1385,14 @@ or opens, with a logic signal to the PDU.
 * An ISO 26262 topic: single-point vs latent fault metric, diagnostic
   coverage, and a defined safe state.
 
+**Follow-ups**
+* "How often does the stuck-on check have to run?" At every switch-off and at
+  least once per drive cycle (latent fault). Wire overheating takes seconds to
+  minutes, so the secondary disconnect does not need to act in µs.
+* "What can the secondary disconnect be in a zonal PDU?" The upstream eFuse or
+  main switch, a series melting fuse sized for the wire, or a second FET in
+  series.
+
 **Red flags:** "the FET won't fail"; no notion of a secondary disconnect.
 
 **Simulation:** [`tb35`](../testbenches/tb35_field_return.cir), case "FET shorted at 1 s" (plot in J5).
@@ -1189,6 +1421,17 @@ or opens, with a logic signal to the PDU.
 * "Fail-safe off" vs "fail-operational" (redundant supply paths for
   steer-by-wire or brake-by-wire).
 
+**Follow-ups**
+* "What is the safe state of a channel feeding a brake-by-wire ECU?" Not
+  necessarily "off": loss of supply can be the hazard. Then redundant feeds and
+  fail-operational behaviour.
+* "What sets the fault-tolerant time interval?" The hazard: seconds for wire
+  overheating, milliseconds for the supply of a safety-relevant ECU.
+
+**Red flags:** says ISO 26262 does not apply to power distribution; equates the
+safe state with "off" for every load; cannot name a latent fault of the
+channel.
+
 **Simulation:** not a simulation topic as such, but the benches give the numbers a
 safety concept needs:
 * reaction times for the fault-tolerant time interval: hardware HSC 8 µs (tb02),
@@ -1206,6 +1449,16 @@ safety concept needs:
 * Capacitive load: a retry after a VDS trip may succeed because the cap is partly charged,
   but that is a design smell.
 * Report to the vehicle network, store a DTC, and support load shedding.
+
+**Follow-ups**
+* "How many retries into a short, and how far apart?" A few (e.g. 3), spaced so
+  that the FET cools down, within an energy budget; then latch until the next
+  drive cycle.
+* "Who decides the retry, the eFuse or the MCU?" The MCU, with the hardware
+  latch as the default if the MCU does nothing.
+
+**Red flags:** unlimited automatic retries into a short; retries an I²t trip
+immediately; resets the retry counter at every power cycle.
 
 **Simulation:** [`tb31`](../testbenches/tb31_retry.cir), retries into a permanent short and into a
 persistent overload.
@@ -1233,6 +1486,17 @@ persistent overload.
   (watchdog, limp-home defaults).
 * Configuration integrity: register read-back, CRC/SPI frame checking, locked
   configuration.
+
+**Follow-ups**
+* "The SPI link to the eFuse fails. What does the channel do?" It keeps its
+  hardware protections and a defined default configuration (limp-home); the
+  watchdog brings the system to a defined state.
+* "Can the I²t live in firmware only?" Only with a hardware backup for an MCU
+  failure, and with sampling fast enough for large overloads (trip times of a
+  few ms at x ≫ 1).
+
+**Red flags:** short-circuit detection in firmware; no plan for an MCU reset or
+a corrupted configuration.
 
 **Simulation:** [`tb32`](../testbenches/tb32_hw_vs_fw.cir), the same short handled by the HSC, by the
 VDS monitor alone, and by "firmware" (CS readback + 1 ms task).
@@ -1291,6 +1555,10 @@ VDS monitor alone, and by "firmware" (CS readback + 1 ms task).
   battery/supply impedance. A lab supply with output capacitors behaves differently from a
   battery.
 
+**Red flags:** a list of tests without structure or traceability; validates the
+short-circuit protection with a lab supply only; no temperature or tolerance
+corners.
+
 **Simulation:** the benches map onto the plan. I²t characterization at several
 x is tb03, repeated pulses and thermal memory tb16, PWM tb04, a realistic short
 with harness inductance tb18, 48 V supply profile tb06, and fault injection
@@ -1313,6 +1581,15 @@ source.
   limit and output capacitors distorting the result; a missing harness inductance
   (too optimistic); triggering on the right event; sampling rate.
 * Record VBAT, OUT, VGS, VDS, I_FET and DIAG together, and calculate the FET energy (∫VDS·I dt).
+
+**Follow-ups**
+* "How do you check the skew before the test?" A fast edge into a resistive load
+  seen by both probes, or a deskew fixture; align the channels on it.
+* "Which sample rate for a 10 µs event?" At least ~100 MS/s, so that the edges
+  have tens of points per microsecond.
+
+**Red flags:** uses a clamp meter for a microsecond short; a long ground lead
+on a high-side node; never checks the probe for saturation.
 
 **Simulation:** the tb02 waveforms seen through probe models (post-processing,
 `iv_h2` in [`tools/plot_results.py`](../tools/plot_results.py)).
@@ -1339,6 +1616,15 @@ source.
 * Then decide whether the model or the test setup has to be corrected, and document the
   correlation.
 
+**Follow-ups**
+* "Do you correct the model or the set-up?" Whichever does not represent the
+  vehicle. A model fitted to an unrealistic set-up is wrong for the car.
+* "How do you keep the correlation valid?" Record the set-up inductance and the
+  source impedance in the test report, and re-correlate after hardware changes.
+
+**Red flags:** tunes model parameters until the curves match without finding
+the cause; ignores the set-up inductance.
+
 **Simulation:** [`tb18`](../testbenches/tb18_short_di_dt.cir) (table in B3). Only the load-harness
 inductance changes, and the HSHT latch moves from <!--v {m('tb18_short_di_dt','dt_trip',1)*1e6:.1f}-->8.1<!--/v--> µs (1 µH) to <!--v {m('tb18_short_di_dt','dt_trip',3)*1e6:.1f}-->17.5<!--/v--> µs (5 µH)
 while the peak falls from <!--v {m('tb18_short_di_dt','ipk',1):.0f}-->342<!--/v--> A to <!--v {m('tb18_short_di_dt','ipk',3):.0f}-->175<!--/v--> A. A bench set-up with ~4 µH instead of
@@ -1357,6 +1643,17 @@ controller at all.
   its tolerance.
 * Include the thermal-memory cases: repeated overloads, retries.
 
+**Follow-ups**
+* "The wire runs in a bundle at 85 °C. What changes?" A lower current rating:
+  the damage curve moves to lower currents. The derating comes from the harness
+  supplier.
+* "Which edge of the tolerance band do you compare?" The one that trips
+  latest (sense reading low, threshold high, time tolerance long). It must stay
+  below the wire curve.
+
+**Red flags:** verifies at room temperature on a single free wire; compares
+nominal curves only.
+
 **Simulation:** wire curve vs fuse curve (`iv_h4`, illustrative wire) and
 [`tb16`](../testbenches/tb16_thermal_memory.cir) (wire temperature under repeated overloads).
 
@@ -1370,6 +1667,115 @@ controller at all.
   curve, decides.
 * *Ask:* "Which data do you need from the harness supplier to draw the red
   curve?"
+
+### H5. You need a model of a specific 12 V battery or 48 V pack, and you have only its datasheet. What does it give you, and what not? (L2–L3)
+
+**Expected answer**
+* A 12 V starter-battery datasheet gives the nominal voltage, the capacity at
+  the 20 h rate (C/20), the cold cranking current (EN 50342-1: −18 °C, full
+  charge, ≥ 7.5 V after 10 s; SAE J537: 7.2 V after 30 s), the reserve
+  capacity, sometimes an internal resistance. A 48 V pack datasheet (or paper)
+  gives the cell count and chemistry, the capacity, an ohmic resistance and the
+  operating window.
+* It does not give the OCV-vs-SOC curve, the polarization (ms and s time
+  constants), the temperature and SOC dependence of the resistance, the
+  inductance, the behaviour at partial charge, or aging.
+* The CCA rating is one point. It fixes the *total* resistance at −18 °C,
+  roughly (OCV − 7.5 V)/I_CCA ≈ (12.9 − 7.5)/760 ≈ 7 mΩ, ohmic part plus the
+  polarization built up in 10 s. The split between them is an estimate.
+* A battery fitted to "just meet" its rating is a **weak** battery: right for
+  dips and cold-crank margins, wrong for short-circuit sizing. A new, warm
+  battery is stronger (A4).
+* Method: mark every parameter as published, fitted or estimated; re-run the
+  datasheet test in simulation; check the sensitivity to the estimated
+  parameters that matter for the question (a 10 µs short: R0 and L; a crank:
+  the resistance at −18 °C; an overnight drain: capacity and OCV).
+
+**Follow-ups**
+* "Which test would you ask the supplier for?" Current pulses at several SOC
+  and temperatures for R0, R1, R2 and their time constants; an impedance
+  spectrum for |Z(f)| and the inductance.
+* "Is the CCA the battery's short-circuit current?" No. It is a test current to
+  a pass voltage. The short current is OCV/R0, several kA (bat05).
+
+**Red flags:** takes the CCA as the short-circuit current; uses one resistance
+for every temperature; fits parameters and never re-runs the datasheet test.
+
+**Simulation:** [`ref01`](../testbenches/ref01_reference_sets.cir) re-runs the
+published tests on the reference sets in `models/REFERENCE_SETS_beh.lib`:
+`BAT12_VARTA_E39` (Varta Silver Dynamic AGM E39, 70 Ah, 760 A EN, datasheet)
+and `BAT48_A123_8AH` (A123 48 V 8 Ah pack, SAE 2018-01-0433).
+
+| Check | Published | Simulated |
+|---|---|---|
+| Varta: 760 A, −18 °C, voltage after 10 s | ≥ 7.5 V (EN 50342-1) | <!--v {m('ref01_reference_sets','va1_10'):.2f}-->7.50<!--/v--> V |
+| Varta: 20 h capacity (3.5 A to 10.5 V) | 70 Ah | <!--v {m('ref01_reference_sets','ah_a2')/3600:.1f}-->70.4<!--/v--> Ah |
+| A123: 1C capacity to the 36 V limit | 8 Ah | <!--v {m('ref01_reference_sets','ah_b1')/3600:.2f}-->8.06<!--/v--> Ah |
+| A123: ohmic resistance at 50 % SOC | 8–10 mΩ | <!--v {m('ref01_reference_sets','r0_b2')*1e3:.2f}-->8.96<!--/v--> mΩ |
+
+* The Varta resistances were fitted so that the EN test lands on 7.5 V. The
+  OCV window and the time constants are class estimates; the A123 pack's OCV
+  curve is a generic LiFePO₄ shape.
+* *Ask:* "The model reproduces all four numbers. What has that proven?"
+  Expected: only that the fit is consistent with the points it was fitted to.
+  The millisecond dynamics, partial SOC, the inductance and a strong battery
+  are not covered by any published number.
+
+### H6. A DC/DC supplier gives you one efficiency figure and the input range. How do you build a system model from it, and what is missing? (L2–L3)
+
+**Expected answer**
+* One efficiency point gives the total loss at that point and nothing else:
+  3 kW at 91.3 % is 3000/0.913 − 3000 ≈ 286 W.
+* A system model needs the loss vs load and input voltage: fixed losses
+  (control, gate drive, core), conduction (∝ I²), switching (∝ V_in·I).
+  Separating them takes at least light load, full load and two input voltages.
+  With one point the split is a guess, and so are the light-load efficiency and
+  the stand-by consumption. By hand: with 15 W of fixed loss the model gives
+  ~92 % at 300 W, with 60 W ~81 %, both with 91.3 % at 3 kW.
+* Usually missing from a datasheet or reference guide, but needed at network
+  level:
+  * input capacitance and ESR (eFuse inrush, dV/dt window, input-filter
+    stability);
+  * UVLO and OVP thresholds with hysteresis (start-up hiccup, J4; load dump,
+    C4);
+  * current-limit behaviour: constant current or hiccup, and its timing (C7);
+  * input impedance vs frequency (C5), loop bandwidth, output impedance;
+  * pre-biased start and reverse current (C6), off-state currents;
+  * thermal derating.
+* Validate the fitted model against what is published, then ask the supplier
+  for the rest or measure it.
+
+**Follow-ups**
+* "Which estimated parameter changes your eFuse channel design most?" The input
+  capacitance (inrush, dV/dt window, D3) and the UVLO thresholds (J4).
+* "Why not model the converter as P_in = P_out/η with a constant η?" No fixed
+  losses, so light load and stand-by are wrong, and nothing about UVLO,
+  current limit, capacitance or dynamics.
+* "How do you measure the input impedance?" Inject a small signal on the input
+  (network analyser with an injection transformer, or a modulated electronic
+  load) at minimum input voltage and full load.
+
+**Red flags:** believes one efficiency figure describes the losses everywhere;
+uses a constant-efficiency model for start-up or stability work; does not ask
+for the input capacitance.
+
+**Simulation:** [`ref02`](../testbenches/ref02_reference_dcdc.cir), reference set
+`DCDC_TOSHIBA_RD210` (buck direction of the Toshiba RD210 3 kW 48/12 V
+reference design): loss model fitted to the one published efficiency figure;
+UVLO, OVP, loop and capacitances estimated.
+
+| Check | Published | Simulated |
+|---|---|---|
+| efficiency at 3 kW, 48 → 12 V | 91.3 % | <!--v {100*m('ref02_reference_dcdc','eta_c'):.2f}-->91.26<!--/v--> % |
+| output voltage at 3 kW | 11.85–12.15 V | <!--v {m('ref02_reference_dcdc','vo_c'):.2f}-->12.00<!--/v--> V |
+| regulation at 24 V input | input 24–54 V | <!--v {m('ref02_reference_dcdc','vo_24'):.2f}-->12.00<!--/v--> V; stops at <!--v {m('ref02_reference_dcdc','vin_off'):.1f}-->23.0<!--/v--> V (estimated UVLO) |
+
+* All three match because the published data set the model. The UVLO is an
+  estimate chosen to honour "24 V" in the input range; the real part may stop
+  anywhere below it.
+* *Ask:* "What would you measure before using this model for the J4 start-up
+  problem or the C5 stability check?" Expected: input capacitance and ESR, UVLO
+  thresholds and hysteresis, soft-start time, Z_in(f).
 
 ---
 
@@ -1460,6 +1866,17 @@ candidate has reasoned, not before.
 * **Method**: record VBAT, OUT, I, VGS, DIAG/SPI fault code at −40 °C and identify
   which protection fired first.
 
+**Follow-ups**
+* "How do you reproduce it without cooling the whole vehicle?" Cool the PDU and
+  the DC/DC only, and feed them from a source with the cold battery's
+  resistance.
+* "What is your fix once you know it is the VDS monitor?" Margin between the
+  ramp time at the weakest gate drive and the blanking time, or a separate
+  pre-charge path.
+
+**Red flags:** raises thresholds before finding out which protection fired;
+"it's the battery" without a measurement.
+
 **Simulation:** [`tb34`](../testbenches/tb34_cold_start.cir), dV/dt start-up into a 1 kW DC/DC that
 starts on its own UVLO. The cold parameter shifts are illustrative, not datasheet
 values.
@@ -1491,6 +1908,15 @@ values.
 * Check with probing at the pins (not at the connector), then fix the clamp placement
   or the pin protection.
 
+**Follow-ups**
+* "How do you measure VS during the event?" At the pin, with a short ground
+  spring and enough bandwidth, not at the connector.
+* "What would you change in the test set-up?" Bulk capacitance at the PDU input
+  as in the vehicle, and a defined harness inductance.
+
+**Red flags:** concludes "bad batch" without measuring the pin voltages; checks
+only the FET.
+
 **Simulation:** [`tb25`](../testbenches/tb25_supply_clamp.cir) (table in C3). With 22 µF and no TVS
 the FET survives in avalanche (VDS 100 V) while VS reaches 98.6 V, far beyond
 the controller's 70 V. Without the freewheel diode OUT goes to −57 V (rating
@@ -1505,6 +1931,16 @@ the controller's 70 V. Without the freewheel diode OUT goes to −57 V (rating
   the inrush at each PWM edge (capacitors).
 * Fix: size I_nom for the RMS, or move the filtering/PWM capacitance.
 
+**Follow-ups**
+* "PWM at 100 Hz vs 20 kHz: does the I²t see the same?" The heat balance needs
+  the RMS either way. The sense filter and sampling must not alias, and at low
+  frequency the bucket ripples with each pulse.
+* "Could the fan's input capacitor be involved?" Each PWM edge recharges it.
+  The current spikes add to the RMS.
+
+**Red flags:** argues with the average current; raises INOM above what the wire
+allows.
+
 **Simulation:** [`tb04`](../testbenches/tb04_pwm_rms.cir), 40 A peak PWM.
 
 ![tb04](../docs/img/tb04_pwm_rms.png)
@@ -1516,17 +1952,68 @@ the controller's 70 V. Without the freewheel diode OUT goes to −57 V (rating
 ### J4. "The 12 V rail from the DC/DC browns out repeatedly right after key-on, but no eFuse fault is logged."
 
 **Expected reasoning**
-* A hiccup: the DC/DC starts on its own UVLO while it is pre-charged through a resistor or a slow
-  ramp. The constant-power load collapses the voltage, stops and restarts (tb14 case 3).
-* There is no eFuse fault because no eFuse threshold is crossed.
-* Fix: gate the DC/DC enable with pre-charge power-good, and/or adapt the UVLO
-  hysteresis.
+* "Repeatedly" and "no eFuse fault" point to a converter that stops and
+  restarts by itself while no eFuse threshold is crossed. Two mechanisms fit:
+  * **Input side, UVLO hiccup.** The DC/DC is enabled with key-on and starts
+    on its own UVLO while its input is still being pre-charged through a
+    resistor or a slow ramp. The constant-power load collapses the input to the
+    UVLO-off threshold, the converter stops, the input recharges, it restarts.
+    The pre-charge never completes, so the eFuse never switches on and has
+    nothing to log.
+  * **Output side, the converter's own hiccup.** A 12 V load that needs more
+    than the current limit at start-up (a heater, a large capacitance, a
+    discharged branch) holds the output below the hiccup threshold. The
+    converter switches off for tens of ms and retries. The eFuse carries a few A.
+* They are told apart at the converter input: a 26–30 V sawtooth vs a stiff
+  48 V; and by the period: the pre-charge time constant plus the soft-start,
+  vs the converter's hiccup off-time.
+* With a 12 V battery on the rail, neither case browns out: the battery holds
+  the rail. The symptom belongs to a battery-less 12 V branch, or a battery
+  that is disconnected.
+* Fix: gate the DC/DC enable with the pre-charge power-good. Widening the UVLO
+  hysteresis does not help: a resistor R can deliver at most VBAT²/(4·R) at
+  any voltage, ~120 W for 4.7 Ω, far below the converter's soft-start demand.
+  For the output-side case: sequence the large 12 V loads after the converter's
+  PG.
 
-**Simulation:** [`tb14`](../testbenches/tb14_precharge_faults.cir), case "DC/DC not
-gated by PG" (plot in D4). The DC/DC starts at 30 V on its own UVLO and collapses
-the 4.7 Ω path. It starts and stops 18 times (~0.5 ms on, 4.7 ms period). The
-pre-charge is finally aborted by the timeout, and the eFuse never even switched
-on, so it logged nothing.
+**Follow-ups**
+* "The converter's PG went high during the first start. Why is PG not proof of
+  a good start?" It is a snapshot. In the UVLO hiccup PG is high for a fraction
+  of a millisecond per cycle. Count restarts, or watch the input voltage.
+* "What would a 12 V battery on the rail change?" The rail would hold, and the
+  fault would show only as a battery that does not charge (C4, C6).
+* "Why does the eFuse not even see an overload?" In the UVLO case it is still
+  off; the pre-charge resistor carries everything. In the output-side case the
+  converter limits its own output, so the input power is small.
+
+**Red flags:** searches for an eFuse trip that is not there; raises the eFuse
+thresholds; adds capacitance on the 12 V side; widens the UVLO hysteresis and
+expects it to work.
+
+**Simulation:** [`tb36`](../testbenches/tb36_dcdc_hiccup_vs_efuse.cir), EFUSE48_MOD
+with the tb14 supervised pre-charge (4.7 Ω, hand-over at 95 %, timeout 100 ms)
+feeding the real DCDC48_12 model (700 W, UVLO 30/26 V, 5 ms soft-start) with
+4.67 mF in total on its input. The 12 V rail has no battery and a 0.5 Ω load
+(390 W at 14 V).
+
+![tb36](../docs/img/tb36_dcdc_hiccup_vs_efuse.png)
+
+| case | eFuse | DC/DC | DC/DC input | 12 V rail |
+|---|---|---|---|---|
+| EN gated by the pre-charge PG | hand-over after <!--v {(m('tb36_dcdc_hiccup_vs_efuse','t_pg',0)-1e-3)*1e3:.1f}-->65.7<!--/v--> ms, then <!--v {m('tb36_dcdc_hiccup_vs_efuse','ief_end',0):.1f}-->8.6<!--/v--> A; no fault | one start | <!--v {m('tb36_dcdc_hiccup_vs_efuse','vld_end',0):.1f}-->47.8<!--/v--> V | <!--v {m('tb36_dcdc_hiccup_vs_efuse','v12_end',0):.1f}-->14.0<!--/v--> V |
+| EN at key-on (own UVLO only) | **never switched on**; pre-charge aborted by the timeout after <!--v {m('tb36_dcdc_hiccup_vs_efuse','dt_ab',1)*1e3:.0f}-->100<!--/v--> ms; no fault | starts at <!--v {m('tb36_dcdc_hiccup_vs_efuse','vin_run1',1):.1f}-->30.0<!--/v--> V, stops at <!--v {m('tb36_dcdc_hiccup_vs_efuse','vin_off1',1):.1f}-->26.0<!--/v--> V, restarts every <!--v {(m('tb36_dcdc_hiccup_vs_efuse','t_run2',1)-m('tb36_dcdc_hiccup_vs_efuse','t_run1',1))*1e3:.1f}-->9.9<!--/v--> ms until the abort | <!--v {m('tb36_dcdc_hiccup_vs_efuse','vin_lo',1):.1f}-->26.0<!--/v-->–<!--v {m('tb36_dcdc_hiccup_vs_efuse','vin_hi',1):.1f}-->30.9<!--/v--> V | up to <!--v {m('tb36_dcdc_hiccup_vs_efuse','v12_pk1',1):.1f}-->14.1<!--/v--> V, down to <!--v {m('tb36_dcdc_hiccup_vs_efuse','v12_run2',1):.1f}-->0.3<!--/v--> V before each restart |
+| EN gated, plus 0.1 Ω on the 12 V rail | on, <!--v {m('tb36_dcdc_hiccup_vs_efuse','ief_hic',2):.1f}-->5.9<!--/v--> A at the hiccup; no fault | current limit <!--v {m('tb36_dcdc_hiccup_vs_efuse','il_lim',2):.0f}-->55<!--/v--> A, hiccup <!--v {(m('tb36_dcdc_hiccup_vs_efuse','t_hic',2)-m('tb36_dcdc_hiccup_vs_efuse','t_run1',2))*1e3:.1f}-->2.5<!--/v--> ms after the start, restart every <!--v {(m('tb36_dcdc_hiccup_vs_efuse','t_run2',2)-m('tb36_dcdc_hiccup_vs_efuse','t_run1',2))*1e3:.1f}-->52.5<!--/v--> ms | ≥ <!--v {m('tb36_dcdc_hiccup_vs_efuse','vinmin2',2):.1f}-->47.9<!--/v--> V | <!--v {m('tb36_dcdc_hiccup_vs_efuse','v12_lim',2):.1f}-->4.5<!--/v--> V in current limit, then 0 |
+
+* In the key-on case the converter's PG goes high in every complete start, for
+  <!--v {(m('tb36_dcdc_hiccup_vs_efuse','t_off1',1)-m('tb36_dcdc_hiccup_vs_efuse','t_pgdc',1))*1e3:.1f}-->0.5<!--/v--> ms in the first one, before the input collapses.
+* [`tb14`](../testbenches/tb14_precharge_faults.cir) case 3 (plot in D4) shows the
+  UVLO hiccup with a behavioural constant-power load instead of the converter
+  model.
+* *Show the plot without the legend and ask:* "Two of the three brown out.
+  Which measurement tells you whether the pre-charge or the 12 V load is the
+  cause?" Expected: the DC/DC input voltage (sawtooth between the UVLO
+  thresholds vs a stiff 48 V), the restart period (~10 ms vs ~50 ms), and
+  whether the pre-charge supervisor ever handed over.
 
 ### J5. "Field returns: wire harness damage on one branch, but the eFuse never reported an overload."
 
@@ -1539,6 +2026,16 @@ on, so it logged nothing.
 * A fault downstream of a splice that carries more current than the wire is rated for.
 * **Method**: return analysis, a configuration audit, FMEDA review, and an added
   plausibility check (current with the FET off).
+
+**Follow-ups**
+* "Which check would have caught the cracked sense line?" A second, independent
+  current measurement, a sense self-test, or a plausibility check of the
+  current against the load's expected consumption.
+* "How do you tell a stuck-on FET from a sneak path in the logged data?" VDS ≈ 0
+  with the gate off vs a current limited to about VBAT/RPRE.
+
+**Red flags:** blames the harness supplier; does not consider failures inside
+the protection itself.
 
 **Simulation:** [`tb35`](../testbenches/tb35_field_return.cir), overload to 30 A at 2 s on a
 2.5 mm²-class branch (wire model as tb16), MCU off at 6 s.
@@ -1575,6 +2072,15 @@ on, so it logged nothing.
   SOC and temperature at −30 °C, and compare the minimum with the ECU's reset
   threshold.
 
+**Follow-ups**
+* "Which ECU parameter do you compare first?" Its reset threshold and supply
+  hold-up time against the measured crank profile.
+* "What changes if the BSG starts the engine?" No 12 V starter dip. The 12 V
+  net is fed by the DC/DC, and the dip moves to the 48 V side.
+
+**Red flags:** replaces the battery without checking SOC and temperature; calls
+the battery faulty without the CCA test.
+
 **Simulation:** [`bat04`](../testbenches/bat04_cold_crank.cir), 12 V battery
 (70 Ah defaults, SOC 80 %) with the same starter at three temperatures, plus a
 700 A / 30 s CCA test at −18 °C.
@@ -1607,6 +2113,15 @@ on, so it logged nothing.
   electrolytic capacitance; the oscillation disappears.
 * Fix permanently: damping network, input capacitor with ESR, shorter or
   lower-inductance feed. Then re-check at the lowest input voltage and full load.
+
+**Follow-ups**
+* "How do you prove it without a network analyser?" Scope the input at full
+  load, then add a temporary R–C damper and see the oscillation disappear; or
+  apply a small load step and watch the ringing decay or grow.
+* "Why is it worst at low input voltage?" The negative conductance P/V² grows
+  as V falls.
+
+**Red flags:** adds more ceramic capacitance; suspects the converter firmware.
 
 **Simulation:** [`dc07`](../testbenches/dc07_input_filter_stability.cir) case B
 (plot in C5). The oscillation starts during the soft-start, as the drawn power
@@ -1651,12 +2166,12 @@ numbers, 3 = can lead and teach it).
 |---|---|---|---|
 | 48 V system, standards, batteries as the source | A | | |
 | eFuse principles and protections | B | | |
-| Power stage, FET, SOA; the DC/DC as a load, input-filter stability | C | | |
+| Power stage, FET, SOA; the DC/DC as a load, input-filter stability, pre-biased start, 12 V-side protection | C | | |
 | Inrush and pre-charge (channel and pack) | D | | |
 | Thermal and layout | E | | |
 | System faults (48/12 V short, ground, stuck-on) | F | | |
 | Functional safety and firmware interaction | G | | |
-| Validation strategy and measurement | H | | |
+| Validation strategy, measurement, models from datasheets | H | | |
 | Design exercise | I | | |
 | Debug reasoning | J | | |
 

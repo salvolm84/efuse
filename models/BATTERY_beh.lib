@@ -5,7 +5,7 @@
 *
 *  Status    : generic, chemistry-agnostic equivalent-circuit model. Default
 *              values are engineering estimates for a typical battery of each
-*              voltage class, flagged "[EST]" (see README.md, section 14). Replace
+*              voltage class, flagged "[EST]" (see README.md, section 2). Replace
 *              them with the data of the battery you actually use.
 *  Simulator : LTspice (validated with LTspice 26.0.2; uses B-sources with
 *              if(), limit(), sgn(); max() only in the switch clamp, outside

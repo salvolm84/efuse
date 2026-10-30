@@ -45,6 +45,10 @@ Vclr clr 0 0
 .meas tran diagmin min V(diag) from 2m to 5m
 .meas tran vgs_ss avg V(x1:g,out) from 4m to 5m
 .meas tran vcp_ss avg V(x1:cp,vbat) from 4m to 5m
+.meas tran t_start find time when V(out)=1 rise=1
+.meas tran t10o   find time when V(out)=4.8 rise=1
+.meas tran t90o   find time when V(out)=43.2 rise=1
+.meas tran vcp_min min V(x1:cp,vbat) from 0.5m to 2m
 
 .tran 0 5m 0 0.5u
 .options plotwinsize=0

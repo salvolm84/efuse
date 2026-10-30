@@ -1,5 +1,5 @@
 """Check the simulation results against the datasheet (DS13084 Rev 6), the
-battery and DC/DC model equations (README.md, sections 14-15) and the
+battery and DC/DC model equations (README.md, sections 2-3) and the
 expected application behaviour. Writes docs/VALIDATION.md (full runs only)
 and exits non-zero if any check fails.
 
@@ -9,7 +9,7 @@ and exits non-zero if any check fails.
     python3 tools/validate.py --export docs/results.json   # also store the results
     python3 tools/validate.py --json docs/results.json     # check stored results (CI)
 
-Groups: efuse (tb01..tb35), battery (bat01..bat07), dcdc (dc01..dc08),
+Groups: efuse (tb01..tb36), battery (bat01..bat07), dcdc (dc01..dc08),
 reference (ref01..ref02, public product data), schematics (demo/app .asc).
 
 Besides the checks, a full run verifies the integrity of the results: every
@@ -193,7 +193,7 @@ def failed(tb, key, k):
 
 
 def efuse():
-    """eFuse benches tb01..tb35 (DS13084 and hand calculations)."""
+    """eFuse benches tb01..tb36 (DS13084 and hand calculations)."""
     # ---- tb01 start-up -----------------------------------------------------------
     t = "tb01_startup_inrush"
     check(t, "VCP - VS (VS = 48 V)", m(t, "vcp_ss"), 13.5, 15.5, "V", "Tab.11 VCP_10V")
@@ -336,7 +336,7 @@ def efuse():
     check(t, "leaky load: V(load) at abort", m(t, "v_ab", 2), 30, 35, "V", "divider 10/(10+4.7) -> 32.7 V")
     check(t, "DC/DC not gated: hiccup (3rd start)", m(t, "t_dc3", 3) * 1e3, 20, 40, "ms", "UVLO 30/26 V")
     check(t, "DC/DC not gated: abort by the timeout", m(t, "dt_ab", 3) * 1e3, 99, 102, "ms", "never reaches 95 %")
-    # ---- interview companion benches (tb15..tb35) ---------------------------------
+    # ---- interview companion benches (tb15..tb36) ---------------------------------
     t = "tb15_12v_vs_48v"
     check(t, "12 V / 2.5 mm2: wire current", m(t, "iw", 0), 115, 140, "A", "P = V*I with the wire drop")
     check(t, "48 V / 2.5 mm2: wire current", m(t, "iw", 2), 20, 23, "A", "1 kW / 47 V")
@@ -445,6 +445,33 @@ def efuse():
     check(t, "stuck-on FET: current after MCU off", m(t, "i_end", 2), 25, 32, "A", "FET cannot open")
     check(t, "stuck-on FET: plausibility flag", m(t, "t_pl", 2), 2.06, 2.1, "s", "OUT high with gate off")
     check(t, "sneak path: resistor power", m(t, "p_pre", 3), 200, 330, "W", "48 V through 4.7 Ohm")
+    t = "tb36_dcdc_hiccup_vs_efuse"
+    check(t, "no eFuse fault in any case", vmax(m(t, "fltmax", k) for k in range(3)), -0.01, 0.01, "",
+          "J4: no eFuse threshold crossed")
+    check(t, "DIAG stays high in every case", vmin(m(t, "diagmin", k) for k in range(3)), 3.2, 3.4, "V",
+          "no fault reported")
+    check(t, "gated: hand-over time", (m(t, "t_pg", 0) - 1e-3) * 1e3, 60, 70, "ms", "95 % after ~3 tau (22 ms)")
+    check(t, "gated: one start, never stops", 1.0 if failed(t, "t_off1", 0) else 0.0, 1, 1, "", "PG-gated enable")
+    check(t, "gated: 12 V rail at the end", m(t, "v12_end", 0), 13.9, 14.1, "V", "VSET 14 V")
+    check(t, "gated: eFuse current", m(t, "ief_end", 0), 8, 9.2, "A", "(392 W + losses) / 47.8 V")
+    check(t, "not gated: start at the UVLO on the ramp", m(t, "vin_run1", 1), 29.5, 30.5, "V", "VIN_ON 30 V")
+    check(t, "not gated: stop at the UVLO", m(t, "vin_off1", 1), 25.5, 26.5, "V", "VIN_OFF 26 V")
+    check(t, "not gated: restart period", (m(t, "t_run2", 1) - m(t, "t_run1", 1)) * 1e3, 8, 13, "ms",
+          "~5.5 ms on + tau*ln(22/18) = 4.4 ms")
+    check(t, "not gated: 12 V rail before the restart", m(t, "v12_run2", 1), 0, 2, "V", "COUT x 0.5 Ohm = 1.1 ms")
+    check(t, "not gated: still restarting at the timeout", m(t, "t_runl", 1) * 1e3, 90, 101, "ms", "never 95 %")
+    check(t, "not gated: abort by the timeout", m(t, "dt_ab", 1) * 1e3, 99, 102, "ms", "TTO = 100 ms")
+    check(t, "not gated: eFuse never switched on", m(t, "gcmax", 1), -0.01, 0.01, "", "no hand-over")
+    check(t, "12 V overload: output in current limit", m(t, "il_lim", 2), 54, 55.5, "A", "ILIM 1.1 x 700/14 = 55 A")
+    check(t, "12 V overload: output voltage in limit", m(t, "v12_lim", 2), 4.3, 4.9, "V",
+          "55 A x 0.083 Ohm = 4.6 V < V_HIC*VSET = 7 V")
+    check(t, "12 V overload: hiccup after start", (m(t, "t_hic", 2) - m(t, "t_run1", 2)) * 1e3, 2.1, 2.9, "ms",
+          "limit at ~1.5 ms of soft-start + T_HIC_DET 1 ms")
+    check(t, "12 V overload: restart period", (m(t, "t_run2", 2) - m(t, "t_run1", 2)) * 1e3, 50, 55, "ms",
+          "T_HIC_OFF 50 ms + detection")
+    check(t, "12 V overload: 48 V input stays stiff", m(t, "vinmin2", 2), 46, 48.5, "V", "eFuse on, ~6 A")
+    check(t, "12 V overload: eFuse current at the hiccup", m(t, "ief_hic", 2), 4.5, 7.5, "A",
+          "(55 A x 4.6 V + losses) / 48 V")
 
 
 def battery():

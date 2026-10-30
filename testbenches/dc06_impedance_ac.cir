@@ -6,7 +6,7 @@
 * Zout: 1 A AC current injected at the output, input from an ideal source.
 * Zin : 1 A AC current injected at the input; the 48 V source feeds through a
 *       1 kH choke (an AC open circuit above ~1 Hz).
-* Expected (linear model of the loop, README.md, section 15.5):
+* Expected (linear model of the loop, README.md, section 3.5):
 *   Zout = 1/(Y_Cout + 1/R_load' + (KP + KI/s)/(1 + s TAUI))  -> 0 at DC,
 *          peak near the crossover FC
 *   Zin  = 1/(Y_Cin + Y_cpl),  Y_cpl = -P_in/VIN^2 + KSW*il/VIN  (negative

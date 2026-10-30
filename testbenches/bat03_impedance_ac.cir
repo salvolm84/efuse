@@ -2,7 +2,7 @@
 * ---------------------------------------------------------------------------
 * Small-signal output impedance Z(f) = V(p)/I_ac of the 12 V and 48 V class
 * batteries (default values, 50 % SOC, 25 degC), 100 uHz .. 10 MHz.
-* Expected (analytic, see README.md, section 14.6):
+* Expected (analytic, see README.md, section 2.6):
 *   Z = R0' + R1'/(1+jw TAU1 fs) + R2'/(1+jw TAU2 fs) + dOCV/dSOC/(jw Q)
 *       + jwL_INT || 100 Ohm
 *   - below ~1 mHz the battery is a huge capacitor Q/(dOCV/dSOC)

@@ -35,7 +35,7 @@ Dfw1 0 o1 EF_SCH100V
 Xdc d1 v12 0 hi pgdc DCDC48_12
 * input bleeder: the eFuse's 1.3 mA OUT bias current is larger than the
 * DC/DC's 1 mA stand-by current and would otherwise charge its input with
-* the channel off (tb10, README section 12)
+* the channel off (tb10, README section 1.12)
 Rbl d1 0 4.7k
 
 * ---- CH2: motor (as tb10)

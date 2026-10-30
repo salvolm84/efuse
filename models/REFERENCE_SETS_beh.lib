@@ -10,7 +10,7 @@
 *  from a public source are marked [PUB], values fitted to a published
 *  criterion [FIT], the rest are engineering estimates [EST]. The products'
 *  manufacturers did not provide, review or endorse these sets.
-*  Validated in testbenches/ref01_reference_sets.cir (README.md, section 14.8
+*  Validated in testbenches/ref01_reference_sets.cir (README.md, section 2.8
 *  and 15.6).
 * ============================================================================
 
