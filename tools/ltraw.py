@@ -101,4 +101,9 @@ def meas_log(path):
             elif not f or not f[0].strip().startswith("step"):
                 if f and not f[0].isdigit():
                     blk = None
+    # 'Measurement "x" FAIL'ed': failed in every step (stepped runs print no
+    # table then), stored as NaN for each step
+    nsteps = max([len(v) for v in out.values()] + [1])
+    for name in re.findall(r'^Measurement "(\w+)" FAIL\'ed', txt, re.M):
+        out[name.lower()] = [float("nan")] * nsteps
     return out

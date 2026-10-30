@@ -18,7 +18,6 @@ with str.format-like f-string rules, so any arithmetic is allowed.
     python3 tools/sync_docs.py --json docs/results.json --check   # from stored results (CI)
 """
 import argparse
-import json
 import os
 import re
 import sys
@@ -53,7 +52,8 @@ def u(x, fmt):
 
 
 def render(expr, m):
-    return eval("f" + repr(expr), {"m": m, "u": u, "abs": abs, "min": min, "max": max})
+    # no builtins: the expressions come from the docs (also in PR CI)
+    return eval("f" + repr(expr), {"__builtins__": {}, "m": m, "u": u, "abs": abs, "min": min, "max": max})
 
 
 def main():
@@ -62,27 +62,15 @@ def main():
     ap.add_argument("--json", help="read the results from this JSON file instead of the .log files")
     a = ap.parse_args()
     if a.json:
-        results = json.load(open(a.json))
+        results = validate.load_json(a.json)
     else:  # parse the logs and run the checks once, for the check counts
-        results = validate.load_logs()
-        validate.RESULTS = results
-        counts = {}
-        for g, fn in validate.GROUPS.items():
-            n0 = len(validate.rows)
-            try:
-                fn()
-            except validate.MissingResults:
-                pass
-            counts[f"checks_{g}"] = [len(validate.rows) - n0]
-        counts["benches"] = [len(results)]
-        counts["checks_total"] = [len(validate.rows)]
-        counts["checks_passed"] = [len(validate.rows) - validate.fails]
-        results["validation/summary"] = counts
+        validate.RESULTS = results = validate.load_logs()
+        results["validation/summary"] = validate.summarize(validate.run_groups(list(validate.GROUPS)))
     m = make_m(results)
     stale, errors, n = [], [], 0
     for doc in DOCS:
         path = os.path.join(ROOT, doc)
-        text = open(path).read()
+        text = open(path, encoding="utf-8").read()
 
         def sub(mo):
             nonlocal n
@@ -103,7 +91,7 @@ def main():
             if len(OPEN.findall(line)) != len(TAG.findall(line)):
                 errors.append(f"{doc}:{ln}: unbalanced <!--v tag")
         if not a.check and new_text != text:
-            open(path, "w").write(new_text)
+            open(path, "w", encoding="utf-8").write(new_text)
     for e in errors:
         print("ERROR", e)
     for s in stale:

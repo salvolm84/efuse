@@ -1,10 +1,13 @@
 # Re-checks the stored simulation results and the documentation.
 # LTspice does not run here: the results in docs/results.json come from the
 # last local run (tools/run_ltspice.sh, then tools/validate.py --export).
+# docs/results.json holds a SHA-256 of every bench and the model files it
+# includes, so editing a model or a bench without re-running fails here.
 name: validate
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 jobs:
@@ -16,8 +19,15 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install the Python dependencies
-        run: pip install numpy
-      - name: Repeat all checks from the stored results
+        run: pip install -r requirements.txt
+      - name: Static checks of the models, symbols and benches
+        run: python3 tools/lint_models.py
+      - name: Generated symbols and schematics are up to date
+        run: |
+          python3 tools/make_symbols.py
+          python3 tools/make_schematics.py
+          git diff --exit-code symbols schematics
+      - name: Repeat all checks from the stored results (and their integrity)
         run: python3 tools/validate.py --json docs/results.json
       - name: The committed validation report matches the results
         run: git diff --exit-code docs/VALIDATION.md

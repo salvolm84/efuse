@@ -3,7 +3,8 @@
     python3 tools/plot_results.py            # all test benches
     python3 tools/plot_results.py tb03 tb07  # selected ones
 
-Run the simulations first (tools/run_ltspice.sh testbenches/*.cir).
+Run the simulations first (tools/run_ltspice.sh -j 4 testbenches/*.cir).
+Exits non-zero if any plot failed; the other plots are still written.
 """
 import math
 import os
@@ -1140,6 +1141,15 @@ ALL = dict(tb01=tb01, tb02=tb02, tb03=tb03, tb04=tb04, tb05=tb05, tb06=tb06,
 
 if __name__ == "__main__":
     sel = sys.argv[1:] or list(ALL)
+    bad = []
     for k in sel:
         print(k)
-        ALL[k]()
+        try:
+            ALL[k]()
+        except Exception as e:  # noqa: BLE001  (one broken bench must not stop the others)
+            print(f"!! {k}: {type(e).__name__}: {e}")
+            bad.append(k)
+        plt.close("all")
+    if bad:
+        print(f"!! {len(bad)} plot(s) failed: {' '.join(bad)}")
+    sys.exit(1 if bad else 0)

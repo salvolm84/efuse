@@ -333,6 +333,7 @@ lines and the `.tran`, and set the parameters in each symbol's SpiceLine.
 efuse/
 ├── README.md                     this file (all devices)
 ├── LICENSE                       all rights reserved
+├── requirements.txt              pinned Python dependencies of the tools (numpy, matplotlib)
 ├── .github/workflows/validate.yml   CI: re-checks the stored results and the docs
 ├── models/
 │   ├── VNF1048F_beh.lib          eFuse model library (all subcircuits + device models)
@@ -363,7 +364,8 @@ efuse/
     ├── run_ltspice.sh            batch runner (native LTspice or macOS CrossOver build)
     ├── ltraw.py                  .raw / .log reader (numpy)
     ├── plot_results.py           regenerates docs/img/*.png
-    ├── validate.py               checks the results, regenerates docs/VALIDATION.md, exit code = failures
+    ├── validate.py               checks the results and their integrity, regenerates docs/VALIDATION.md
+    ├── lint_models.py            static checks: subckt/symbol pins, instance nodes and parameters, includes
     ├── sync_docs.py              keeps the simulated numbers quoted in the docs up to date
     ├── make_symbols.py           regenerates the .asy symbols
     ├── make_schematics.py        regenerates the demo .asc schematics
@@ -375,10 +377,12 @@ efuse/
 ## Regression, plots and documentation checks
 
 ```bash
-tools/run_ltspice.sh testbenches/*.cir schematics/*.asc   # all <!--v {m('summary','benches'):.0f}-->56<!--/v--> simulations, ~6 min
-python3 tools/validate.py --export docs/results.json     # checks -> docs/VALIDATION.md, stores the results
-python3 tools/sync_docs.py                               # updates the numbers quoted in the docs
-python3 tools/plot_results.py                            # -> docs/img/*.png
+pip install -r requirements.txt                                 # once
+tools/run_ltspice.sh -j 6 testbenches/*.cir schematics/*.asc   # all <!--v {m('summary','benches'):.0f}-->56<!--/v--> simulations, ~2 min with 6 jobs
+python3 tools/validate.py --export docs/results.json           # checks -> docs/VALIDATION.md, stores the results
+python3 tools/sync_docs.py                                     # updates the numbers quoted in the docs
+python3 tools/plot_results.py                                  # -> docs/img/*.png
+python3 tools/lint_models.py                                   # static checks, no simulation
 ```
 
 * **Checks.** `validate.py` runs <!--v {m('summary','checks_total'):.0f}-->267<!--/v--> checks against datasheets, model equations,
@@ -395,9 +399,18 @@ python3 tools/plot_results.py                            # -> docs/img/*.png
   `python3 tools/validate.py battery dcdc` checks only the groups you name, for
   example after re-running only those benches. `docs/VALIDATION.md` is
   rewritten only by a full run.
+* **Integrity of the results.** A full run also fails, independently of the
+  checks, if a bench has no results or no checks, if results are left from a
+  deleted bench, if a `.log` is older than its bench or a model or symbol it
+  includes (switching git branches counts: re-run), or if the logs come from
+  different LTspice versions. A `.meas` that FAIL'ed is read as NaN, and a check
+  that expects "no trip" fails if the measurement is missing altogether.
 * **Stored results.** `--export docs/results.json` stores every `.meas` value of
-  the run. `--json docs/results.json` repeats the checks from that file, without
-  LTspice.
+  the run (a failed one as `null`), the LTspice version and a SHA-256 of every
+  bench together with the model and symbol files it includes. It is refused
+  unless the run is complete and passes the integrity checks.
+  `--json docs/results.json` repeats the checks from that file, without LTspice,
+  and fails if a bench or model file no longer matches its stored hash.
 * **Numbers in the docs.** The simulated numbers in the README and the interview
   guide carry an invisible tag that names their source, for example
   `<!--v EXPRESSION-->` before the value and `<!--/v-->` after it, where
@@ -406,15 +419,22 @@ python3 tools/plot_results.py                            # -> docs/img/*.png
   tagged numbers from the results, and `sync_docs.py --check` lists any that
   are out of date. A tag must stay on one line. Numbers without a tag (hand
   calculations, approximate "~" values in running text) are maintained by hand.
-* **CI.** The GitHub Actions workflow (`.github/workflows/validate.yml`) repeats
-  the checks from `docs/results.json`, checks that the tagged numbers and
-  `docs/VALIDATION.md` match it, and fails otherwise. CI cannot run LTspice:
-  after changing a model or a bench, run the four commands above locally and
-  commit the updated results, report and docs.
-* **Runner.** `run_ltspice.sh` detects the macOS LTspice 24/26 build, which is a
-  CrossOver/Wine bundle, and runs `LTspice.exe -b` through its bundled `wine`. On
-  Windows or Linux it falls back to `LTspice -b`, so adapt the path if needed (it
-  has only been used on macOS). The Python tools need `numpy` and `matplotlib`.
+* **CI.** The GitHub Actions workflow (`.github/workflows/validate.yml`) runs
+  `lint_models.py`, regenerates the symbols and schematics and checks that they
+  are unchanged, repeats the checks from `docs/results.json` (with the hash
+  check above), and checks that the tagged numbers and `docs/VALIDATION.md` match
+  it. CI cannot run LTspice: after changing a model or a bench, run the commands
+  above locally and commit the updated results, report and docs. Editing a model
+  without re-running fails CI.
+* **Runner.** `run_ltspice.sh` deletes the previous outputs of each bench before
+  running it, and exits non-zero if a run times out (`-t`, default 900 s) or
+  its log is incomplete, so a failed run never leaves old results behind. `-j N`
+  runs N simulations in parallel. It detects the macOS LTspice 24/26 build, which
+  is a CrossOver/Wine bundle, and runs `LTspice.exe -b` through its bundled
+  `wine`; `LTSPICE_WINE`, `LTSPICE_BOTTLE` and `LTSPICE_EXE` override those paths.
+  Without that bundle it runs `$LTSPICE_CMD -b` (default `LTspice`), which is the
+  route for Windows or Linux (untested there; the script needs zsh). The models
+  are validated with LTspice 26.0.2.
 
 ---
 

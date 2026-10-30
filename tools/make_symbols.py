@@ -3,6 +3,8 @@ Writes identical copies to symbols/ (canonical) and schematics/ (so the demo
 schematics find them next to the .asc files)."""
 import os
 
+from make_schematics import write_if_changed
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -85,10 +87,10 @@ dcdc = asy("DCDC48_12",
 
 for d in ("symbols", "schematics"):
     os.makedirs(os.path.join(ROOT, d), exist_ok=True)
-    open(os.path.join(ROOT, d, "VNF1048F.asy"), "w").write(vnf)
-    open(os.path.join(ROOT, d, "EFUSE48_MOD.asy"), "w").write(mod)
-    open(os.path.join(ROOT, d, "NTC10K_ST.asy"), "w").write(ntc)
-    open(os.path.join(ROOT, d, "BATTERY.asy"), "w").write(bat)
-    open(os.path.join(ROOT, d, "BATTERY_BMS.asy"), "w").write(bms)
-    open(os.path.join(ROOT, d, "DCDC48_12.asy"), "w").write(dcdc)
+    write_if_changed(os.path.join(ROOT, d, "VNF1048F.asy"), vnf)
+    write_if_changed(os.path.join(ROOT, d, "EFUSE48_MOD.asy"), mod)
+    write_if_changed(os.path.join(ROOT, d, "NTC10K_ST.asy"), ntc)
+    write_if_changed(os.path.join(ROOT, d, "BATTERY.asy"), bat)
+    write_if_changed(os.path.join(ROOT, d, "BATTERY_BMS.asy"), bms)
+    write_if_changed(os.path.join(ROOT, d, "DCDC48_12.asy"), dcdc)
 print("symbols written")

@@ -103,13 +103,10 @@ A scoring sheet is at the end.
 | J6 | bat04 | 12 V crank at +25 / −18 / −30 °C, CCA test |
 | J7 | dc07 | DC/DC input oscillating on a long feed with ceramic-only input capacitance |
 
-To regenerate everything:
-
-```bash
-tools/run_ltspice.sh testbenches/*.cir      # simulations
-python3 tools/validate.py                   # checks, including those for tb15-tb35
-python3 tools/plot_results.py               # plots in docs/img/
-```
+To regenerate everything (simulations, checks, stored results, the numbers
+quoted here, plots), follow
+[Regression, plots and documentation checks](../README.md#regression-plots-and-documentation-checks)
+in the README.
 
 ---
 

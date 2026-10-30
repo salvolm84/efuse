@@ -11,12 +11,22 @@ and exits non-zero if any check fails.
 
 Groups: efuse (tb01..tb35), battery (bat01..bat07), dcdc (dc01..dc08),
 reference (ref01..ref02, public product data), schematics (demo/app .asc).
+
+Besides the checks, a full run verifies the integrity of the results: every
+bench (testbenches/*.cir, schematics/*.asc) has results and at least one
+check, no results are left from a deleted bench, the .log files are newer than
+the bench and the files it includes (models, symbols) and come from a single
+LTspice version, and, with --json, the stored results were exported from the
+current bench and model files (SHA-256) with the current check counts.
+--export is refused if the integrity check fails.
 """
 import argparse
 import glob
+import hashlib
 import json
 import math
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -27,23 +37,117 @@ TB = os.path.join(ROOT, "testbenches")
 S = os.path.join(ROOT, "schematics")
 rows, fails = [], 0
 RESULTS = {}          # "testbenches/tb01_startup_inrush" -> {meas: [values per step]}
+ACCESSED = set()      # benches read by the checks
+NAN = float("nan")
 
 
 class MissingResults(Exception):
     pass
 
 
-def load_logs():
+def benches():
+    """All benches on disk: {"testbenches/tb01_startup_inrush": path}."""
     out = {}
-    for folder in ("testbenches", "schematics"):
-        for f in sorted(glob.glob(os.path.join(ROOT, folder, "*.log"))):
-            name = os.path.splitext(os.path.basename(f))[0]
-            out[f"{folder}/{name}"] = meas_log(f)
+    for folder, ext in (("testbenches", "cir"), ("schematics", "asc")):
+        for f in sorted(glob.glob(os.path.join(ROOT, folder, f"*.{ext}"))):
+            out[f"{folder}/{os.path.splitext(os.path.basename(f))[0]}"] = f
     return out
+
+
+INCLUDE = re.compile(r"^\s*(?:TEXT .*?!)?\.(?:include|inc|lib)\s+(\S+)", re.I | re.M)
+
+
+def bench_inputs(path):
+    """The bench file and everything it pulls in: .include/.lib files
+    (recursively) and, for a schematic, the symbols next to it."""
+    seen, todo = [], [os.path.abspath(path)]
+    while todo:
+        f = todo.pop()
+        if f in seen or not os.path.isfile(f):
+            continue
+        seen.append(f)
+        txt = open(f, encoding="latin-1").read()
+        todo += [os.path.normpath(os.path.join(os.path.dirname(f), p)) for p in INCLUDE.findall(txt)]
+        if f.endswith(".asc"):
+            for sym in re.findall(r"^SYMBOL (\S+)", txt, re.M):
+                todo.append(os.path.join(os.path.dirname(f), sym + ".asy"))
+    return sorted(seen)
+
+
+def inputs_hash(path):
+    h = hashlib.sha256()
+    for f in bench_inputs(path):
+        h.update(os.path.relpath(f, ROOT).replace(os.sep, "/").encode())
+        h.update(open(f, "rb").read().replace(b"\r\n", b"\n"))
+    return h.hexdigest()
+
+
+def load_logs():
+    out, versions = {}, {}
+    for key, path in benches().items():
+        log = os.path.splitext(path)[0] + ".log"
+        if os.path.isfile(log):
+            out[key] = meas_log(log)
+            raw = open(log, "rb").read()
+            first = (raw.decode("utf-16-le") if raw[1:2] == b"\x00" else raw.decode("latin-1")).split("\n")[0]
+            versions[key] = first.strip()
+    out["validation/ltspice"] = {"version": sorted(set(versions.values()))}
+    out["validation/inputs"] = {k: inputs_hash(p) for k, p in benches().items()}
+    return out
+
+
+def load_json(path):
+    """Stored results; null (a failed .meas) is read back as NaN."""
+    d = json.load(open(path, encoding="utf-8"))
+    for v in d.values():
+        for k, vals in v.items():
+            if isinstance(vals, list):
+                v[k] = [NAN if x is None else x for x in vals]
+    return d
+
+
+def save_json(d, path):
+    def clean(x):
+        return None if isinstance(x, float) and math.isnan(x) else x
+    out = {k: {kk: [clean(x) for x in vv] if isinstance(vv, list) else vv for kk, vv in v.items()}
+           for k, v in d.items()}
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(out, f, indent=0, sort_keys=True, allow_nan=False)
+        f.write("\n")
+
+
+def integrity(from_json):
+    """Problems that make the results untrustworthy, independent of the checks."""
+    errs = []
+    on_disk = benches()
+    stored = {k for k in RESULTS if not k.startswith("validation/")}
+    for k in sorted(set(on_disk) - stored):
+        errs.append(f"{k}: no results (bench not run)")
+    for k in sorted(stored - set(on_disk)):
+        errs.append(f"{k}: results without a bench (deleted or renamed bench)")
+    for k in sorted(set(on_disk) & stored - ACCESSED):
+        errs.append(f"{k}: bench has no checks in tools/validate.py")
+    versions = RESULTS.get("validation/ltspice", {}).get("version", [])
+    if len(versions) > 1:
+        errs.append(f"results from several LTspice versions: {versions}")
+    if from_json:
+        hashes = RESULTS.get("validation/inputs", {})
+        for k, p in on_disk.items():
+            if k in stored and hashes.get(k) != inputs_hash(p):
+                errs.append(f"{k}: bench or model files changed since the results were exported: re-run")
+    else:
+        for k, p in on_disk.items():
+            log = os.path.splitext(p)[0] + ".log"
+            if k in stored:
+                newer = [f for f in bench_inputs(p) if os.path.getmtime(f) > os.path.getmtime(log)]
+                if newer:
+                    errs.append(f"{k}: .log older than {os.path.relpath(newer[0], ROOT)}: re-run")
+    return errs
 
 
 def res(tb, folder=TB):
     key = f"{os.path.relpath(folder, ROOT)}/{tb}"
+    ACCESSED.add(key)
     if key not in RESULTS:
         raise MissingResults(key)
     return RESULTS[key]
@@ -53,8 +157,19 @@ def m(tb, key, k=0, folder=TB):
     try:
         v = res(tb, folder).get(key.lower(), [])
     except MissingResults:
-        return float("nan")
-    return v[k] if len(v) > k else float("nan")
+        return NAN
+    return v[k] if len(v) > k else NAN
+
+
+def vmax(xs):
+    """max() that propagates NaN (a failed .meas), unlike the built-in."""
+    xs = list(xs)
+    return NAN if any(math.isnan(x) for x in xs) else max(xs)
+
+
+def vmin(xs):
+    xs = list(xs)
+    return NAN if any(math.isnan(x) for x in xs) else min(xs)
 
 
 def check(tb, what, value, lo, hi, unit, ref):
@@ -68,7 +183,12 @@ def check(tb, what, value, lo, hi, unit, ref):
 
 
 def failed(tb, key, k):
-    return math.isnan(m(tb, key, k))
+    """True if the k-th value of .meas `key` FAIL'ed (e.g. a trip that never
+    happened). Missing results are an error, never a "did not happen"."""
+    v = res(tb).get(key.lower(), [])
+    if len(v) <= k:
+        raise MissingResults(f"testbenches/{tb}: no value {key}[{k}]")
+    return math.isnan(v[k])
 
 
 
@@ -104,8 +224,8 @@ def efuse():
             err_s.append(abs(tt[k] / ts - 1))
         if ti >= 2e-3:
             err_i.append(abs(tt[k + 1] / ti - 1))
-    check(t, "stepwise curve, max error (t >= 2 ms)", 100 * max(err_s), 0, 3, "%", "Fig.4 t = tNOM/2^m")
-    check(t, "ideal curve, max error (t >= 2 ms)", 100 * max(err_i), 0, 5, "%", "t = (tNOM/32)/(x^2-1)")
+    check(t, "stepwise curve, max error (t >= 2 ms)", 100 * vmax(err_s), 0, 3, "%", "Fig.4 t = tNOM/2^m")
+    check(t, "ideal curve, max error (t >= 2 ms)", 100 * vmax(err_i), 0, 5, "%", "t = (tNOM/32)/(x^2-1)")
     check(t, "trip time just above INOM", tt[0], 0.9, 1.1, "s", "tNOM = 1 s (T_NOM = 0)")
     check(t, "fastest I-t step (x = 25)", tt[-2] * 1e6, 50, 130, "us", "tNOM/2^14 = 61 us + 1 sample")
     # ---- tb04 PWM ------------------------------------------------------------------
@@ -165,7 +285,7 @@ def efuse():
 
 
     sr68 = [10 / (m(t, "t20v", k11(2, i)) - m(t, "t10v", k11(2, i))) / 1e3 for i in range(3)]
-    check(t, "dV/dt independent of C_LOAD (68 nF, 0.22..1 mF)", 100 * (max(sr68) - min(sr68)) / min(sr68),
+    check(t, "dV/dt independent of C_LOAD (68 nF, 0.22..1 mF)", 100 * (vmax(sr68) - vmin(sr68)) / vmin(sr68),
           0, 10, "%", "source follower: dV/dt set by RG_ON*C_SLEW")
     check(t, "1 mF, C_SLEW 22 nF: HSC trip", 1.0 if tripped("t_hsc", k11(0, 2)) else 0.0, 1, 1, "",
           "C*dV/dt > IHSC")
@@ -200,7 +320,7 @@ def efuse():
     check(t, "constant current: energy lost", m(t, "e_loss", 1), 3.9, 4.3, "J", "same as resistor")
     check(t, "switch-mode: energy lost", m(t, "e_loss", 2), 0, 0.5, "J", "no resistive drop to dissipate")
     check(t, "switch-mode: average battery current", m(t, "iin_av", 2), 2, 5, "A", "P_in ~ P_out: I_in < I_out")
-    check(t, "faults at hand-over (all methods)", max(m(t, "hsht", k) + m(t, "vdsmax", k) for k in range(3)),
+    check(t, "faults at hand-over (all methods)", vmax(m(t, "hsht", k) + m(t, "vdsmax", k) for k in range(3)),
           -0.01, 0.01, "", "dV = 2.4 V at 95 %")
     # ---- tb14 supervised pre-charge, faults --------------------------------------
     t = "tb14_precharge_faults"
@@ -343,7 +463,7 @@ def battery():
     t = "bat01_capacity_ocv"
     for v in (12, 48):
         c = BAT[v]
-        err = max(abs(m(t, f"vr{v}_{k}") - bat_ocv(c, 1 - 0.1 * k)) for k in range(1, 10))
+        err = vmax(abs(m(t, f"vr{v}_{k}") - bat_ocv(c, 1 - 0.1 * k)) for k in range(1, 10))
         check(t, f"{v} V: rest voltage vs OCV table (9 points)", err * 1e3, 0, 2, "mV", "OCV(SOC) curve points")
         check(t, f"{v} V: delivered capacity to cut-off / rated", m(t, f"ah{v}") / 3600 / c["cap"], 0.99, 1.01, "",
               "charge counting, CAP_AH")
@@ -364,8 +484,8 @@ def battery():
             docv = (c["v100"] - c["v0"]) * 0.5 * (100 * 10 / (c["cap"] * 3600))
             r10 = ft * fs10 * (c["r0"] + c["r1"] + c["r2"] * (1 - math.exp(-0.5))) + docv / 100
             e0.append(abs(lg[f"r0_{v}"][k] / r0 - 1)); e10.append(abs(lg[f"r10_{v}"][k] / r10 - 1))
-        check(t, f"{v} V: R0 (0.5 ms), max error -30..45 degC", 100 * max(e0), 0, 1, "%", "R0 x FT(T) x fs(SOC)")
-        check(t, f"{v} V: R(10 s), max error -30..45 degC", 100 * max(e10), 0, 2, "%", "R0' + R1' + R2'(1-e^-0.5) + dOCV")
+        check(t, f"{v} V: R0 (0.5 ms), max error -30..45 degC", 100 * vmax(e0), 0, 1, "%", "R0 x FT(T) x fs(SOC)")
+        check(t, f"{v} V: R(10 s), max error -30..45 degC", 100 * vmax(e10), 0, 2, "%", "R0' + R1' + R2'(1-e^-0.5) + dOCV")
     check(t, "R0(-30 degC) / R0(25 degC)", lg["r0_12"][0] / lg["r0_12"][3], 0.99 * bat_ft(-30), 1.01 * bat_ft(-30), "",
           f"FT(-30) = {bat_ft(-30):.3f}")
     t = "bat03_impedance_ac"
@@ -377,7 +497,7 @@ def battery():
             z = (c["r0"] + c["r1"] / (1 + jw * 20e-3) + c["r2"] / (1 + jw * 20)) * bat_fs(0.5) \
                 + 1 / (1 / (jw * c["l"]) + 1 / 100)
             err.append(abs(m(t, f"z{v}_{key}") / abs(z) - 1))
-        check(t, f"{v} V: |Z| 0.1 Hz .. 1 MHz, max error", 100 * max(err), 0, 1, "%", "R0 + 2 RC + L_INT")
+        check(t, f"{v} V: |Z| 0.1 Hz .. 1 MHz, max error", 100 * vmax(err), 0, 1, "%", "R0 + 2 RC + L_INT")
         check(t, f"{v} V: |Z(100 Hz)| (ohmic plateau)", m(t, f"z{v}_100") * 1e3, 0.99e3 * c["r0"] * bat_fs(0.5),
               1.02e3 * c["r0"] * bat_fs(0.5), "mOhm", "R0 x fs(50 %)")
     t = "bat04_cold_crank"
@@ -469,9 +589,9 @@ def dcdc():
         il = il_out + DC["vset"] / DC["rpre"]
         eta_m = DC["vset"] * il_out / dc_pin(vi, il)
         err_eta.append(abs(lg["pout"][k] / lg["pin"][k] - eta_m)); err_v.append(abs(lg["vout"][k] - DC["vset"]))
-    check(t, "efficiency vs loss model, max error (21 points)", 100 * max(err_eta), 0, 0.05, "pp",
+    check(t, "efficiency vs loss model, max error (21 points)", 100 * vmax(err_eta), 0, 0.05, "pp",
           "P0 + RLOSS I^2 + KSW VIN I")
-    check(t, "output regulation, max error", 1e3 * max(err_v), 0, 1, "mV", "integrating loop: VOUT = VSET")
+    check(t, "output regulation, max error", 1e3 * vmax(err_v), 0, 1, "mV", "integrating loop: VOUT = VSET")
     k = 3 * 6 + 1
     check(t, "efficiency at 700 W, 48 V", 100 * lg["pout"][k] / lg["pin"][k], 95, 97, "%", "[EST] 95..97 % class")
     t = "dc02_load_transient"
@@ -534,8 +654,8 @@ def dcdc():
         if key in ("10", "100", "1k", "10k"):
             zi = 1 / (gcpl + 1 / (DC["esrin"] + 1 / (s_ * DC["cin"])) + 1 / (s_ * 1e3))
             ezi.append(abs(m(t, f"zi_{key}") / abs(zi) - 1))
-    check(t, "|Zout| 10 Hz .. 100 kHz, max error", 100 * max(ezo), 0, 2, "%", "PI + current loop + COUT")
-    check(t, "|Zin| 10 Hz .. 10 kHz, max error", 100 * max(ezi), 0, 2, "%", "CPL + CIN")
+    check(t, "|Zout| 10 Hz .. 100 kHz, max error", 100 * vmax(ezo), 0, 2, "%", "PI + current loop + COUT")
+    check(t, "|Zin| 10 Hz .. 10 kHz, max error", 100 * vmax(ezi), 0, 2, "%", "CPL + CIN")
     s_ = 2j * math.pi * 10
     zr = (1 / (gcpl + 1 / (DC["esrin"] + 1 / (s_ * DC["cin"])) + 1 / (s_ * 1e3))).real
     check(t, "Re(Zin) at 10 Hz: negative resistance", m(t, "zr_10"), 1.02 * zr, 0.98 * zr, "Ohm",
@@ -634,6 +754,32 @@ def reference():
 GROUPS = {"efuse": efuse, "battery": battery, "dcdc": dcdc, "reference": reference, "schematics": schematics}
 
 
+TITLES = {"efuse": "eFuse (VNF1048F, EFUSE48_MOD)", "battery": "Battery and battery pack (BATTERY, BATTERY_BMS)",
+          "dcdc": "DC/DC converter (DCDC48_12)", "reference": "Reference parameter sets (public product data)",
+          "schematics": "Schematics"}
+
+
+def run_groups(sel):
+    """Run the checks of the selected groups; returns {group: (first row, last row)}."""
+    spans = {}
+    for g in sel:
+        n0 = len(rows)
+        try:
+            GROUPS[g]()
+        except MissingResults as e:
+            check(g, f"results missing ({e}): run the benches first", NAN, 0, 0, "", "")
+        spans[g] = (n0, len(rows))
+    return spans
+
+
+def summarize(spans):
+    s = {f"checks_{g}": [b - a] for g, (a, b) in spans.items()}
+    s["benches"] = [len([k for k in RESULTS if not k.startswith("validation/")])]
+    s["checks_total"] = [len(rows)]
+    s["checks_passed"] = [len(rows) - fails]
+    return s
+
+
 def main():
     global RESULTS
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
@@ -641,38 +787,44 @@ def main():
     ap.add_argument("--json", help="read the results from this JSON file instead of the .log files")
     ap.add_argument("--export", help="write the results parsed from the .log files to this JSON file")
     a = ap.parse_args()
-    RESULTS = json.load(open(a.json)) if a.json else load_logs()
     bad = [g for g in a.groups if g not in GROUPS]
     if bad:
         ap.error(f"unknown group(s) {bad}; choose from {list(GROUPS)}")
-    sel = a.groups or list(GROUPS)
-    summary = {}
-    for g in sel:
-        n0 = len(rows)
-        try:
-            GROUPS[g]()
-        except MissingResults as e:
-            check(g, f"results missing ({e}): run the benches first", float("nan"), 0, 0, "", "")
-        summary[f"checks_{g}"] = [len(rows) - n0]
     full = not a.groups
+    if a.export and (a.json or not full):
+        ap.error("--export needs a full run from the .log files (no groups, no --json)")
+    RESULTS = load_json(a.json) if a.json else load_logs()
+    stored = RESULTS.get("validation/summary")
+    sel = a.groups or list(GROUPS)
+    spans = run_groups(sel)
+    errs = integrity(bool(a.json)) if full else []
     if full:
-        summary["benches"] = [len([k for k in RESULTS if not k.startswith("validation/")])]
-        summary["checks_total"] = [len(rows)]
-        summary["checks_passed"] = [len(rows) - fails]
+        summary = summarize(spans)
+        if a.json and stored != summary:
+            errs.append(f"stored summary {stored} differs from the checks {summary}: re-export")
         RESULTS["validation/summary"] = summary
-    if a.export:
-        json.dump(RESULTS, open(a.export, "w"), indent=0, sort_keys=True)
-    if full:
         hdr = ["# Validation report", "",
                "Generated by `tools/validate.py` from the LTspice `.meas` results "
-               "(run `tools/run_ltspice.sh testbenches/*.cir schematics/*.asc` first).", "",
-               f"**{len(rows) - fails} / {len(rows)} checks pass.**", "",
-               "| Bench | Check | Simulated | Limit | Reference | Result |",
-               "|---|---|---|---|---|---|"]
-        open(os.path.join(ROOT, "docs", "VALIDATION.md"), "w").write("\n".join(hdr + rows) + "\n")
+               "(run `tools/run_ltspice.sh -j 4 testbenches/*.cir schematics/*.asc` first).", "",
+               f"**{len(rows) - fails} / {len(rows)} checks pass.**", ""]
+        hdr += [f"- [{TITLES[g]}](#{g}): {b - a} checks" for g, (a, b) in spans.items()]
+        body = []
+        for g, (a0, b0) in spans.items():
+            body += ["", f'<a id="{g}"></a>', "", f"## {TITLES[g]}", "",
+                     "| Bench | Check | Simulated | Limit | Reference | Result |",
+                     "|---|---|---|---|---|---|"] + rows[a0:b0]
+        with open(os.path.join(ROOT, "docs", "VALIDATION.md"), "w", encoding="utf-8") as f:
+            f.write("\n".join(hdr + body) + "\n")
     print("\n".join(rows))
     print(f"\n{len(rows) - fails}/{len(rows)} checks pass" + ("" if full else f" (groups: {', '.join(sel)})"))
-    sys.exit(1 if fails else 0)
+    for e in errs:
+        print("INTEGRITY", e)
+    if a.export:
+        if errs:
+            print(f"--export refused: {len(errs)} integrity problem(s)")
+        else:
+            save_json(RESULTS, a.export)
+    sys.exit(1 if fails or errs else 0)
 
 
 if __name__ == "__main__":

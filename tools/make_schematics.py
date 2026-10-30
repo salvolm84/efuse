@@ -9,6 +9,14 @@ import os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "schematics")
 
+
+def write_if_changed(path, text):
+    """Leave an unchanged file untouched (its date tells validate.py whether the
+    simulation results are newer than the bench)."""
+    if os.path.isfile(path) and open(path).read() == text:
+        return
+    open(path, "w").write(text)
+
 ROT = {"R0": lambda x, y: (x, y), "R90": lambda x, y: (-y, x),
        "R180": lambda x, y: (-x, -y), "R270": lambda x, y: (y, -x)}
 PINS = {
@@ -60,7 +68,7 @@ class Sch:
 
     def save(self, fname):
         os.makedirs(OUT, exist_ok=True)
-        open(os.path.join(OUT, fname), "w").write("\n".join(self.L) + "\n")
+        write_if_changed(os.path.join(OUT, fname), "\n".join(self.L) + "\n")
         print("  ->", fname)
 
 
