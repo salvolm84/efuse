@@ -1,0 +1,33 @@
+Version 4
+SymbolType CELL
+RECTANGLE Normal -112 -80 112 80
+TEXT 0 -24 Center 2 48V -> 12V
+TEXT 0 8 Center 1 RD210 3 kW
+LINE Normal -64 40 64 -40
+WINDOW 0 -112 -88 Left 2
+WINDOW 3 -112 88 Left 2
+WINDOW 39 -112 120 Left 1
+SYMATTR Value DCDC_TOSHIBA_RD210
+SYMATTR Prefix X
+SYMATTR SpiceLine VSET=12 DCRUN=0
+SYMATTR Description 3 kW 48/12 V converter, Toshiba RD210 reference design (fitted). Needs .include BATTERY_beh.lib, DCDC48_12_beh.lib (as used) and REFERENCE_SETS_beh.lib
+LINE Normal -128 -32 -112 -32
+PIN -128 -32 LEFT 20
+PINATTR PinName VIN
+PINATTR SpiceOrder 1
+LINE Normal 128 -32 112 -32
+PIN 128 -32 RIGHT 20
+PINATTR PinName VOUT
+PINATTR SpiceOrder 2
+LINE Normal 0 96 0 80
+PIN 0 96 BOTTOM 12
+PINATTR PinName GND
+PINATTR SpiceOrder 3
+LINE Normal -128 32 -112 32
+PIN -128 32 LEFT 20
+PINATTR PinName EN
+PINATTR SpiceOrder 4
+LINE Normal 128 32 112 32
+PIN 128 32 RIGHT 20
+PINATTR PinName PG
+PINATTR SpiceOrder 5

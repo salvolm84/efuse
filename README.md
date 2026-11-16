@@ -16,7 +16,7 @@ symbols and validated test benches; all of them are documented in this README:
 
 The models share conventions (B-source logic, `[EST]` flags for estimated
 values, `0 = default` parameters) and one regression: `tools/validate.py`
-runs <!--v {m('summary','checks_total'):.0f}-->426<!--/v--> checks of <!--v {m('summary','benches'):.0f}-->68<!--/v--> simulations against datasheets, model
+runs <!--v {m('summary','checks_total'):.0f}-->469<!--/v--> checks of <!--v {m('summary','benches'):.0f}-->69<!--/v--> simulations against datasheets, model
 equations, hand calculations and public product data (validated with LTspice
 26.0.2). The system benches that combine the devices are
 [bat07](#bat07-48-v-pdu-fed-by-the-pack-selectivity-and-load-dump-bat07_pdn_48vcir)
@@ -51,6 +51,7 @@ changelog), then one numbered part per device, then the references.
 **Common to all models**
 
 * [Using the models in a new LTspice simulation](#using-the-models-in-a-new-ltspice-simulation)
+* [Examples](#examples): system schematics with pass/fail criteria (ex01: FIU shorts on a fail-operational dual 48 V supply)
 * [Repository layout](#repository-layout)
 * [Regression, plots and documentation checks](#regression-plots-and-documentation-checks)
 * [Numerical guidance for behavioural models](#numerical-guidance-for-behavioural-models)
@@ -341,6 +342,149 @@ lines and the `.tran`, and set the parameters in each symbol's SpiceLine.
 
 ---
 
+## Examples
+
+`examples/` holds system schematics that answer one engineering question each,
+with the pass/fail criteria as `.meas` and checks in `tools/validate.py`
+(group `examples`). They combine several models at the level of a real vehicle
+architecture. Open one in LTspice (the symbols are copied alongside) or run it
+with `tools/run_ltspice.sh examples/<name>.asc`.
+
+| Example | Question | Run time |
+|---|---|---|
+| [ex01](#ex01-fiu-short-circuit-on-a-fail-operational-dual-48-v-supply-ex01_fiu_short_selectivityasc) | A short on any node of the supply chain of a dual-supplied XBW load: do the right eFuses open, and does the load keep its power? | ~4 min |
+
+### ex01: FIU short circuit on a fail-operational dual 48 V supply (`ex01_fiu_short_selectivity.asc`)
+
+**Circuit.** An 800 V → 48 V DC/DC and a 48 V battery feed the two ends of a
+chain of four eFuses A–B–C–D. A 1 kW by-wire (XBW) load is supplied from both
+AB and CD (fail-operational dual supply). Three fault injection units (FIU)
+short CD, AB or BC to ground at 1 ms, one per scenario.
+
+```
+ 800 V ── DC/DC ──1 m──┬──[ A ]── AB ──[ B ]── BC ──[ C ]── CD ──[ D ]──┬──1 m── 48 V battery
+        800 → 48 V   TVS, 100 µF   │ ┴FIU     ┴FIU         │ ┴FIU  TVS, 100 µF
+                                  2 m  (FID 2) (FID 3)      2 m (FID 1)   FIU: short to GND, 10 mΩ, at 1 ms
+                                   └──▷|──── load rail ────|◁──┘
+                                   XBW load: ideal-diode ORing, 1 mF, 1 kW constant power
+```
+
+| Part | Model and values |
+|---|---|
+| DC/DC 800 → 48 V | `DCDC48_12` re-parameterized [EST]: `VSET`=48.2 V, `PRATED`=3 kW (current limit 68 A), UVLO 550/500 V, OVP 920 V, `T_SS`=1 ms, losses `P0`=15 W, `RLOSS`=5 mΩ, `KSW`=0.3 mW/(V·A); 800 V source with 50 mΩ |
+| Battery | `BATTERY VNOM=48 SOC0=0.6`: 48 V class defaults (10 Ah, R0 15 mΩ, 1 µH); OCV 48.0 V, so the DC/DC carries the load and the battery floats |
+| Backbone cables | `WIRE LEN=1 CSA=10`, DC/DC → PDU and PDU → battery |
+| PDU inputs | 100 µF / 30 mΩ and an `EF_TVS58V` TVS at each end |
+| eFuses A–D | two `EFUSE48_MOD` channels each (below): `OVC_CODE=22` (INOM 39.1 A), `HSC_CODE=15` (hard short 160 A), `VDS_CODE=30` (1.8 V), `C_SLEW`=4.7 nF, graded `HSC_DLY`/`VDS_DLY` |
+| XBW load | `WIRE LEN=2 CSA=2.5` from AB and from CD, ideal-diode ORing (`D(Ron=5m Vfwd=20m)`), 1 mF / 10 mΩ after the ORing, 1 kW constant power (resistive below 20 V), ramped in from 0.1 to 0.4 ms |
+| FIUs | `FI_SHORT` to GND, `RF`=10 mΩ, `TF`=1 ms: CD (scenario `FID`=1), AB (2), BC (3); `.step param FID list 0 1 2 3` runs them all and the golden run (FID 0) |
+
+The circuit starts in steady state: the eFuses are on and the DC/DC is running
+in the DC operating point (`DCRUN=1`), because start-up is not the subject.
+The DC operating point needs LTspice's source stepping (a few seconds per
+scenario).
+
+**Why every eFuse is two channels.** A chain fed from both ends carries fault
+current in either direction, depending on where the fault is. A single-FET
+eFuse cannot interrupt it: its body diode conducts in reverse, and the VNF1048F
+senses only forward current. Each eFuse is therefore two `EFUSE48_MOD`
+channels back to back (common source, nodes `ma`…`md`). The `R` channel (`AR`,
+`BR`, `CR`, `DR`) senses and blocks current flowing towards the battery (→),
+the mirrored `L` channel the current flowing towards the DC/DC (←). With both
+off, the two body diodes oppose each other.
+
+**Selectivity by directional time grading.** All channels have the same
+thresholds; only the hard-short and VDS delays differ. Fault current flows
+from each source towards the fault through every eFuse in between, and the one
+nearest the fault must open first. So in each direction the delay grows
+towards the source:
+
+| Direction | 3 µs | 9 µs | 15 µs | 21 µs |
+|---|---|---|---|---|
+| → (towards the battery) | D | C | B | A |
+| ← (towards the DC/DC) | A | B | C | D |
+
+| Short at | → current flows through | opens | ← current flows through | opens | load fed from |
+|---|---|---|---|---|---|
+| CD (FID 1) | A, B, C | C | D | D | AB |
+| AB (FID 2) | A | A | D, C, B | B | CD |
+| BC (FID 3) | A, B | B | D, C | C | AB and CD |
+
+**Results.** Every short is isolated by exactly the two eFuses next to it, and
+the load rail never drops below 46 V:
+
+| Short at | Channels that open, delay after the short | Peak timer of the six that stay on (trip at 0.5) | Peak fault current, DC/DC / battery cable | Load rail min / max | After the short: load fed from, current | Peaks at the PDU inputs, DC/DC / battery side |
+|---|---|---|---|---|---|---|
+| CD (FID 1) | C → <!--v {m('ex01_fiu_short_selectivity','dt_cr',1)*1e6:.1f}-->9.4<!--/v--> µs, D ← <!--v {m('ex01_fiu_short_selectivity','dt_dl',1)*1e6:.1f}-->21.3<!--/v--> µs | <!--v {max(m('ex01_fiu_short_selectivity','h_ar',1), m('ex01_fiu_short_selectivity','v_ar',1), m('ex01_fiu_short_selectivity','h_al',1), m('ex01_fiu_short_selectivity','v_al',1), m('ex01_fiu_short_selectivity','h_br',1), m('ex01_fiu_short_selectivity','v_br',1), m('ex01_fiu_short_selectivity','h_bl',1), m('ex01_fiu_short_selectivity','v_bl',1), m('ex01_fiu_short_selectivity','h_cl',1), m('ex01_fiu_short_selectivity','v_cl',1), m('ex01_fiu_short_selectivity','h_dr',1), m('ex01_fiu_short_selectivity','v_dr',1)):.2f}-->0.37<!--/v--> | <!--v {m('ex01_fiu_short_selectivity','ipk_dc',1):.0f}-->589<!--/v--> / <!--v {m('ex01_fiu_short_selectivity','ipk_bat',1):.0f}-->526<!--/v--> A | <!--v {m('ex01_fiu_short_selectivity','railmin',1):.2f}-->47.06<!--/v--> / <!--v {m('ex01_fiu_short_selectivity','railmax',1):.2f}-->50.06<!--/v--> V | AB, <!--v {m('ex01_fiu_short_selectivity','iw1_end',1):.1f}-->21.0<!--/v--> A | <!--v {m('ex01_fiu_short_selectivity','vpa_max',1):.1f}-->67.8<!--/v--> / <!--v {m('ex01_fiu_short_selectivity','vpd_max',1):.1f}-->82.5<!--/v--> V |
+| AB (FID 2) | A → <!--v {m('ex01_fiu_short_selectivity','dt_ar',2)*1e6:.1f}-->21.3<!--/v--> µs, B ← <!--v {m('ex01_fiu_short_selectivity','dt_bl',2)*1e6:.1f}-->9.4<!--/v--> µs | <!--v {max(m('ex01_fiu_short_selectivity','h_al',2), m('ex01_fiu_short_selectivity','v_al',2), m('ex01_fiu_short_selectivity','h_br',2), m('ex01_fiu_short_selectivity','v_br',2), m('ex01_fiu_short_selectivity','h_cr',2), m('ex01_fiu_short_selectivity','v_cr',2), m('ex01_fiu_short_selectivity','h_cl',2), m('ex01_fiu_short_selectivity','v_cl',2), m('ex01_fiu_short_selectivity','h_dr',2), m('ex01_fiu_short_selectivity','v_dr',2), m('ex01_fiu_short_selectivity','h_dl',2), m('ex01_fiu_short_selectivity','v_dl',2)):.2f}-->0.36<!--/v--> | <!--v {m('ex01_fiu_short_selectivity','ipk_dc',2):.0f}-->1322<!--/v--> / <!--v {m('ex01_fiu_short_selectivity','ipk_bat',2):.0f}-->253<!--/v--> A | <!--v {m('ex01_fiu_short_selectivity','railmin',2):.2f}-->46.81<!--/v--> / <!--v {m('ex01_fiu_short_selectivity','railmax',2):.2f}-->50.67<!--/v--> V | CD, <!--v {m('ex01_fiu_short_selectivity','iw2_end',2):.1f}-->21.2<!--/v--> A | <!--v {m('ex01_fiu_short_selectivity','vpa_max',2):.1f}-->92.6<!--/v--> / <!--v {m('ex01_fiu_short_selectivity','vpd_max',2):.1f}-->62.0<!--/v--> V |
+| BC (FID 3) | B → <!--v {m('ex01_fiu_short_selectivity','dt_br',3)*1e6:.1f}-->15.4<!--/v--> µs, C ← <!--v {m('ex01_fiu_short_selectivity','dt_cl',3)*1e6:.1f}-->15.4<!--/v--> µs | <!--v {max(m('ex01_fiu_short_selectivity','h_ar',3), m('ex01_fiu_short_selectivity','v_ar',3), m('ex01_fiu_short_selectivity','h_al',3), m('ex01_fiu_short_selectivity','v_al',3), m('ex01_fiu_short_selectivity','h_bl',3), m('ex01_fiu_short_selectivity','v_bl',3), m('ex01_fiu_short_selectivity','h_cr',3), m('ex01_fiu_short_selectivity','v_cr',3), m('ex01_fiu_short_selectivity','h_dr',3), m('ex01_fiu_short_selectivity','v_dr',3), m('ex01_fiu_short_selectivity','h_dl',3), m('ex01_fiu_short_selectivity','v_dl',3)):.2f}-->0.42<!--/v--> | <!--v {m('ex01_fiu_short_selectivity','ipk_dc',3):.0f}-->942<!--/v--> / <!--v {m('ex01_fiu_short_selectivity','ipk_bat',3):.0f}-->359<!--/v--> A | <!--v {m('ex01_fiu_short_selectivity','railmin',3):.2f}-->47.24<!--/v--> / <!--v {m('ex01_fiu_short_selectivity','railmax',3):.2f}-->54.10<!--/v--> V | AB and CD, <!--v {m('ex01_fiu_short_selectivity','iw1_end',3)+m('ex01_fiu_short_selectivity','iw2_end',3):.1f}-->21.0<!--/v--> A | <!--v {m('ex01_fiu_short_selectivity','vpa_max',3):.1f}-->78.2<!--/v--> / <!--v {m('ex01_fiu_short_selectivity','vpd_max',3):.1f}-->68.2<!--/v--> V |
+
+In every scenario the DC/DC reaches its <!--v {m('ex01_fiu_short_selectivity','ildc_max',1):.1f}-->68.5<!--/v--> A current limit for a few µs
+and keeps running (no hiccup), the faulted node stays at ~0 V after the
+isolation (the short is still there), and no FET junction warms by more than
+2 K. After the AB short the DC/DC is disconnected and the battery carries the
+load; after the CD short it is the other way round; after the BC short both
+sources stay connected. The golden run (FID 0) trips nothing; the load takes
+<!--v {m('ex01_fiu_short_selectivity','iw1_end',0):.1f}-->12.1<!--/v--> A from AB and <!--v {m('ex01_fiu_short_selectivity','iw2_end',0):.1f}-->8.8<!--/v--> A from CD. The <!--v {m('summary','checks_examples'):.0f}-->43<!--/v-->
+checks of the `examples` group cover all of the above.
+
+![ex01](docs/img/ex01_fiu_short_selectivity.png)
+
+**What the design needed.** Three settings that work for a single eFuse break
+selectivity in this chain.
+
+* **Gate slew capacitor 4.7 nF instead of 47 nF.** During the short every bus
+  node collapses to 5–20 V for ~10 µs. In the healthy channels the 15 V
+  gate-source zener drags the gate down with the source, which discharges the
+  slew capacitor (gate to ground). When the faulted section is cut off, the
+  upstream channels can re-enhance only at the inrush slew rate. They sit in
+  the linear region with tens of volts across them, and their VDS monitor trips
+  them ~20 µs later. On the CD short, `C_SLEW` ≥ 22 nF trips A and B as well
+  and the load loses its supply; ≤ 10 nF is selective. The price: the turn-on
+  dV/dt is ten times faster, so the 1 mF must be pre-charged another way. That
+  is not simulated here, because the example starts in steady state.
+* **Hard-short threshold 160 A instead of 105.6 A.** After the nearest eFuse
+  interrupts, the energy in the cable inductances pushes the bus to 65 V. It
+  recharges the load capacitance through the healthy upstream eFuses at up to
+  ~145 A for ~20 µs, which keeps their hard-short timers running. At 105.6 A
+  the CD short was still selective, but A's timer peaked at 0.47 (trip at 0.5),
+  and the AB and BC shorts tripped the far eFuses as well. Longer grading steps
+  make it worse, not better: the fault lasts longer and the kick is larger.
+* **Fault currents that last as long as the grading.** The source-side channel
+  is the slowest in its direction, so a short next to the far end is fed for
+  21 µs. On the AB short, A carries <!--v {m('ex01_fiu_short_selectivity','ipk_dc',2):.0f}-->1322<!--/v--> A from the DC/DC side
+  (the PDU input capacitor and the DC/DC output capacitor discharge into it)
+  and breaking it kicks the PDU's DC/DC-side input to <!--v {m('ex01_fiu_short_selectivity','vpa_max',2):.1f}-->92.6<!--/v--> V:
+  only <!--v {100-m('ex01_fiu_short_selectivity','vds_ar',2):.0f}-->7<!--/v--> V below the 100 V rating of the FET, because the
+  `EF_TVS58V` clamps poorly at kA. On the CD short the battery side reaches
+  <!--v {m('ex01_fiu_short_selectivity','vpd_max',1):.1f}-->82.5<!--/v--> V. A real design needs a stronger clamp at the PDU inputs or
+  faster isolation, which needs communication between the eFuses
+  (zone-selective interlocking); these models do not have it.
+
+**Over-voltage on the load rail (BC short).** Here B and C both interrupt, and
+the kicks of both cables recharge the load through both ORing diodes. The rail
+peaks at <!--v {m('ex01_fiu_short_selectivity','railmax',3):.1f}-->54.1<!--/v--> V and stays above 52 V for <!--v {m('ex01_fiu_short_selectivity','dt52',3)*1e6:.0f}-->110<!--/v--> µs. That is
+above the 52 V upper limit of the unlimited operating range (LV 148) but below
+the 60 V limit of the 48 V voltage class, so the check uses 60 V. Whether the
+load tolerates it depends on its input over-voltage rating; a TVS on the load
+input or more load capacitance would reduce it.
+
+**Limits.** Nominal values only: the selectivity margin does not include the
+tolerances of the trip delays and thresholds. Shorts to ground only, at the
+three bus nodes (not on the source cables or inside the load). There is no
+start-up or pre-charge. The ORing is an ideal PWL diode, with no turn-off delay
+of a real ideal-diode controller. The load has no undervoltage reset of its
+own. The 800/48 V converter is the averaged buck model with new parameters,
+without the dynamics of an isolated converter. The eFuses latch off, with no
+retry.
+
+**Parameters to try** (`.param` and `.step` lines in the schematic): `FID`
+(0 golden, 1 short CD, 2 short AB, 3 short BC; run a single scenario by
+replacing the `.step` line with `.param FID=2`), `TFAULT`, `CSLEW` (22 nF shows
+the loss of selectivity), `T0` and `TS` (grading), `PLOAD`, `RF` of the FIUs.
+
+---
+
 ## Repository layout
 
 ```
@@ -366,12 +510,15 @@ efuse/
 │   ├── DCDC48_12.asy             5-pin DC/DC (VIN, VOUT, GND, EN, PG)
 │   ├── BAT12_VARTA_E39.asy, BAT48_A123_8AH.asy, DCDC_TOSHIBA_RD210.asy   reference sets
 │   ├── WIRE.asy                  wire / harness segment
-│   └── TP_STEP.asy, TP_CRANK.asy, TP_LOADDUMP.asy, TP_ISO7637.asy, TP_RIPPLE.asy   test pulses
+│   ├── TP_STEP.asy, TP_CRANK.asy, TP_LOADDUMP.asy, TP_ISO7637.asy, TP_RIPPLE.asy   test pulses
+│   └── FI_SHORT.asy              fault injection: short / leakage between two nodes (FIU)
 ├── schematics/                   ready-to-run schematics (symbols copied alongside)
 │   ├── demo_efuse48_module.asc   module in a 48 V harness: start-up, short, retry
 │   ├── app_vnf1048f_discrete.asc full discrete application (DS13084 Fig. 16 + slew network)
 │   ├── demo_battery.asc          12 V cold crank + 48 V pack: pre-charge, load, short
 │   └── demo_dcdc.asc             48 V feed -> DC/DC -> 12 V battery + switched load
+├── examples/                     system examples with pass/fail checks (symbols copied alongside)
+│   └── ex01_fiu_short_selectivity.asc   FIU shorts on a fail-operational dual 48 V supply: selectivity
 ├── testbenches/                  tb01..tb36 (eFuse, section 1.10), bat01..bat07 (battery, 2.8),
 │                                 dc01..dc08 (DC/DC, 3.6), ref01..ref02 (reference sets),
 │                                 wh01..wh04 (harness, 4.7), tp01..tp05 (test pulses, 5.5),
@@ -392,7 +539,7 @@ efuse/
     ├── fmea.py, fmea_report.py   FMEA tables -> checks and docs/fmea/<bench>.md
     ├── sync_docs.py              keeps the simulated numbers quoted in the docs up to date
     ├── make_symbols.py           regenerates the .asy symbols
-    ├── make_schematics.py        regenerates the demo .asc schematics
+    ├── make_schematics.py        regenerates the demo and example .asc schematics
     └── bat_ocv.py                battery OCV(SOC) curve: prints the B-source expression for the .lib
 ```
 
@@ -402,7 +549,7 @@ efuse/
 
 ```bash
 pip install -r requirements.txt                                 # once
-tools/run_ltspice.sh -j 6 testbenches/*.cir schematics/*.asc   # all <!--v {m('summary','benches'):.0f}-->68<!--/v--> simulations, ~2 min with 6 jobs
+tools/run_ltspice.sh -j 6 testbenches/*.cir schematics/*.asc examples/*.asc   # all <!--v {m('summary','benches'):.0f}-->69<!--/v--> simulations, ~2 min with 6 jobs
 python3 tools/validate.py --export docs/results.json           # checks -> docs/VALIDATION.md, stores the results
 python3 tools/sync_docs.py                                     # updates the numbers quoted in the docs
 python3 tools/plot_results.py                                  # -> docs/img/*.png
@@ -410,8 +557,8 @@ python3 tools/fmea_report.py                                   # -> docs/fmea/<b
 python3 tools/lint_models.py                                   # static checks, no simulation
 ```
 
-* **Checks.** `validate.py` runs <!--v {m('summary','checks_total'):.0f}-->426<!--/v--> checks against datasheets, model equations,
-  hand calculations and public product data, in eight groups:
+* **Checks.** `validate.py` runs <!--v {m('summary','checks_total'):.0f}-->469<!--/v--> checks against datasheets, model equations,
+  hand calculations and public product data, in nine groups:
 
   | Group | Checks |
   |---|---|
@@ -423,12 +570,13 @@ python3 tools/lint_models.py                                   # static checks, 
   | `schematics` | <!--v {m('summary','checks_schematics'):.0f}-->7<!--/v--> |
   | `pulses` (tp01–tp05) | <!--v {m('summary','checks_pulses'):.0f}-->45<!--/v--> |
   | `fmea` (fi01, fm01 vs `docs/fmea/*.csv`) | <!--v {m('summary','checks_fmea'):.0f}-->55<!--/v--> |
+  | `examples` (`examples/*.asc`) | <!--v {m('summary','checks_examples'):.0f}-->43<!--/v--> |
 
   `python3 tools/validate.py battery dcdc` checks only the groups you name, for
   example after re-running only those benches. `docs/VALIDATION.md` is
   rewritten only by a full run.
 * **Integrity of the results.** A full run also fails, independently of the
-  checks, if a bench has no results or no checks, if results are left from a
+  checks, if a bench (`testbenches/*.cir`, `schematics/*.asc`, `examples/*.asc`) has no results or no checks, if results are left from a
   deleted bench, if a `.log` is older than its bench or a model or symbol it
   includes (switching git branches counts: re-run), or if the logs come from
   different LTspice versions. A `.meas` that FAIL'ed is read as NaN, and a check
@@ -599,6 +747,17 @@ Follow the pattern of the battery and DC/DC models:
 
 Changes that alter simulation results are marked **(results)**.
 
+* **2026-11-16, examples folder: FIU short on a fail-operational dual 48 V
+  supply.** New folder `examples/` with
+  [ex01](#ex01-fiu-short-circuit-on-a-fail-operational-dual-48-v-supply-ex01_fiu_short_selectivityasc):
+  an 800/48 V DC/DC and a 48 V battery feed four bidirectional eFuses (two
+  `EFUSE48_MOD` channels each, directional time grading), with a dual-supplied
+  1 kW XBW load. Shorts to GND at CD, AB and BC (one scenario each) are
+  isolated selectively by the two adjacent eFuses, and the load keeps its
+  supply. New symbol `FI_SHORT.asy`; check group `examples`;
+  `make_schematics.py` writes `examples/`, `make_symbols.py` copies the
+  symbols there, and `lint_models.py`, `sync_docs.py` and CI cover the folder.
+  No model change.
 * **2026-10-30, fault injection for FMEA simulation.** `models/FAULTS_beh.lib`
   (FI_SHORT, FI_SERIES, FI_STUCK, FI_OFFSET), fault hooks in `EFUSE48_MOD`
   (FET stuck-on / stuck-off) and `BATTERY_BMS` (welded switch, spurious trip),
@@ -4784,6 +4943,11 @@ X2 bus o2 0 en2 0 0 diag2 cs2 tfet2 EFUSE48_MOD ... FI_ID=3 FI_MODE=1 FID={FID} 
 | `FI_SERIES` | A B | series element R0 → RF: open (1 MΩ) or degraded contact | `R0` 1 µΩ, `RF` 1 MΩ |
 | `FI_STUCK` | IN OUT GND | logic signal stuck at LEVEL (insert between driver and pin) | `LEVEL` 0 |
 | `FI_OFFSET` | A B | series voltage offset (ground offset) | `VOFF` 1 V |
+
+In a schematic, `symbols/FI_SHORT.asy` places an `FI_SHORT` (a fault
+injection unit between two nodes, as in
+[ex01](#ex01-fiu-short-circuit-on-a-fail-operational-dual-48-v-supply-ex01_fiu_short_selectivityasc));
+the other elements are used from netlists.
 
 The fault level x(t) rises from 0 to 1 in `TTR` (1 µs) at `TF`. `TDUR` > 0
 makes the fault transient (gone after `TDUR`), `TPER` > 0 intermittent

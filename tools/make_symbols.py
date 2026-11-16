@@ -1,8 +1,8 @@
 """Generate the LTspice symbols (.asy) for the behavioral models (eFuse, battery, DC/DC, wire,
-test pulses)
+test pulses, fault injection)
 and the reference parameter sets.
-Writes identical copies to symbols/ (canonical) and schematics/ (so the demo
-schematics find them next to the .asc files)."""
+Writes identical copies to symbols/ (canonical), schematics/ and examples/ (so
+the demo and example schematics find them next to the .asc files)."""
 import os
 
 from make_schematics import write_if_changed
@@ -120,7 +120,16 @@ tp_syms = {n: asy(n, f"Test-pulse source: {d}; Value may be set to a preset of P
                   ["CIRCLE Normal -32 -32 32 32", f"TEXT 0 0 Center 1 {lab}", "TEXT 8 -40 Left 1 +"])
            for n, (d, line, lab) in TP.items()}
 
-for d in ("symbols", "schematics"):
+# fault injection (models/FAULTS_beh.lib): a short / leakage between A and B
+fi_pins = [("A", 0, -64, "TOP"), ("B", 0, 64, "BOTTOM")]
+fi_short = asy("FI_SHORT",
+               "Fault injection: short / leakage RF between A and B, active from TF when FID = ID (or ID2, ID3). "
+               "Needs .include FAULTS_beh.lib",
+               (-48, -48, 48, 48), fi_pins, "ID=1 FID=1 RF=10m TF=1m TTR=1u",
+               ["LINE Normal -16 -32 8 -4", "LINE Normal 8 -4 -8 4", "LINE Normal -8 4 16 32",
+                "TEXT 0 40 Center 1 FIU short"])
+
+for d in ("symbols", "schematics", "examples"):
     os.makedirs(os.path.join(ROOT, d), exist_ok=True)
     write_if_changed(os.path.join(ROOT, d, "VNF1048F.asy"), vnf)
     write_if_changed(os.path.join(ROOT, d, "EFUSE48_MOD.asy"), mod)
@@ -134,4 +143,5 @@ for d in ("symbols", "schematics"):
     write_if_changed(os.path.join(ROOT, d, "BAT12_VARTA_E39.asy"), varta)
     write_if_changed(os.path.join(ROOT, d, "BAT48_A123_8AH.asy"), a123)
     write_if_changed(os.path.join(ROOT, d, "DCDC_TOSHIBA_RD210.asy"), rd210)
+    write_if_changed(os.path.join(ROOT, d, "FI_SHORT.asy"), fi_short)
 print("symbols written")

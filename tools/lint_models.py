@@ -5,7 +5,7 @@
 - every .subckt and .model name is defined once across models/*.lib
 - every symbol (symbols/*.asy) names an existing subckt, its pins in SpiceOrder
   match the subckt pins, its SpiceLine parameters exist in the subckt, and the
-  copy in schematics/ is identical
+  copies in schematics/ and examples/ are identical
 - the pin coordinates in tools/make_schematics.py (PINS) match the symbols
 - every X instance in the libraries and test benches calls a subckt that is
   defined in the file or the files it includes, with the right number of
@@ -98,9 +98,10 @@ for lib in sorted(glob.glob(os.path.join(ROOT, "models", "*.lib"))):
 for asy in sorted(glob.glob(os.path.join(ROOT, "symbols", "*.asy"))):
     txt = open(asy, encoding="latin-1").read()
     name = os.path.splitext(os.path.basename(asy))[0]
-    twin = os.path.join(ROOT, "schematics", os.path.basename(asy))
-    if not os.path.isfile(twin) or open(twin, "rb").read() != open(asy, "rb").read():
-        errs.append(f"{rel(asy)}: copy in schematics/ missing or different")
+    for folder in ("schematics", "examples"):
+        twin = os.path.join(ROOT, folder, os.path.basename(asy))
+        if not os.path.isfile(twin) or open(twin, "rb").read() != open(asy, "rb").read():
+            errs.append(f"{rel(asy)}: copy in {folder}/ missing or different")
     value = re.search(r"^SYMATTR Value (\S+)", txt, re.M).group(1).upper()
     if value not in LIB:
         errs.append(f"{rel(asy)}: no subckt {value} in models/*.lib")

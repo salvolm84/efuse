@@ -3,7 +3,7 @@ battery and DC/DC model equations (README.md, sections 2-3) and the
 expected application behaviour. Writes docs/VALIDATION.md (full runs only)
 and exits non-zero if any check fails.
 
-    tools/run_ltspice.sh testbenches/*.cir schematics/*.asc
+    tools/run_ltspice.sh testbenches/*.cir schematics/*.asc examples/*.asc
     python3 tools/validate.py                     # all groups, from the .log files
     python3 tools/validate.py battery dcdc        # selected groups only
     python3 tools/validate.py --export docs/results.json   # also store the results
@@ -12,10 +12,10 @@ and exits non-zero if any check fails.
 Groups: efuse (tb01..tb36), battery (bat01..bat07), dcdc (dc01..dc08), harness (wh01..wh04),
 harness (wh01..wh04), pulses (tp01..tp05), fmea (fm01, against docs/fmea/*.csv),
 reference (ref01..ref02, public
-product data), schematics (demo/app .asc).
+product data), schematics (demo/app .asc), examples (examples/*.asc).
 
 Besides the checks, a full run verifies the integrity of the results: every
-bench (testbenches/*.cir, schematics/*.asc) has results and at least one
+bench (testbenches/*.cir, schematics/*.asc, examples/*.asc) has results and at least one
 check, no results are left from a deleted bench, the .log files are newer than
 the bench and the files it includes (models, symbols) and come from a single
 LTspice version, and, with --json, the stored results were exported from the
@@ -37,6 +37,7 @@ from ltraw import meas_log  # noqa: E402
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TB = os.path.join(ROOT, "testbenches")
 S = os.path.join(ROOT, "schematics")
+EX = os.path.join(ROOT, "examples")
 rows, fails = [], 0
 RESULTS = {}          # "testbenches/tb01_startup_inrush" -> {meas: [values per step]}
 ACCESSED = set()      # benches read by the checks
@@ -50,7 +51,7 @@ class MissingResults(Exception):
 def benches():
     """All benches on disk: {"testbenches/tb01_startup_inrush": path}."""
     out = {}
-    for folder, ext in (("testbenches", "cir"), ("schematics", "asc")):
+    for folder, ext in (("testbenches", "cir"), ("schematics", "asc"), ("examples", "asc")):
         for f in sorted(glob.glob(os.path.join(ROOT, folder, f"*.{ext}"))):
             out[f"{folder}/{os.path.splitext(os.path.basename(f))[0]}"] = f
     return out
@@ -936,6 +937,67 @@ def schematics():
 
 
 
+def examples():
+    """Example schematics (examples/*.asc): system-level scenarios with pass/fail criteria."""
+    # ---- ex01: FIU shorts to GND on a fail-operational dual 48 V supply ------------------
+    # steps: 0 golden (FID 0), 1 short CD, 2 short AB, 3 short BC (FID 1, 2, 3), all at 1 ms
+    t, n = "ex01_fiu_short_selectivity", "ex01_fiu_short_selectivity.asc"
+
+    def e(key, k):
+        return m(t, key, k, EX)
+    ch = ["ar", "al", "br", "bl", "cr", "cl", "dr", "dl"]
+    td = {"ar": 21, "al": 3, "br": 15, "bl": 9, "cr": 9, "cl": 15, "dr": 3, "dl": 21}   # grading [us]
+    check(n, "golden run: no eFuse channel trips", sum(e(f"flt_{c}", 0) for c in ch), 0, 0.01, "-",
+          "FID 0: fault-free")
+    check(n, "golden run: XBW load rail", e("rail_end", 0), 46, 49, "V", "DC/DC 48.2 V - harness and ORing drops")
+    check(n, "golden run: both supply inputs share the load", min(e("iw1_end", 0), e("iw2_end", 0)), 2, 20, "A",
+          "dual supply through ideal-diode ORing")
+    # short at, step, the two channels that must open (->, <-), the load node(s) that must stay alive
+    for node, k, trip, alive in (("CD", 1, ("cr", "dl"), ("ab",)), ("AB", 2, ("ar", "bl"), ("cd",)),
+                                 ("BC", 3, ("br", "cl"), ("ab", "cd"))):
+        w = f"short {node}"
+        names = " and ".join(f"{c[0].upper()} ({'->' if c[1] == 'r' else '<-'})" for c in trip)
+        check(n, f"{w}: {names} latched off", min(e(f"flt_{c}", k) for c in trip), 0.99, 1.01, "-",
+              "nearest to the fault on each side")
+        check(n, f"{w}: the other six channels stay on", vmax(e(f"flt_{c}", k) for c in ch if c not in trip),
+              0, 0.01, "-", "selectivity")
+        for c in trip:
+            check(n, f"{w}: {c[0].upper()} ({'->' if c[1] == 'r' else '<-'}) trip delay", e(f"dt_{c}", k) * 1e6,
+                  td[c], td[c] + 1.5, "us", f"HSC_DLY = {td[c]} us + 160 A crossing + 0.5 us sense filter")
+        check(n, f"{w}: selectivity margin, timers of the channels that stay on",
+              vmax(vmax((e(f"h_{c}", k), e(f"v_{c}", k))) for c in ch if c not in trip), 0, 0.45, "-",
+              "hard-short / VDS timer trips at 0.5")
+        check(n, f"{w}: XBW load rail minimum", e("railmin", k), 36, 52, "V",
+              "LV 148: lower limit of the unlimited range 36 V")
+        check(n, f"{w}: XBW load rail maximum", e("railmax", k), 36, 60, "V",
+              "<= 60 V (48 V class A limit); > 52 V is a transient, see README")
+        if node == "CD":
+            iload, ref = e("iw1_end", k), "load on AB"
+        elif node == "AB":
+            iload, ref = e("iw2_end", k), "load on CD"
+        else:
+            iload, ref = e("iw1_end", k) + e("iw2_end", k), "load on AB and CD"
+        check(n, f"after the {w}: load current", iload, 0.99 * 1000 / e("rail_end", k),
+              1.03 * 1000 / e("rail_end", k), "A", f"1 kW / V_rail, {ref}")
+        check(n, f"after the {w}: {node} isolated (short still present)", e(f"{node.lower()}_end", k), 0, 0.1, "V",
+              "the two adjacent eFuses open")
+        check(n, f"after the {w}: {' and '.join(x.upper() for x in alive)} supplied",
+              min(e(f"{x}_end", k) for x in alive), 46, 49, "V", "fail-operational")
+        if node == "CD":
+            check(n, f"after the {w}: battery disconnected", abs(e("ibat_end", k)), 0, 0.1, "A", "D (<-) open")
+        elif node == "AB":
+            check(n, f"after the {w}: DC/DC disconnected", abs(e("idc_end", k)), 0, 0.1, "A", "A (->) open")
+        else:
+            check(n, f"after the {w}: both sources still connected", min(e("idc_end", k), -e("ibat_end", k)),
+                  1, 30, "A", "B and C open, A and D closed")
+        check(n, f"{w}: VDS peak of the opening channels", vmax(e(f"vds_{c}", k) for c in trip), 48, 100, "V",
+              "EF_FET100V BV 100 V (TVS-clamped inputs)")
+        check(n, f"{w}: FET junction temperature, all channels", vmax(e(f"tj_{c}", k) for c in ch), 25, 35, "degC",
+              "pulses of ~10 .. 20 us")
+    check(n, "all shorts: DC/DC keeps running (no hiccup)", vmin(e("run_min", k) for k in (1, 2, 3)), 0.99, 1.01,
+          "-", "faults cleared << T_HIC_DET = 1 ms")
+
+
 def pulses():
     """Test-pulse generators tp01..tp05 (definitions of the standards, hand calculations)."""
     # ---- shape of TP_LOADDUMP / TP_ISO7637 (models/PULSES_beh.lib) ----------------
@@ -1084,14 +1146,14 @@ def reference():
 
 
 GROUPS = {"efuse": efuse, "battery": battery, "dcdc": dcdc, "harness": harness, "pulses": pulses, "fmea": fmea_checks, "reference": reference,
-          "schematics": schematics}
+          "schematics": schematics, "examples": examples}
 
 
 TITLES = {"efuse": "eFuse (VNF1048F, EFUSE48_MOD)", "battery": "Battery and battery pack (BATTERY, BATTERY_BMS)",
           "dcdc": "DC/DC converter (DCDC48_12)", "harness": "Wiring harness (WIRE)",
           "pulses": "Test pulses (ISO 16750-2, ISO 7637-2, LV 148)",
           "fmea": "FMEA simulation (fault injection)", "reference": "Reference parameter sets (public product data)",
-          "schematics": "Schematics"}
+          "schematics": "Schematics", "examples": "Examples (examples/*.asc)"}
 
 
 def run_groups(sel):
@@ -1140,7 +1202,7 @@ def main():
         RESULTS["validation/summary"] = summary
         hdr = ["# Validation report", "",
                "Generated by `tools/validate.py` from the LTspice `.meas` results "
-               "(run `tools/run_ltspice.sh -j 4 testbenches/*.cir schematics/*.asc` first).", "",
+               "(run `tools/run_ltspice.sh -j 4 testbenches/*.cir schematics/*.asc examples/*.asc` first).", "",
                f"**{len(rows) - fails} / {len(rows)} checks pass.**", ""]
         hdr += [f"- [{TITLES[g]}](#{g}): {b - a} checks" for g, (a, b) in spans.items()]
         body = []

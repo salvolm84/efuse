@@ -9,7 +9,7 @@ holds a Python format expression, followed by the number and a closing tag:
 The tag must be on one line and the expression must start with "{".
 
 `m(bench, meas, k=0)` returns the k-th value of a .meas result of a bench
-(testbenches/ or schematics/, looked up by name); m('summary', 'checks_total')
+(testbenches/, schematics/ or examples/, looked up by name); m('summary', 'checks_total')
 and m('summary', 'checks_<group>') give the check counts of tools/validate.py. The expression is formatted
 with str.format-like f-string rules, so any arithmetic is allowed.
 
@@ -35,7 +35,7 @@ OPEN = re.compile(r"<!--v \{")
 
 def make_m(results):
     def m(bench, key, k=0):
-        for folder in ("testbenches", "schematics", "validation"):
+        for folder in ("testbenches", "schematics", "examples", "validation"):
             r = results.get(f"{folder}/{bench}")
             if r is not None:
                 v = r.get(key.lower(), [])

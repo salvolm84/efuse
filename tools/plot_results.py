@@ -1378,6 +1378,53 @@ def fm01():
     finish(fig, ax, "time [ms]", "fm01_pdn_fmea.png")
 
 
+# ---------------------------------------------------------------------------
+#  examples/
+# ---------------------------------------------------------------------------
+def ex01():
+    r = LTRaw(os.path.join(ROOT, "examples", "ex01_fiu_short_selectivity.raw"))
+    tf = 1e-3                                       # TFAULT of the schematic
+    fig, ax = panels(4, "ex01 - FIU shorts on the dual 48 V supply: selectivity and load supply",
+                     sharex=False)
+    k = 1                                           # scenario FID = 1 (the short)
+    t = (r.get("time", k) - tf) * 1e6
+    w = (t > -5) & (t < 80)
+    for j, (n, lab) in enumerate((("V(pa)", "PDU input, DC/DC side"), ("V(ab)", "AB (load input 1)"),
+                                  ("V(cd)", "CD (load input 2, faulted)"), ("V(pd)", "PDU input, battery side"),
+                                  ("V(rail)", "XBW load rail (after ORing)"))):
+        plot(ax[0], t[w], r.get(n, k)[w], lab, j)
+    ax[0].axhline(36, color=INK2, ls="--", lw=0.8)
+    ax[0].text(60, 37, "36 V", color=INK2, fontsize=8)
+    ax[0].set_ylabel("V")
+    for j, (y, lab) in enumerate(((r.get("I(wdc:Vs)", k), "DC/DC cable"), (-r.get("I(wbat:Vs)", k), "battery cable"),
+                                  (r.get("I(w1:Vs)", k), "load from AB"), (r.get("I(w2:Vs)", k), "load from CD"))):
+        plot(ax[1], t[w], y[w], lab, j)
+    ax[1].axhline(160, color=INK2, ls="--", lw=0.8)
+    ax[1].text(60, 170, "hard short 160 A", color=INK2, fontsize=8)
+    ax[1].set_ylabel("A (towards the fault)")
+    for j, (c, lab) in enumerate((("cr", "C ->  (9 us)"), ("br", "B ->  (15 us)"), ("ar", "A ->  (21 us)"),
+                                  ("dl", "<- D  (21 us)"))):
+        plot(ax[2], t[w], r.get(f"V({c}:xu:xhcd:t)", k)[w], lab, j)
+    ax[2].axhline(0.5, color=INK2, ls="--", lw=0.8)
+    ax[2].text(60, 0.53, "trip", color=INK2, fontsize=8)
+    ax[2].set_ylabel("hard-short timer")
+    ax[2].set_xlabel("time after the short [us]")
+    for j, (kk, lab) in enumerate(((0, "golden run (FID 0)"), (1, "short CD (FID 1): C, D open"),
+                                   (2, "short AB (FID 2): A, B open"), (3, "short BC (FID 3): B, C open"))):
+        tt = (r.get("time", kk) - tf) * 1e6
+        ww = (tt > -20) & (tt < 400)
+        plot(ax[3], tt[ww], r.get("V(rail)", kk)[ww], lab, j)
+    ax[3].set_ylim(30, 58)
+    for v in (36, 52):
+        ax[3].axhline(v, color=INK2, ls="--", lw=0.8)
+    ax[3].set_ylabel("load rail [V]")
+    ax[3].set_title("XBW load rail for every fault location", loc="left")
+    ax[0].set_title("short CD -> GND (FID 1)", loc="left")
+    for a in ax[:3]:
+        a.set_xlim(-5, 80)
+    finish(fig, ax, "time after the short [us]", "ex01_fiu_short_selectivity.png")
+
+
 ALL = dict(tb01=tb01, tb02=tb02, tb03=tb03, tb04=tb04, tb05=tb05, tb06=tb06,
            tb07=tb07, tb08=tb08, tb09=tb09, tb10=tb10, tb11=tb11, tb12=tb12,
            tb13=tb13, tb14=tb14, tb15=tb15, tb16=tb16, tb17=tb17, tb18=tb18, tb19=tb19,
@@ -1388,7 +1435,7 @@ ALL = dict(tb01=tb01, tb02=tb02, tb03=tb03, tb04=tb04, tb05=tb05, tb06=tb06,
            dc01=dc01, dc02=dc02, dc03=dc03, dc04=dc04, dc05=dc05, dc06=dc06, dc07=dc07, dc08=dc08,
            wh01=wh01, wh02=wh02, wh03=wh03, wh04=wh04,
            tp01=tp01, tp02=tp02, tp03=tp03, tp04=tp04, tp05=tp05,
-           fi01=fi01, fm01=fm01)
+           fi01=fi01, fm01=fm01, ex01=ex01)
 
 if __name__ == "__main__":
     sel = sys.argv[1:] or list(ALL)

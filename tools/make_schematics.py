@@ -1,4 +1,5 @@
-"""Generate the demo LTspice schematics (.asc) in schematics/.
+"""Generate the demo LTspice schematics (.asc) in schematics/ and the
+example schematics in examples/.
 
 Pin offsets of the built-in symbols and the rotation convention
 (R90: (x,y)->(-y,x), R270: (x,y)->(y,-x)) were verified with `LTspice -netlist`.
@@ -8,6 +9,7 @@ import os
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "schematics")
+EXAMPLES = os.path.join(ROOT, "examples")
 
 
 def write_if_changed(path, text):
@@ -18,7 +20,8 @@ def write_if_changed(path, text):
     open(path, "w").write(text)
 
 ROT = {"R0": lambda x, y: (x, y), "R90": lambda x, y: (-y, x),
-       "R180": lambda x, y: (-x, -y), "R270": lambda x, y: (y, -x)}
+       "R180": lambda x, y: (-x, -y), "R270": lambda x, y: (y, -x),
+       "M0": lambda x, y: (-x, y)}
 PINS = {
     "res": [(16, 16), (16, 96)], "cap": [(16, 0), (16, 64)], "polcap": [(16, 0), (16, 64)],
     "ind": [(16, 16), (16, 96)], "voltage": [(0, 16), (0, 96)], "diode": [(16, 0), (16, 64)],
@@ -34,6 +37,7 @@ PINS = {
     "BATTERY_BMS": [(0, -96), (0, 96), (112, -32), (-112, 0), (112, 32)],
     "DCDC48_12": [(-128, -32), (128, -32), (0, 96), (-128, 32), (128, 32)],
     "WIRE": [(-80, 0), (80, 0), (0, -48), (0, 48)],
+    "FI_SHORT": [(0, -64), (0, 64)], "bi": [(0, 0), (0, 80)],
     **{n: [(0, -64), (0, 64)] for n in ("TP_STEP", "TP_CRANK", "TP_LOADDUMP", "TP_ISO7637", "TP_RIPPLE")},
 }
 # reference parameter sets: same pins as their base models
@@ -68,13 +72,17 @@ class Sch:
     def gnd(self, p):
         self.flag(p, "0")
 
+    def box(self, x0, y0, x1, y1):
+        """Dashed frame around a group of parts (drawing only)."""
+        self.L.append(f"RECTANGLE Normal {x1} {y1} {x0} {y0} 2")
+
     def text(self, x, y, s, size=2, directive=False):
         self.L.append(f"TEXT {x} {y} Left {size} {'!' if directive else ';'}{s}")
 
-    def save(self, fname):
-        os.makedirs(OUT, exist_ok=True)
-        write_if_changed(os.path.join(OUT, fname), "\n".join(self.L) + "\n")
-        print("  ->", fname)
+    def save(self, fname, folder=OUT):
+        os.makedirs(folder, exist_ok=True)
+        write_if_changed(os.path.join(folder, fname), "\n".join(self.L) + "\n")
+        print("  ->", os.path.relpath(os.path.join(folder, fname), ROOT))
 
 
 # ---------------------------------------------------------------------------
@@ -297,8 +305,164 @@ def demo_dcdc():
     s.save("demo_dcdc.asc")
 
 
+# ---------------------------------------------------------------------------
+#  examples/
+# ---------------------------------------------------------------------------
+def ex01_fiu_short():
+    """Fail-operational dual 48 V supply: 800/48 V DC/DC - eFuses A..D - 48 V battery,
+    XBW load fed from AB and CD; FIU shorts to GND at CD, AB and BC (one scenario each);
+    selectivity check."""
+    s = Sch(5600, 1900)
+    y = 320                                   # power rail
+    # --- 800 V source and 800/48 V DC/DC (averaged buck model, re-parameterized)
+    vhv = s.part("voltage", 96, y - 16, name="Vhv", value=800, line="Rser=50m")
+    s.gnd(vhv[1])
+    dc = s.part("DCDC48_12", 368, y + 32, name="DCDC",
+                line="VSET=48.2 PRATED=3000 VIN_ON=550 VIN_OFF=500 VIN_OVP=920 VOVP_HYS=20 "
+                     "T_SS=1m P0=15 RLOSS=5m KSW=0.3m DCRUN=1")
+    s.wire(vhv[0], dc[0]); s.flag(vhv[0], "hv")
+    s.gnd(dc[2]); s.flag(dc[3], "en"); s.flag(dc[4], "pg_dc")
+    wdc = s.part("WIRE", 656, y, name="WDC", line="LEN=1 CSA=10")
+    s.wire(dc[1], wdc[0]); s.flag(dc[1], "vdc"); s.flag(wdc[2], "tw_dc"); s.gnd(wdc[3])
+    cpa = s.part("cap", 800, y, name="Cpa", value="100u", line="Rser=30m"); s.gnd(cpa[1])
+    tva = s.part("diode", 928, y + 64, "R180", "Dta", "EF_TVS58V"); s.gnd(tva[0])
+    # --- PDU: four bidirectional eFuses, each = two EFUSE48_MOD channels back to back
+    #     (common source "m*"). "R" senses and interrupts current flowing to the right
+    #     (towards the battery), "L" (mirrored) current flowing to the left.
+    #     Time grading per direction: the channel nearest the fault is the fastest.
+    grade = {"AR": "TD3", "AL": "TD0", "BR": "TD2", "BL": "TD1",
+             "CR": "TD1", "CL": "TD2", "DR": "TD0", "DL": "TD3"}
+    us = {"TD0": 3, "TD1": 9, "TD2": 15, "TD3": 21}
+    nodes = ["pa", "ab", "bc", "cd", "pd"]
+    x_vbat_r = [1024, 2048, 3072, 4096]       # VBAT pin of each "R" channel
+    rail = [(736, y)]
+    for k, e in enumerate("ABCD"):
+        xr = x_vbat_r[k] + 144
+        xl = xr + 352
+        chans = []
+        for nm, x, rot in ((e + "R", xr, "R0"), (e + "L", xl, "M0")):
+            td = grade[nm]
+            p = s.part("EFUSE48_MOD", x, y + 96, rot, nm,
+                       line=f"OVC_CODE=22 HSC_CODE=15 VDS_CODE=30 C_SLEW={{CSLEW}} HSC_DLY={{{td}}} VDS_DLY={{{td}}}",
+                       extra=["WINDOW 39 0 0 Invisible 2"])
+            s.gnd(p[2]); s.flag(p[3], "en"); s.gnd(p[4]); s.gnd(p[5])
+            arrow = "->" if nm.endswith("R") else "<-"
+            s.text(x - 112, y + 264, f"{nm}: senses {arrow}  trip delay {us[td]} us", 1)
+            chans.append(p)
+        (r_, l_) = chans
+        s.wire(r_[1], l_[1]); s.flag(r_[1], "m" + e.lower())
+        rail.append(r_[0]); s.wire(rail[-2], r_[0])
+        rail.append(l_[0]); s.flag(l_[0], nodes[k + 1])
+        s.text(xr - 32, y - 96, f"eFuse {e}", 2)
+    s.wire(rail[-1], (4864, y))
+    s.flag((736, y), "pa")
+    s.box(992, y - 128, 4768, y + 304)
+    s.text(1000, y - 160, "PDU: 4 bidirectional eFuses = 8 VNF1048F channels (EFUSE48_MOD), back to back, "
+                          "same thresholds (INOM 39 A, hard short 160 A, VDS 1.8 V), graded hard-short / VDS delays", 1)
+    # --- battery side
+    tvd = s.part("diode", 4880, y + 64, "R180", "Dtd", "EF_TVS58V"); s.gnd(tvd[0])
+    cpd = s.part("cap", 4944, y, name="Cpd", value="100u", line="Rser=30m"); s.gnd(cpd[1])
+    wb = s.part("WIRE", 5152, y, name="WBAT", line="LEN=1 CSA=10")
+    s.wire((4864, y), wb[0]); s.flag(wb[2], "tw_bat"); s.gnd(wb[3])
+    bat = s.part("BATTERY", 5376, y + 80, name="BAT", line="VNOM=48 SOC0=0.6")
+    s.wire(wb[1], bat[0]); s.flag(bat[0], "pb"); s.gnd(bat[1]); s.flag(bat[2], "soc")
+    # --- XBW load: 2 m cables from AB and CD, ideal-diode ORing, 1 mF, 1 kW
+    ld = []
+    for nm, x, net in (("1", 1856, "ab"), ("2", 3840, "cd")):
+        s.wire((x, y), (x, y + 320))
+        w = s.part("WIRE", x, y + 400, "R90", "W" + nm, line="LEN=2 CSA=2.5")
+        s.flag(w[2], "tw" + nm); s.gnd(w[3]); s.flag(w[1], "l" + nm)
+        d = s.part("diode", x - 16, y + 480, name="Dor" + nm, value="DOR")
+        ld.append(d[1])
+    s.wire(ld[0], (1856, y + 640), (3840, y + 640), ld[1])
+    s.flag((2848, y + 640), "rail")
+    cx = s.part("cap", 2592, y + 640, name="Cxbw", value="1m", line="Rser=10m"); s.gnd(cx[1])
+    bl = s.part("bi", 2848, y + 640, name="Bxbw",
+                value="I={PLOAD}*limit((time-0.1m)/0.3m,0,1)/limit(V(rail),20,1k)*limit(V(rail)/20,0,1)")
+    s.gnd(bl[1])
+    s.box(1648, y + 560, 4032, y + 800)
+    s.text(2016, y + 520, "XBW load (fail-operational, dual 48 V supply): ideal-diode ORing, 1 mF, 1 kW constant power "
+                          "(ramped in 0.1..0.4 ms)", 1)
+    # --- FIUs: one short to GND per bus node, each its own scenario (FID)
+    for net, x, fid in (("AB", 1952, 2), ("BC", 2880, 3), ("CD", 3968, 1)):
+        s.wire((x, y), (x, y + 272))
+        fiu = s.part("FI_SHORT", x, y + 336, name="FIU_" + net,
+                     line=f"ID={fid} FID={{FID}} RF=10m TF={{TFAULT}} TTR=1u")
+        s.gnd(fiu[1])
+        s.text(x - 64, y + 448, f"FIU {net} -> GND (FID {fid})", 1)
+    # --- enable (eFuses and DC/DC): on from the DC operating point
+    ven = s.part("voltage", 96, y + 336, name="Ven", value=3.3); s.flag(ven[0], "en"); s.gnd(ven[1])
+    # --- title and notes
+    s.text(32, -160, "ex01 - FIU short circuits on a fail-operational dual 48 V supply: is each fault isolated "
+                     "selectively, and does the XBW load keep its power?", 2)
+    s.text(32, -120, "800 V -> 48 V DC/DC --1 m-- [A]-AB-[B]-BC-[C]-CD-[D] --1 m-- 48 V battery | XBW load 1 kW / "
+                     "1 mF on AB and CD (2 m each) | 10 mOhm short to GND at 1 ms", 1)
+    s.text(32, -96, "Expected: FID 1 short CD: C (->) and D (<-) open, load on AB | FID 2 short AB: A (->) and B (<-) "
+                    "open, load on CD | FID 3 short BC: B (->) and C (<-) open, load on both | FID 0 golden: "
+                    "nothing trips | load rail always 36..52 V", 1)
+    s.text(32, -72, "Starts in steady state (eFuses on, DC/DC running in the DC operating point). "
+                    "Probe: V(cr:xu:flt) fault latch, V(cr:xu:hsht) hard short, V(ar:xu:xhcd:t) "
+                    "hard-short timer (trips at 0.5), V(dcdc:il), I(w1:Vs).", 1)
+    # --- directives
+    yd = 1200
+    for k, inc in enumerate(("VNF1048F_beh.lib", "DCDC48_12_beh.lib", "BATTERY_beh.lib", "HARNESS_beh.lib",
+                             "FAULTS_beh.lib")):
+        s.text(32, yd + 32 * k, f".include ../models/{inc}", 2, True)
+    s.text(32, yd + 176, ".param FID=1 TFAULT=1m TSTOP=2.5m PLOAD=1k CSLEW=4.7n", 2, True)
+    s.text(32, yd + 208, ".param T0=3u TS=6u TD0={T0} TD1={T0+TS} TD2={T0+2*TS} TD3={T0+3*TS}", 2, True)
+    s.text(32, yd + 240, ".step param FID list 0 1 2 3", 2, True)
+    s.text(32, yd + 272, ".model DOR D(Ron=5m Roff=1Meg Vfwd=20m)", 2, True)
+    s.text(32, yd + 304, ".tran 0 {TSTOP} 0 0.5u", 2, True)
+    s.text(32, yd + 336, ".options plotwinsize=0", 2, True)
+    s.text(32, yd + 384, "FID: 0 = golden run, 1 = short CD, 2 = short AB, 3 = short BC (to GND) | CSLEW: eFuse "
+                         "gate slew capacitor; with >= 22 nF A and B trip as well on the CD short (see README)", 1)
+    ch = ["ar", "al", "br", "bl", "cr", "cl", "dr", "dl"]
+    mid = {c: "m" + c[0] for c in ch}
+    meas = [".meas tran railpre avg V(rail) from {TFAULT-0.2m} to {TFAULT}",
+            ".meas tran railmin min V(rail) from {TFAULT} to {TSTOP}",
+            ".meas tran railmax max V(rail) from {TFAULT} to {TSTOP}",
+            ".meas tran rail_end avg V(rail) from {TSTOP-0.5m} to {TSTOP}",
+            ".meas tran ab_end avg V(ab) from {TSTOP-0.5m} to {TSTOP}",
+            ".meas tran bc_end avg V(bc) from {TSTOP-0.5m} to {TSTOP}",
+            ".meas tran cd_end avg V(cd) from {TSTOP-0.5m} to {TSTOP}",
+            ".meas tran iw1_end avg I(w1:Vs) from {TSTOP-0.5m} to {TSTOP}",
+            ".meas tran iw2_end avg I(w2:Vs) from {TSTOP-0.5m} to {TSTOP}",
+            ".meas tran idc_end avg I(wdc:Vs) from {TSTOP-0.5m} to {TSTOP}",
+            ".meas tran ibat_end avg I(wbat:Vs) from {TSTOP-0.5m} to {TSTOP}",
+            ".meas tran ipk_dc max I(wdc:Vs) from {TFAULT} to {TFAULT+0.1m}",
+            ".meas tran ipk_bat max -I(wbat:Vs) from {TFAULT} to {TFAULT+0.1m}",
+            ".meas tran vpa_max max V(pa) from {TFAULT} to {TSTOP}",
+            ".meas tran vab_max max V(ab) from {TFAULT} to {TSTOP}",
+            ".meas tran vcd_max max V(cd) from {TFAULT} to {TSTOP}",
+            ".meas tran vpd_max max V(pd) from {TFAULT} to {TSTOP}",
+            ".meas tran run_min min V(dcdc:run) from {TFAULT} to {TSTOP}",
+            ".meas tran ildc_max max V(dcdc:il) from {TFAULT} to {TSTOP}",
+            ".meas tran t52r find time when V(rail)=52 rise=1",
+            ".meas tran t52f find time when V(rail)=52 fall=last",
+            ".meas tran dt52 param t52f-t52r"]
+    for c in ch:
+        meas += [f".meas tran flt_{c} max V({c}:xu:flt)",
+                 f".meas tran t_{c} find time when V({c}:xu:flt)=0.5 rise=1",
+                 f".meas tran dt_{c} param t_{c}-TFAULT",
+                 f".meas tran h_{c} max V({c}:xu:xhcd:t) from {{TFAULT}} to {{TSTOP}}",
+                 f".meas tran v_{c} max V({c}:xu:xvdd:t) from {{TFAULT}} to {{TSTOP}}",
+                 f".meas tran vds_{c} max V({c}:drn)-V({mid[c]}) from {{TFAULT}} to {{TSTOP}}",
+                 f".meas tran tj_{c} max V({c}:tjf)"]
+    for k, mline in enumerate(meas):
+        s.text(1440 + 1040 * (k // 19), yd + 24 * (k % 19), mline, 1, True)
+    saves = [".save V(hv) V(vdc) V(pa) V(ma) V(ab) V(mb) V(bc) V(mc) V(cd) V(md) V(pd) V(pb) V(l1) V(l2) V(rail)",
+             ".save I(wdc:Vs) I(wbat:Vs) I(w1:Vs) I(w2:Vs) V(dcdc:il) V(dcdc:run)"]
+    for c in ch:
+        saves.append(f".save V({c}:xu:flt) V({c}:xu:hsht) V({c}:xu:vdsmax) V({c}:xu:gcmd) "
+                     f"V({c}:xu:xhcd:t) V({c}:xu:xvdd:t) V({c}:drn) V({c}:tjf)")
+    for k, sline in enumerate(saves):
+        s.text(32, yd + 432 + 24 * k, sline, 1, True)
+    s.save("ex01_fiu_short_selectivity.asc", EXAMPLES)
+
+
 if __name__ == "__main__":
     demo_module()
     app_discrete()
     demo_battery()
     demo_dcdc()
+    ex01_fiu_short()
