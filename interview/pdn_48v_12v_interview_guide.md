@@ -51,7 +51,7 @@ battery or converter questions plus the system ones (A, F).
   described in the README; tb15–tb36 were written for this guide; tp01–tp05
   (supply test pulses) are described in
   [README part 5](../README.md#5-automotive-test-pulses-iso-16750-2-iso-7637-2-lv-148), wh01–wh04 (wire) in
-  [README part 4](../README.md#4-wiring-harness-model), oc01–oc04 (overcurrent switch) in
+  [README part 4](../README.md#4-wiring-harness-model), oc01–oc05 (overcurrent switch) in
   [README part 7](../README.md#7-overcurrent-switch-ocsw); bat01–bat07
   (12 V battery, 48 V pack with BMS) are described in
   [README section 2](../README.md#2-automotive-battery-model), dc01–dc08 (700 W 48/12 V DC/DC) in

@@ -13,11 +13,11 @@ symbols and validated test benches; all of them are documented in this README:
 | Wire / harness segment: R(T), L, contact resistance, self-heating | `models/HARNESS_beh.lib` | [4](#4-wiring-harness-model) | wh01–wh04 |
 | Supply test pulses: ISO 16750-2, ISO 7637-2, LV 148 (sources) | `models/PULSES_beh.lib` | [5](#5-automotive-test-pulses-iso-16750-2-iso-7637-2-lv-148) | tp01–tp05 |
 | Fault injection for FMEA simulation (elements, device hooks, FMEA tables) | `models/FAULTS_beh.lib` | [6](#6-fault-injection-and-fmea-simulation) | fi01, fm01 |
-| Overcurrent switch: definite-time trip (IMAX for TOC), latch or retry, active clamp | `models/OCSW_beh.lib` | [7](#7-overcurrent-switch-ocsw) | oc01–oc04 |
+| Overcurrent switch: definite-time trip (IMAX for TOC), latch or retry, active clamp | `models/OCSW_beh.lib` | [7](#7-overcurrent-switch-ocsw) | oc01–oc05 |
 
 The models share conventions (B-source logic, `[EST]` flags for estimated
 values, `0 = default` parameters) and one regression: `tools/validate.py`
-runs <!--v {m('summary','checks_total'):.0f}-->525<!--/v--> checks of <!--v {m('summary','benches'):.0f}-->73<!--/v--> simulations against datasheets, model
+runs <!--v {m('summary','checks_total'):.0f}-->530<!--/v--> checks of <!--v {m('summary','benches'):.0f}-->74<!--/v--> simulations against datasheets, model
 equations, hand calculations and public product data (validated with LTspice
 26.0.2). The system benches that combine the devices are
 [bat07](#bat07-48-v-pdu-fed-by-the-pack-selectivity-and-load-dump-bat07_pdn_48vcir)
@@ -538,7 +538,7 @@ efuse/
 │                                 dc01..dc08 (DC/DC, 3.6), ref01..ref02 (reference sets),
 │                                 wh01..wh04 (harness, 4.7), tp01..tp05 (test pulses, 5.5),
 │                                 fi01, fm01 (fault injection, 6.2 / 6.5),
-│                                 oc01..oc04 (overcurrent switch, 7.7)
+│                                 oc01..oc05 (overcurrent switch, 7.7)
 ├── interview/
 │   └── pdn_48v_12v_interview_guide.md      48 V / 12 V power distribution question bank, a simulation per question
 ├── docs/
@@ -566,7 +566,7 @@ efuse/
 
 ```bash
 pip install -r requirements.txt                                 # once
-tools/run_ltspice.sh -j 6 testbenches/*.cir schematics/*.asc examples/*.asc   # all <!--v {m('summary','benches'):.0f}-->73<!--/v--> simulations, ~2 min with 6 jobs
+tools/run_ltspice.sh -j 6 testbenches/*.cir schematics/*.asc examples/*.asc   # all <!--v {m('summary','benches'):.0f}-->74<!--/v--> simulations, ~2 min with 6 jobs
 python3 tools/validate.py --export docs/results.json           # checks -> docs/VALIDATION.md, stores the results
 python3 tools/sync_docs.py                                     # updates the numbers quoted in the docs
 python3 tools/plot_results.py                                  # -> docs/img/*.png
@@ -575,7 +575,7 @@ python3 tools/lint_models.py                                   # static checks, 
 python3 tools/check_layout.py                                  # no overlapping text in symbols and schematics
 ```
 
-* **Checks.** `validate.py` runs <!--v {m('summary','checks_total'):.0f}-->525<!--/v--> checks against datasheets, model equations,
+* **Checks.** `validate.py` runs <!--v {m('summary','checks_total'):.0f}-->530<!--/v--> checks against datasheets, model equations,
   hand calculations and public product data, in ten groups:
 
   | Group | Checks |
@@ -588,7 +588,7 @@ python3 tools/check_layout.py                                  # no overlapping 
   | `schematics` | <!--v {m('summary','checks_schematics'):.0f}-->7<!--/v--> |
   | `pulses` (tp01–tp05) | <!--v {m('summary','checks_pulses'):.0f}-->45<!--/v--> |
   | `fmea` (fi01, fm01 vs `docs/fmea/*.csv`) | <!--v {m('summary','checks_fmea'):.0f}-->55<!--/v--> |
-  | `ocsw` (oc01–oc04) | <!--v {m('summary','checks_ocsw'):.0f}-->56<!--/v--> |
+  | `ocsw` (oc01–oc05) | <!--v {m('summary','checks_ocsw'):.0f}-->61<!--/v--> |
   | `examples` (`examples/*.asc`) | <!--v {m('summary','checks_examples'):.0f}-->43<!--/v--> |
 
   `python3 tools/validate.py battery dcdc` checks only the groups you name, for
@@ -777,6 +777,14 @@ Follow the pattern of the battery and DC/DC models:
 ## Changelog
 
 Changes that alter simulation results are marked **(results)**.
+
+* **2026-11-18, OCSW: DC path through the switch.** `ROFF` is now a real
+  resistor across the switch, the behavioural source adds only the on
+  conductance. Before, LTspice stopped with "Node x:n1 is floating and
+  connected to current source x:Bsw" for an open or capacitor-only output,
+  two switches in series or a current-source feed. New bench oc05 covers
+  these connections. Results of oc01–oc04 unchanged (largest relative change
+  2·10⁻⁷).
 
 * **2026-11-18, symbol and schematic layout.** No more overlapping text in
   the symbols, demo schematics and `ex01`: attribute windows moved off the
@@ -5211,7 +5219,7 @@ supply current; temperature dependence of `RON` and `IMAX`; tolerances.
 ```
 models/OCSW_beh.lib          OCSW (and the helpers OC_LATCH, OC_FIX)
 symbols/OCSW.asy             5-pin symbol (IN, OUT, GND, EN, FLT)
-testbenches/oc01..oc04       test benches, section 7.7
+testbenches/oc01..oc05       test benches, section 7.7
 docs/img/oc*.png             result plots (tools/plot_results.py)
 ```
 
@@ -5286,7 +5294,8 @@ Internal nodes (referred to GND; `V(xa:tm)` for an instance `Xa`):
 ### 7.5 Equations
 
 **Power path.** The switch is a conductance `1/ROFF + (1/RON − 1/ROFF)·s`
-with `s` = 1 (closed) or 0 (open), in parallel with the clamp
+with `s` = 1 (closed) or 0 (open): `ROFF` as a resistor, the rest as a
+behavioural source. In parallel is the clamp
 
     I_cl = (V − limit(V, −VCLAMP, VCLAMP)) / RCL,      V = V(IN, OUT)
 
@@ -5349,7 +5358,7 @@ output: the switch sees up to `VB + I0·sqrt(L/C)`.
 All benches run several `OCSW` instances in one netlist (the
 multi-instance rule of the numerical guidance) and are checked against the
 closed forms of 7.5 in `tools/validate.py`, group `ocsw`
-(<!--v {m('summary','checks_ocsw'):.0f}-->56<!--/v--> checks).
+(<!--v {m('summary','checks_ocsw'):.0f}-->61<!--/v--> checks).
 
 #### oc01: trip delay vs overcurrent and TOC (`oc01_trip_delay.cir`)
 
@@ -5426,6 +5435,20 @@ branches (`IMAX` 40 A, `TOC` 2 ms) through 2 m of 4 mm² wire (`WIRE`): a
   the branch, whose timer stops when the current is gone: all three loads
   are lost.
 
+#### oc05: connections without a DC path of their own (`oc05_connections.cir`)
+
+Two switches in series with nothing between them, an open output, an output
+that drives only a 100 µF capacitor (supply stepped on at 10 µs), and a
+switch fed by a 2 A current source.
+
+![oc05](docs/img/oc05_connections.png)
+
+* All four run (they stopped with "Node x:n1 is floating" before `ROFF`
+  became a real resistor, [7.9](#79-numerical-notes)) and give the closed
+  forms: 2 × `RON` for the pair, 12 V at the open output,
+  `12·(1 − exp(−t/RC))` at the capacitor (the 12 A inrush stays below
+  `TOC` and does not trip), 2 A × 5 Ω at the current-source feed.
+
 ### 7.8 Assumptions, estimates and limitations
 
 * **Defaults [EST].** `RON` = 1 mΩ, `ROFF` = 10 MΩ, `TSNS` = 100 ns,
@@ -5461,6 +5484,15 @@ branches (`IMAX` 40 A, `TOC` 2 ms) through 2 m of 4 mm² wire (`WIRE`): a
   solution.
 * **Node names.** The internal enable node is `enl`: an internal node `en`
   would short the `EN` pin (LTspice node names are case-insensitive).
+* **A DC path through the switch.** LTspice does not count a behavioural
+  current source as a DC connection. With the whole switch conductance in a
+  B source, the node between the current sense and the switch had no DC path
+  whenever the other side had none of its own: an open or capacitor-only
+  output, two switches in series, a current-source feed. LTspice then stopped
+  with "Node x:n1 is floating and connected to current source x:Bsw" (or ran
+  slowly). `ROFF` is therefore a real resistor across the switch, and the B
+  source adds only `1/RON − 1/ROFF` when closed (oc05; results of oc01–oc04
+  unchanged to 2·10⁻⁷).
 
 ---
 

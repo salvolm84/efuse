@@ -1520,6 +1520,20 @@ def oc04():
     finish(fig, ax, "time [ms]", "oc04_system_selectivity.png")
 
 
+def oc05():
+    r = raw("oc05_connections"); t = r["time"] * 1e6
+    fig, ax = panels(2, "oc05 - OCSW without a DC path of its own on one side (series pair, open / capacitive output, "
+                        "current-source feed)", h=2.2)
+    plot(ax[0], t, r["V(out2)"], "series pair, 1.2 Ohm", 0); plot(ax[0], t, r["V(out3)"], "open output", 1)
+    plot(ax[0], t, r["V(out4)"], "100 uF output (supply on at 10 us)", 2)
+    plot(ax[0], t, r["V(out5)"], "2 A current-source feed, 5 Ohm", 3)
+    ax[0].set_ylabel("V(OUT) [V]"); ax[0].set_xlim(0, 600)
+    plot(ax[1], t, r["I(x4:Vs)"], "capacitive output: switch current", 2)
+    ax[1].axhline(10, color=INK2, ls="--", lw=0.8); ax[1].set_ylabel("A"); ax[1].set_xlim(0, 600)
+    ax[1].text(320, 10.5, "IMAX 10 A (TOC 1 ms: no trip)", color=INK2, fontsize=8)
+    finish(fig, ax, "time [us]", "oc05_connections.png")
+
+
 ALL = dict(tb01=tb01, tb02=tb02, tb03=tb03, tb04=tb04, tb05=tb05, tb06=tb06,
            tb07=tb07, tb08=tb08, tb09=tb09, tb10=tb10, tb11=tb11, tb12=tb12,
            tb13=tb13, tb14=tb14, tb15=tb15, tb16=tb16, tb17=tb17, tb18=tb18, tb19=tb19,
@@ -1531,7 +1545,7 @@ ALL = dict(tb01=tb01, tb02=tb02, tb03=tb03, tb04=tb04, tb05=tb05, tb06=tb06,
            wh01=wh01, wh02=wh02, wh03=wh03, wh04=wh04,
            tp01=tp01, tp02=tp02, tp03=tp03, tp04=tp04, tp05=tp05,
            fi01=fi01, fm01=fm01, ex01=ex01,
-           oc01=oc01, oc02=oc02, oc03=oc03, oc04=oc04)
+           oc01=oc01, oc02=oc02, oc03=oc03, oc04=oc04, oc05=oc05)
 
 if __name__ == "__main__":
     sel = sys.argv[1:] or list(ALL)

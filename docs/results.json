@@ -1957,7 +1957,7 @@ null,
 0.294848311945,
 0.256896742672,
 0.24076673722,
-8.35909994964e-05
+8.35909841077e-05
 ],
 "e_2": [
 0.312294915213,
@@ -2060,8 +2060,8 @@ null,
 20.5077101983
 ],
 "ib_sc": [
-1037.38922643,
-1037.38922643
+1037.38922634,
+1037.38922634
 ],
 "ic1": [
 10.234574451,
@@ -2076,16 +2076,16 @@ null,
 593.463989258
 ],
 "im_sc": [
-1057.28700155,
-1057.28700155
+1057.28700154,
+1057.28700154
 ],
 "tfb": [
-0.0220007948001,
+0.0220007947888,
 null
 ],
 "tfm": [
 null,
-0.0210157948001
+0.0210157947888
 ],
 "tin_c": [
 0.00017920330628,
@@ -2112,24 +2112,44 @@ null,
 0.02000081332
 ],
 "txm": [
-0.0200165285807,
-0.0200165285807
+0.0200165285811,
+0.0200165285811
 ],
 "va0": [
 48.1931188467,
 48.1931188467
 ],
 "va1": [
-48.0507903841,
-1.45824160603e-07
+48.0507903877,
+1.45824160606e-07
 ],
 "vbus1": [
-48.2676425604,
-1.46482254358e-07
+48.2676425601,
+1.46482254361e-07
 ],
 "vc1": [
-48.1588398,
-1.46152141342e-07
+48.1588398013,
+1.46152141341e-07
+]
+},
+"testbenches/oc05_connections": {
+"f4": [
+0.0
+],
+"i4pk": [
+11.9879512787
+],
+"r12": [
+0.00200003572687
+],
+"v3": [
+12.0
+],
+"v4": [
+7.58101966108
+],
+"v5": [
+10.0
 ]
 },
 "testbenches/ref01_reference_sets": {
@@ -4793,10 +4813,11 @@ null,
 "testbenches/dc08_pdn_48v_12v": "7e4dcd84e7ba7ff9a8f70e8eb4dcd035e741f9553cdae490f582d9334ffa6a97",
 "testbenches/fi01_fault_primitives": "c82b5875bd55e79198f7b561ba0876769ea5fe9473d37f8b1d96abdc9e22d768",
 "testbenches/fm01_pdn_fmea": "93899ee885ea792d8f2c47f4144923e71a1a3b3fd395c337fced1c7353a4440d",
-"testbenches/oc01_trip_delay": "a3b6e99ecdf6929add6c7bb9b3294922af83c78c9bff32a575739788fbd72e43",
-"testbenches/oc02_timer_logic": "4cd88f7ca098a9446bc8bea9827ec946e70933c6de8dc51f0515d65bdc752597",
-"testbenches/oc03_inductive_clamp": "5684c968433f2ab27fc3e3c948b7cfe50d54462691e1ad1d9a7c2588f9561768",
-"testbenches/oc04_system_selectivity": "d3f37d33043978fffa28d8a1ff22ea597dc6e76c145d41cd1670fb843a967f18",
+"testbenches/oc01_trip_delay": "392f3fa20756e7360e104134f13c4b770312dd547d74f6430ea769ccf2118b52",
+"testbenches/oc02_timer_logic": "ad7f66420f8ef3ac5f3d171f8ac10937cda379a41c1278fa29526818a6beb47c",
+"testbenches/oc03_inductive_clamp": "b2636d9cc2dfdcefcda80e4520491f56926ee9e19332a0764832b51bc61e2068",
+"testbenches/oc04_system_selectivity": "01291946b746c041bae5169e23c2276fec093602f8c94cce097c525cc95ca2b0",
+"testbenches/oc05_connections": "28428dfcfd19f2d0a6851258cf4839a5edf0f28247fcf46aee8695e03dffd98b",
 "testbenches/ref01_reference_sets": "23da3e1b0e1d3797c239a28f1c912b04ee080c8390c41df75cf3901e13c000cf",
 "testbenches/ref02_reference_dcdc": "4bd1da9b65e1ef808d868ffa7324e7c9bde39cf31fe0d636e7506d5d6df71ee8",
 "testbenches/tb01_startup_inrush": "63c07074ec24468c442f52c50864016c5d209efe667b5717cc1968bd6b9921ca",
@@ -4852,7 +4873,7 @@ null,
 },
 "validation/summary": {
 "benches": [
-73
+74
 ],
 "checks_battery": [
 51
@@ -4873,10 +4894,10 @@ null,
 35
 ],
 "checks_ocsw": [
-56
+61
 ],
 "checks_passed": [
-525
+530
 ],
 "checks_pulses": [
 45
@@ -4888,7 +4909,7 @@ null,
 7
 ],
 "checks_total": [
-525
+530
 ]
 }
 }

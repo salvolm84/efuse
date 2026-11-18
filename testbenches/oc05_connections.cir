@@ -1,0 +1,47 @@
+* oc05_connections.cir
+* ---------------------------------------------------------------------------
+* OCSW in connections without a DC path of their own on one side (LTspice
+* reported "Node x:n1 is floating and connected to current source x:Bsw"
+* before ROFF became a real resistor across the switch):
+*   X1 + X2  two switches in series, nothing between them; 12 V into 1.2 Ohm
+*   X3       output open (no load)
+*   X4       output drives only a 100 uF capacitor, fed through 1 Ohm; the
+*            supply steps to 12 V at 10 us: inrush 12 A, above IMAX for ~18 us < TOC
+*   X5       fed by a 2 A current source (1 uF on the input), 5 Ohm load
+* Expected:
+*   X1 + X2: drop 2 x RON x I (2 mOhm in total)
+*   X3     : V(OUT) = 12 V exactly (no current)
+*   X4     : V(OUT) = 12 (1 - exp(-t/tau)), tau = (1 Ohm + RON) 100 uF, no trip
+*   X5     : V(OUT) = 2 A x 5 Ohm = 10 V
+* ---------------------------------------------------------------------------
+.include ../models/OCSW_beh.lib
+
+V1 a1 0 12
+X1 a1 m1 0 en f1 OCSW IMAX=20
+X2 m1 out2 0 en f2 OCSW IMAX=20
+R2 out2 0 1.2
+
+V3 a3 0 12
+X3 a3 out3 0 en f3 OCSW
+
+V4 s4 0 PWL(0 0 10u 0 10.001u 12)
+R4 s4 a4 1
+X4 a4 out4 0 en f4 OCSW
+C4 out4 0 100u
+
+I5 0 a5 2
+C5 a5 0 1u
+X5 a5 out5 0 en f5 OCSW
+R5 out5 0 5
+
+Ven en 0 3.3
+
+.save V(a1) V(m1) V(out2) I(x1:Vs) V(out3) V(out4) I(x4:Vs) V(f4) V(out5) V(a5)
+.meas tran r12   avg (V(a1)-V(out2))/I(x1:Vs) from 1m to 2m
+.meas tran v3    avg V(out3) from 1m to 2m
+.meas tran v4    find V(out4) at 110u
+.meas tran i4pk  max I(x4:Vs) from 0 to 1m
+.meas tran f4    max V(f4) from 0 to 2m
+.meas tran v5    avg V(out5) from 1m to 2m
+.tran 0 2m 0 1u
+.end

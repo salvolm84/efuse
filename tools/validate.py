@@ -10,7 +10,7 @@ and exits non-zero if any check fails.
     python3 tools/validate.py --json docs/results.json     # check stored results (CI)
 
 Groups: efuse (tb01..tb36), battery (bat01..bat07), dcdc (dc01..dc08), harness (wh01..wh04),
-pulses (tp01..tp05), fmea (fm01, against docs/fmea/*.csv), ocsw (oc01..oc04),
+pulses (tp01..tp05), fmea (fm01, against docs/fmea/*.csv), ocsw (oc01..oc05),
 reference (ref01..ref02, public
 product data), schematics (demo/app .asc), examples (examples/*.asc).
 
@@ -1146,7 +1146,7 @@ def reference():
 
 
 def ocsw():
-    """Overcurrent-switch benches oc01..oc04 (OCSW model equations, closed forms)."""
+    """Overcurrent-switch benches oc01..oc05 (OCSW model equations, closed forms)."""
     TSNS, RCL, ROFF = 100e-9, 0.1, 10e6
 
     def t_s(i0, i1, imax):
@@ -1268,6 +1268,17 @@ def ocsw():
     check(t, "mis-graded: B does not trip", m(t, "flb", 1), 0, 0.01, "V", "its current is gone first")
     check(t, "mis-graded: B timer peak", m(t, "tmb", 1) * 1e3, 1, 2, "ms", "> TOC_M, < TOC_B")
     check(t, "mis-graded: bus after the fault", m(t, "vbus1", 1), 0, 0.1, "V", "all loads lost")
+
+    # ---- oc05 connections without a DC path of their own -------------------------
+    t = "oc05_connections"
+    check(t, "two switches in series: total on-resistance", m(t, "r12") * 1e3, 1.999, 2.001, "mOhm", "2 x RON")
+    check(t, "open output: output voltage", m(t, "v3"), 12 - 1e-6, 12 + 1e-6, "V", "no current: 12 V")
+    v4 = 12 * (1 - math.exp(-100e-6 / ((1 + 1e-3) * 100e-6)))
+    check(t, "capacitive output: voltage 100 us after the supply step", m(t, "v4"), 0.999 * v4, 1.001 * v4, "V",
+          f"12 (1 - exp(-t/((1 Ohm + RON) C))) = {v4:.4f} V")
+    check(t, "capacitive output: inrush peak above IMAX, no trip", m(t, "i4pk") if m(t, "f4") < 0.01 else NAN,
+          10, 12.1, "A", "12 V / 1 Ohm, above IMAX for ~18 us < TOC")
+    check(t, "current-source feed: output voltage", m(t, "v5"), 9.999, 10.001, "V", "2 A x 5 Ohm")
 
 
 GROUPS = {"efuse": efuse, "battery": battery, "dcdc": dcdc, "harness": harness, "pulses": pulses, "fmea": fmea_checks, "reference": reference,

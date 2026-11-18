@@ -69,7 +69,7 @@
 *                 Taking EN low opens the switch and clears a trip.
 *        FLT      fault output, VLOG through 100 Ohm when tripped, else 0 V
 *
-*  IN --[Vs]--+--[ g(s) = 1/ROFF + (1/RON - 1/ROFF) s ]--+-- OUT
+*  IN --[Vs]--+--[ ROFF ] || [ g(s) = (1/RON - 1/ROFF) s ]--+-- OUT
 *             +--[ active clamp: (|V| - VCLAMP)/RCL ]-----+
 *
 *  Parameters:
@@ -136,12 +136,17 @@
 
 * ---------------- power path -------------------------------------------------
 *  Vs senses the total current. The channel conductance is 1/RON or 1/ROFF
-*  by the switch command s; the fault hook moves the effective state to 1
-*  (stuck-on) or 0 (stuck-off). The hook factors are constant parameters,
-*  so an inactive hook has exactly zero derivatives (README part 6).
+*  by the switch command s: ROFF is a real resistor, so LTspice sees a DC
+*  path through the switch (a B current source alone left the node behind
+*  it "floating" for an open or capacitive output, a current-source feed or
+*  two switches in series), and Bsw adds 1/RON - 1/ROFF when closed. The
+*  fault hook moves the effective state to 1 (stuck-on) or 0 (stuck-off).
+*  The hook factors are constant parameters, so an inactive hook has exactly
+*  zero derivatives (README part 6).
 Vs  IN n1 0
-Bsw n1 OUT I=V(n1,OUT)*({GOFF} + {GON-GOFF}*(V(s,GND)
-+  + {FIA1}*V(fix,GND)*(1-V(s,GND)) - {FIA2}*V(fix,GND)*V(s,GND)))
+Roff n1 OUT {ROFF}
+Bsw n1 OUT I=V(n1,OUT)*{GON-GOFF}*(V(s,GND)
++  + {FIA1}*V(fix,GND)*(1-V(s,GND)) - {FIA2}*V(fix,GND)*V(s,GND))
 *  active clamp: conducts (|V| - VCLAMP)/RCL above VCLAMP, in both
 *  polarities; exactly zero (and zero derivatives) when VCLAMP = 0
 Bcl n1 OUT I={CLA/RCL}*(V(n1,OUT) - limit(V(n1,OUT), -{VCLE}, {VCLE}))
