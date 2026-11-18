@@ -1,0 +1,70 @@
+* oc01_trip_delay.cir
+* ---------------------------------------------------------------------------
+* Trip delay of the overcurrent switch OCSW vs the overcurrent and TOC.
+* Three switches in one netlist, each fed by its own 12 V source (1 mOhm) and
+* loaded at half its threshold, I0 = 0.5 IMAX. At 1 ms a second resistor
+* raises the load current to I1 = K x IMAX (stepped):
+*   X1: IMAX = 10 A, TOC = 10 us
+*   X2: IMAX = 10 A, TOC = 1 ms
+*   X3: IMAX = 50 A, TOC = 20 ms
+*   K = 0.95 (CASE 0), 1.05, 2, 10
+* Expected (model equations, README part 7.5):
+*   K = 0.95: no trip, the current flows on
+*   K > 1   : FLT rises t_trip = TSNS ln((I1 - I0)/(I1 - IMAX)) + TOC after
+*             the step (TSNS = 100 ns: 240 ns at K = 1.05, 7.3 ns at K = 10),
+*             then the current falls to the leakage 12 V / (ROFF + RLOAD)
+*   on-resistance V(IN, OUT) / I = RON = 1 mOhm before the step
+* Max step 100 ns: the switch trips at the first time step after the timer
+* reaches TOC, so the trip instant is resolved to one time step.
+* ---------------------------------------------------------------------------
+.include ../models/OCSW_beh.lib
+.param CASE=0
+.param K={table(CASE, 0,0.95, 1,1.05, 2,2, 3,10)}
+* series resistance source + RON + load switch, for the load values
+.param RSER=3m
+.param RB1={12/5 - RSER}  RL1={12/(K*10) - RSER}  RO1={1/(1/RL1 - 1/RB1)}
+.param RB3={12/25 - RSER} RL3={12/(K*50) - RSER}  RO3={1/(1/RL3 - 1/RB3)}
+
+V1 s1 0 12
+R1 s1 in1 1m
+X1 in1 out1 0 en flt1 OCSW IMAX=10 TOC=10u
+Rb1 out1 0 {RB1}
+Ro1 out1 o1 {RO1}
+S1 o1 0 g 0 SLOAD
+
+V2 s2 0 12
+R2 s2 in2 1m
+X2 in2 out2 0 en flt2 OCSW IMAX=10 TOC=1m
+Rb2 out2 0 {RB1}
+Ro2 out2 o2 {RO1}
+S2 o2 0 g 0 SLOAD
+
+V3 s3 0 12
+R3 s3 in3 1m
+X3 in3 out3 0 en flt3 OCSW IMAX=50 TOC=20m
+Rb3 out3 0 {RB3}
+Ro3 out3 o3 {RO3}
+S3 o3 0 g 0 SLOAD
+
+Vg g 0 PWL(0 0 1m 0 1.000001m 1)
+.model SLOAD SW(Ron=1m Roff=1G Vt=0.5 Vh=-0.2)
+Ven en 0 3.3
+
+.save I(x1:Vs) I(x2:Vs) I(x3:Vs) V(in1) V(out1) V(flt1) V(flt2) V(flt3)
++ V(x1:tm) V(x2:tm) V(x3:tm) V(x1:isf) V(x1:s)
+.meas tran i0_1  avg I(x1:Vs) from 0.5m to 0.95m
+.meas tran i0_2  avg I(x2:Vs) from 0.5m to 0.95m
+.meas tran i0_3  avg I(x3:Vs) from 0.5m to 0.95m
+.meas tran ron_1 avg (V(in1)-V(out1))/I(x1:Vs) from 0.5m to 0.95m
+.meas tran i1_1  find I(x1:Vs) at 1.004m
+.meas tran i1_2  find I(x2:Vs) at 1.004m
+.meas tran i1_3  find I(x3:Vs) at 1.004m
+.meas tran tf_1  find time when V(flt1)=1.65 rise=1
+.meas tran tf_2  find time when V(flt2)=1.65 rise=1
+.meas tran tf_3  find time when V(flt3)=1.65 rise=1
+.meas tran ie_1  avg I(x1:Vs) from 29m to 30m
+.meas tran ie_2  avg I(x2:Vs) from 29m to 30m
+.meas tran ie_3  avg I(x3:Vs) from 29m to 30m
+.step param CASE list 0 1 2 3
+.tran 0 30m 0 100n
+.end

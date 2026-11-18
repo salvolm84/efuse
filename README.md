@@ -13,10 +13,11 @@ symbols and validated test benches; all of them are documented in this README:
 | Wire / harness segment: R(T), L, contact resistance, self-heating | `models/HARNESS_beh.lib` | [4](#4-wiring-harness-model) | wh01–wh04 |
 | Supply test pulses: ISO 16750-2, ISO 7637-2, LV 148 (sources) | `models/PULSES_beh.lib` | [5](#5-automotive-test-pulses-iso-16750-2-iso-7637-2-lv-148) | tp01–tp05 |
 | Fault injection for FMEA simulation (elements, device hooks, FMEA tables) | `models/FAULTS_beh.lib` | [6](#6-fault-injection-and-fmea-simulation) | fi01, fm01 |
+| Overcurrent switch: definite-time trip (IMAX for TOC), latch or retry, active clamp | `models/OCSW_beh.lib` | [7](#7-overcurrent-switch-ocsw) | oc01–oc04 |
 
 The models share conventions (B-source logic, `[EST]` flags for estimated
 values, `0 = default` parameters) and one regression: `tools/validate.py`
-runs <!--v {m('summary','checks_total'):.0f}-->469<!--/v--> checks of <!--v {m('summary','benches'):.0f}-->69<!--/v--> simulations against datasheets, model
+runs <!--v {m('summary','checks_total'):.0f}-->525<!--/v--> checks of <!--v {m('summary','benches'):.0f}-->73<!--/v--> simulations against datasheets, model
 equations, hand calculations and public product data (validated with LTspice
 26.0.2). The system benches that combine the devices are
 [bat07](#bat07-48-v-pdu-fed-by-the-pack-selectivity-and-load-dump-bat07_pdn_48vcir)
@@ -29,7 +30,7 @@ DC/DC) uses the benches, with a simulation for most questions.
 
 The README has a common part (using the models, repository layout,
 regression, numerical guidance, limitations, known issues, adding a device,
-changelog), then one numbered part per device, then the references.
+changelog), then one numbered part per device, then the references (part 8).
 
 > **Disclaimer.** The eFuse model is an independent, **unofficial** model.
 > STMicroelectronics did not provide, review or endorse it. It was built from
@@ -81,7 +82,8 @@ changelog), then one numbered part per device, then the references.
 4. [Wiring harness model](#4-wiring-harness-model): listed at the start of the section
 5. [Automotive test pulses (ISO 16750-2, ISO 7637-2, LV 148)](#5-automotive-test-pulses-iso-16750-2-iso-7637-2-lv-148): listed at the start of the section
 6. [Fault injection and FMEA simulation](#6-fault-injection-and-fmea-simulation): listed at the start of the section
-7. [References](#7-references)
+7. [Overcurrent switch (`OCSW`)](#7-overcurrent-switch-ocsw): listed at the start of the section
+8. [References](#8-references)
 
 ---
 
@@ -172,6 +174,8 @@ or demo schematic (`schematics/*.asc`) and modify it.
    | `BATTERY` | P N SOC |
    | `BATTERY_BMS` | P N SOC EN FLT |
    | `DCDC48_12` | VIN VOUT GND EN PG |
+   | `WIRE` | A B T GND |
+   | `OCSW` | IN OUT GND EN FLT |
 
 2. Open it in LTspice (File → Open, file type *Netlists*) and run it, or run it
    in batch mode with `tools/run_ltspice.sh my.cir`, which prints the `.meas`
@@ -286,6 +290,15 @@ or demo schematic (`schematics/*.asc`) and modify it.
   `Xld v12 0 ISO16750_LD_B12 TD=50m`. In a schematic, place one of the `TP_*`
   symbols and set its Value to a preset if you want one. Details in
   [5.4](#54-quick-start).
+
+### Overcurrent switch (`OCSW`)
+
+* `X1 in out 0 en flt OCSW IMAX=40 TOC=2m`: tie GND to the ground node.
+  `EN` high (or unconnected: internal pull-up) = on, `EN` low resets a trip;
+  `TRETRY` > 0 retries by itself. Keep `VCLAMP` above the highest voltage
+  across the open switch in normal operation, and set the maximum time step
+  to the trip-time resolution you need (the trip is resolved to one step).
+  Details in [7.3](#73-files-and-quick-start).
 
 ### Example: the three models together
 
@@ -500,7 +513,8 @@ efuse/
 │   ├── REFERENCE_SETS_beh.lib    parameter sets fitted to public product data, sections 2.11 / 3.9
 │   ├── HARNESS_beh.lib           wire / harness segment (WIRE): R(T), L, self-heating, part 4
 │   ├── PULSES_beh.lib            ISO 16750-2 / ISO 7637-2 / LV 148 test-pulse sources, part 5
-│   └── FAULTS_beh.lib            fault-injection elements for FMEA simulation, part 6
+│   ├── FAULTS_beh.lib            fault-injection elements for FMEA simulation, part 6
+│   └── OCSW_beh.lib              overcurrent switch (OCSW): definite-time trip, part 7
 ├── symbols/                      LTspice symbols (canonical copy)
 │   ├── VNF1048F.asy              14-pin controller
 │   ├── EFUSE48_MOD.asy           9-pin complete eFuse channel
@@ -511,7 +525,8 @@ efuse/
 │   ├── BAT12_VARTA_E39.asy, BAT48_A123_8AH.asy, DCDC_TOSHIBA_RD210.asy   reference sets
 │   ├── WIRE.asy                  wire / harness segment
 │   ├── TP_STEP.asy, TP_CRANK.asy, TP_LOADDUMP.asy, TP_ISO7637.asy, TP_RIPPLE.asy   test pulses
-│   └── FI_SHORT.asy              fault injection: short / leakage between two nodes (FIU)
+│   ├── FI_SHORT.asy              fault injection: short / leakage between two nodes (FIU)
+│   └── OCSW.asy                  overcurrent switch (IN, OUT, GND, EN, FLT)
 ├── schematics/                   ready-to-run schematics (symbols copied alongside)
 │   ├── demo_efuse48_module.asc   module in a 48 V harness: start-up, short, retry
 │   ├── app_vnf1048f_discrete.asc full discrete application (DS13084 Fig. 16 + slew network)
@@ -522,7 +537,8 @@ efuse/
 ├── testbenches/                  tb01..tb36 (eFuse, section 1.10), bat01..bat07 (battery, 2.8),
 │                                 dc01..dc08 (DC/DC, 3.6), ref01..ref02 (reference sets),
 │                                 wh01..wh04 (harness, 4.7), tp01..tp05 (test pulses, 5.5),
-│                                 fi01, fm01 (fault injection, 6.2 / 6.5)
+│                                 fi01, fm01 (fault injection, 6.2 / 6.5),
+│                                 oc01..oc04 (overcurrent switch, 7.7)
 ├── interview/
 │   └── pdn_48v_12v_interview_guide.md      48 V / 12 V power distribution question bank, a simulation per question
 ├── docs/
@@ -549,7 +565,7 @@ efuse/
 
 ```bash
 pip install -r requirements.txt                                 # once
-tools/run_ltspice.sh -j 6 testbenches/*.cir schematics/*.asc examples/*.asc   # all <!--v {m('summary','benches'):.0f}-->69<!--/v--> simulations, ~2 min with 6 jobs
+tools/run_ltspice.sh -j 6 testbenches/*.cir schematics/*.asc examples/*.asc   # all <!--v {m('summary','benches'):.0f}-->73<!--/v--> simulations, ~2 min with 6 jobs
 python3 tools/validate.py --export docs/results.json           # checks -> docs/VALIDATION.md, stores the results
 python3 tools/sync_docs.py                                     # updates the numbers quoted in the docs
 python3 tools/plot_results.py                                  # -> docs/img/*.png
@@ -557,8 +573,8 @@ python3 tools/fmea_report.py                                   # -> docs/fmea/<b
 python3 tools/lint_models.py                                   # static checks, no simulation
 ```
 
-* **Checks.** `validate.py` runs <!--v {m('summary','checks_total'):.0f}-->469<!--/v--> checks against datasheets, model equations,
-  hand calculations and public product data, in nine groups:
+* **Checks.** `validate.py` runs <!--v {m('summary','checks_total'):.0f}-->525<!--/v--> checks against datasheets, model equations,
+  hand calculations and public product data, in ten groups:
 
   | Group | Checks |
   |---|---|
@@ -570,6 +586,7 @@ python3 tools/lint_models.py                                   # static checks, 
   | `schematics` | <!--v {m('summary','checks_schematics'):.0f}-->7<!--/v--> |
   | `pulses` (tp01–tp05) | <!--v {m('summary','checks_pulses'):.0f}-->45<!--/v--> |
   | `fmea` (fi01, fm01 vs `docs/fmea/*.csv`) | <!--v {m('summary','checks_fmea'):.0f}-->55<!--/v--> |
+  | `ocsw` (oc01–oc04) | <!--v {m('summary','checks_ocsw'):.0f}-->56<!--/v--> |
   | `examples` (`examples/*.asc`) | <!--v {m('summary','checks_examples'):.0f}-->43<!--/v--> |
 
   `python3 tools/validate.py battery dcdc` checks only the groups you name, for
@@ -640,6 +657,13 @@ sections [1.12](#112-numerical-notes-and-troubleshooting), [2.10](#210-numerical
   there. A converter starts "off" and soft-starts at t = 0.
 * **No logic feedback through its own deglitch filter.** Use one timer state that
   moves monotonically through its thresholds.
+* **No settling state variable in a power path.** A state that switches a
+  power conductance (a switch ramp or lag) stays coupled into the power path
+  while it settles towards 0 or 1 (`dI/ds = V/RON` is large even when the
+  switch is open) and collapsed the trapezoidal time step in multi-instance
+  netlists (`OCSW`, [7.9](#79-numerical-notes)). Drive such conductances with
+  a boolean of the logic, or put the activation in a constant parameter
+  factor.
 * **Give every node a DC path.** Nodes driven only by B current sources and
   capacitors need a large resistor (MΩ–GΩ) for LTspice's floating-node check.
 * **Test with several instances in one netlist.** Most stalls appeared only
@@ -681,6 +705,10 @@ per-device sections [1.11](#111-assumptions-estimates-and-limitations),
   high temperature: thermal runaway above ~2.5 × the rating), free-air
   ratings as defaults, no skin effect; `.tran` and `.ac`. See
   [4.8](#48-assumptions-estimates-and-limitations).
+* **Overcurrent switch (`OCSW`).** Definite-time trip with ideal threshold
+  and time (no I²t curve, no tolerances), instant switching (the clamp sets
+  the current fall with inductance), no thermal model or SOA; the trip is
+  resolved to one time step. See [7.8](#78-assumptions-estimates-and-limitations).
 * **Fault injection.** Electrical faults at the models' level of detail;
   detection only by the modeled hardware diagnostics; nominal values. See
   [6.6](#66-limits).
@@ -746,6 +774,16 @@ Follow the pattern of the battery and DC/DC models:
 ## Changelog
 
 Changes that alter simulation results are marked **(results)**.
+
+* **2026-11-17, new device: overcurrent switch.** `models/OCSW_beh.lib`
+  (`OCSW`): a switch that opens when its current stays above `IMAX` for
+  `TOC` (the eFuse's hard-short function as a component of its own), latched
+  until `EN` goes low or auto-retry after `TRETRY`, trip on |I| or forward
+  current only, active clamp, fault hook (stuck-on / stuck-off). Symbol
+  `OCSW.asy`; benches oc01–oc04 (trip delay, timer logic, inductive clamp,
+  time grading on a 48 V bus with `BATTERY`, `WIRE` and `FI_SHORT`); check
+  group `ocsw`; README part 7 (References are now part 8); interview
+  questions O1–O3. No change to the other models.
 
 * **2026-11-16, examples folder: FIU short on a fail-operational dual 48 V
   supply.** New folder `examples/` with
@@ -4672,7 +4710,7 @@ definition of the standard, applied through the generator's internal
 resistance `RI`.
 
 > **Standards.** The levels come from public summaries of the standards (see
-> [References](#7-references)); the standards themselves are not public.
+> [References](#8-references)); the standards themselves are not public.
 > Values that no public source confirmed are flagged **[CHECK]** in the
 > library. ISO 16750-2 was revised in 2023 (for example, the superimposed AC
 > test now extends to 200 kHz), and VDA 320 / LV 148 are being replaced by
@@ -4968,6 +5006,7 @@ inactive by default (`FI_ID=0`); the models need nothing else included.
 |---|---|---|
 | `EFUSE48_MOD` | `FI_ID`, `FI_ID2`, `FID`, `FI_MODE`, `FI_MODE2`, `FI_T`, `FI_TTR`, `FI_R` | 1: FET drain-source short (stuck-on), 2: FET gate-source short (stuck-off), both with `FI_R` |
 | `BATTERY_BMS` | `FI_ID`, `FI_ID2`, `FID`, `FI_MODE`, `FI_MODE2`, `FI_T`, `FI_TTR` | 1: disconnect switch welded (stays closed whatever the BMS commands), 2: spurious trip |
+| `OCSW` | `FI_ID`, `FI_ID2`, `FID`, `FI_MODE`, `FI_MODE2`, `FI_T`, `FI_TTR` | 1: stuck-on (closed at `RON` whatever the logic; `FLT` still reports a trip), 2: stuck-off (open) |
 
 `FI_MODE` applies to scenario `FI_ID`, `FI_MODE2` to `FI_ID2`, so one
 instance can fail in two ways in two scenarios (fm01: the pack trips
@@ -5061,7 +5100,356 @@ of µs before CH2 opens: what the 12 V ECUs have to withstand (A6, C7).
 
 ---
 
-## 7. References
+## 7. Overcurrent switch (`OCSW`)
+
+A **generic behavioral overcurrent switch**: a power switch that opens when
+its current stays above a threshold `IMAX` for at least a time `TOC`. It is
+the hard-short part of an eFuse (the VNF1048F's HSC comparator, deglitch and
+latch of [1.7.5](#175-hard-short-circuit-latch-off)) as a component of its
+own, without the I²t curve, the gate driver or the FET. Use it where a
+protection matters to the network only through *when* it opens: smart
+switches and relays with a definite-time trip, the protection of a DC/DC
+output or a zonal controller, or a first-pass protection concept before the
+devices are chosen. It follows the conventions of the other devices: one
+`.lib` file, an LTspice symbol, plain-netlist test benches and analytic
+checks of every bench in `tools/validate.py`.
+
+> **Scope.** A definite-time trip (one threshold, one time), latch-off or
+> auto-retry, an on-resistance, an active clamp. The defaults are
+> engineering estimates **[EST]** for a 48 V-class switch; `IMAX` and `TOC`
+> are the parameters you set. Use the eFuse model
+> ([part 1](#1-48-v-efuse-st-vnf1048f-reference)) when the I²t curve, the gate
+> drive, the FET's temperature or its SOA matter.
+
+* [7.1 How it works](#71-how-it-works)
+* [7.2 What is modeled, and what is left out](#72-what-is-modeled-and-what-is-left-out)
+* [7.3 Files and quick start](#73-files-and-quick-start)
+* [7.4 Pins, parameters and internal nodes](#74-pins-parameters-and-internal-nodes)
+* [7.5 Equations](#75-equations)
+* [7.6 Choosing IMAX and TOC](#76-choosing-imax-and-toc)
+* [7.7 Test benches and results](#77-test-benches-and-results)
+* [7.8 Assumptions, estimates and limitations](#78-assumptions-estimates-and-limitations)
+* [7.9 Numerical notes](#79-numerical-notes)
+
+### 7.1 How it works
+
+```
+IN --[sense]--+--[ RON (closed) / ROFF (open) ]--+-- OUT
+              +--[ active clamp at VCLAMP ]------+
+        |
+   |I| -> filter (TSNS) -> > IMAX ? -> timer -> >= TOC ? -> latch -> FLT
+                                       ^ restarts            ^ cleared by EN low,
+                                         below IMAX            or after TRETRY
+```
+
+* **A stopwatch, not a heat bucket.** The eFuse's I²t layer integrates heat:
+  a large overcurrent trips sooner than a small one, and the bucket keeps its
+  heat between pulses. `OCSW` has a stopwatch instead: it runs while the
+  sensed current is above `IMAX`, at the same speed whatever the current, and
+  **restarts from zero** as soon as the current drops below `IMAX`. Only an
+  overcurrent that lasts `TOC` without interruption opens the switch; a 2 ×
+  and a 10 × overcurrent trip at the same time (the definite-time
+  characteristic of protection relays).
+* **Why the delay.** Every real switch sees currents above its threshold
+  that must not trip it: the inrush of a capacitive load, a motor starting,
+  the charging of a DC/DC's input capacitors. `TOC` is the time the network
+  is allowed to carry them. Between protection levels it is also the
+  **grading**: a branch switch with a shorter `TOC` than the main switch
+  clears a branch fault before the main switch reacts (oc04).
+* **What the delay costs.** During `TOC` the fault current keeps rising, set
+  by the supply, the loop resistance and inductance. In a hard short
+  through a harness the peak current is `IMAX + dI/dt·TOC`, not `IMAX`, and
+  the switch must turn that current off (oc03).
+* **Turning off an inductance.** The current of the load and harness
+  inductance cannot stop instantly: the voltage across the switch rises until
+  something conducts. Here that is the **active clamp** at `VCLAMP` (as a
+  smart switch's VDS clamp or the TVS of an eFuse channel); the inductor then
+  demagnetises against `VCLAMP − VB`, and the clamp absorbs its energy plus
+  what the supply delivers meanwhile. Without a clamp the voltage climbs to
+  whatever the capacitance at the output allows (kV in oc03).
+* **After the trip** the switch stays open and `FLT` is high until `EN` is
+  taken low (a firmware retry, see interview question
+  [G2](interview/pdn_48v_12v_interview_guide.md#g2-retry-strategy-after-a-trip-l2)),
+  or, with `TRETRY` > 0, it closes again by itself after `TRETRY` (hiccup).
+
+### 7.2 What is modeled, and what is left out
+
+| Modeled | Why it matters to the network |
+|---|---|
+| on-resistance `RON`, off-state leakage `ROFF` | drop, loss, leakage when open |
+| current sense through a first-order filter `TSNS` | detection delay; overshoot of a fast ramp |
+| definite-time trip: `IMAX`, `TOC`, timer restart below `IMAX` | inrush immunity, time grading, fault clearing time |
+| trip on \|I\| or on forward current only (`DIR`) | bidirectional buses; a switch that must not trip on back-feed |
+| latch-off with `FLT`, reset by `EN`; or auto-retry after `TRETRY` | firmware retry vs hiccup into a persistent fault |
+| active clamp `VCLAMP`, `RCL` (both polarities) | inductive turn-off: voltage stress and energy |
+| fault hook: stuck-on, stuck-off (part 6) | FMEA of a switch that does not open, or opens spuriously |
+
+Left out on purpose: an I²t or thermal trip curve (use `EFUSE48_MOD`); the
+switching transient (the switch changes state within one time step; with
+inductance in the loop the clamp sets the current fall, see
+[7.9](#79-numerical-notes)); current limiting; the FET's thermal network,
+SOA and body diode; under-voltage lockout, gate drive and the controller's
+supply current; temperature dependence of `RON` and `IMAX`; tolerances.
+
+### 7.3 Files and quick start
+
+```
+models/OCSW_beh.lib          OCSW (and the helpers OC_LATCH, OC_FIX)
+symbols/OCSW.asy             5-pin symbol (IN, OUT, GND, EN, FLT)
+testbenches/oc01..oc04       test benches, section 7.7
+docs/img/oc*.png             result plots (tools/plot_results.py)
+```
+
+The library is self-contained and can be included next to the others (oc04
+includes it with the battery, harness and fault libraries).
+
+```spice
+.include ../models/OCSW_beh.lib
+
+* 40 A branch switch, 2 ms delay, latched; EN driven by the "firmware"
+Xa bus out_a 0 en_a flt_a OCSW IMAX=40 TOC=2m
+
+* the same, retrying every 100 ms; EN left open (internal pull-up: always on)
+Xb bus out_b 0 nc_b flt_b OCSW IMAX=40 TOC=2m TRETRY=100m
+
+* on a bidirectional bus: trips only on current from IN to OUT
+Xc bus48 zone 0 en flt_c OCSW IMAX=150 TOC=20m DIR=1
+```
+
+* **GND pin.** Reference of `EN`, `FLT` and the internal signals; connect it
+  to ground. No power current flows into it.
+* **EN.** High (> `VLOG/2`) = on. An internal 100 kΩ pull-up to `VLOG`
+  makes an unconnected `EN` (a unique node name in a netlist, an open pin in
+  a schematic) mean "always on". Taking `EN` low opens the switch and clears
+  a trip.
+* **FLT** is `VLOG` through 100 Ω when tripped, else 0 V.
+* **Start on.** With `EN` high at t = 0 the switch is closed in the DC
+  operating point (as the numerical guidance recommends for chains of
+  switches). An overcurrent present at t = 0 starts the timer at t = 0.
+* **Time step.** The trip happens at the first time step after the timer
+  reaches `TOC`: set the maximum time step to the trip-time resolution you
+  need (e.g. `TOC/100`).
+
+### 7.4 Pins, parameters and internal nodes
+
+| Pin | Direction | Meaning |
+|---|---|---|
+| `IN` | power | switch input; current > 0 flows from IN to OUT |
+| `OUT` | power | switch output |
+| `GND` | reference | reference of the logic and internal signals; connect to ground |
+| `EN` | input | enable, high = on; low clears a trip; internal pull-up to `VLOG` |
+| `FLT` | output | fault, `VLOG` through 100 Ω when tripped |
+
+| Parameter | Default | Unit | Meaning |
+|---|---|---|---|
+| `IMAX` | 10 | A | overcurrent threshold |
+| `TOC` | 1 m | s | overcurrent time: opens after `TOC` above `IMAX` without interruption (0: as fast as the sense filter) |
+| `RON` | 1 m [EST] | Ω | on-resistance |
+| `ROFF` | 10 Meg [EST] | Ω | off-state resistance (leakage) |
+| `TSNS` | 100 n [EST] | s | time constant of the current-sense filter |
+| `TRST` | 0 → TOC/100, ≤ 1 µs | s | restart time constant of the timer below `IMAX` |
+| `DIR` | 0 | – | 0: trip on \|I\|; 1: trip on I > IMAX only (IN → OUT) |
+| `TRETRY` | 0 | s | 0: latched until `EN` low; > 0: closes again `TRETRY` after a trip |
+| `VCLAMP` | 80 [EST] | V | active clamp across the switch, both polarities (0 = no clamp); must be above the highest normal voltage across the open switch |
+| `RCL` | 0.1 [EST] | Ω | dynamic resistance of the clamp |
+| `VLOG` | 3.3 | V | logic level of `EN` (threshold `VLOG/2`) and `FLT` |
+| `FI_ID`, `FI_ID2`, `FID`, `FI_MODE`, `FI_MODE2`, `FI_T`, `FI_TTR` | 0 (inactive) | | fault hook, [6.3](#63-fault-hooks-in-the-device-models) |
+
+Internal nodes (referred to GND; `V(xa:tm)` for an instance `Xa`):
+
+| Node | Meaning |
+|---|---|
+| `isf` | filtered sensed current [A] (\|I\| for `DIR` = 0) |
+| `oc` | comparator, 1 = `isf` > `IMAX` |
+| `tm` | overcurrent timer [s] (1 V = 1 s); the trip is at `tm` = `TOC` |
+| `lat` | trip latch, 1 = tripped |
+| `tr` | retry timer [s], runs while tripped if `TRETRY` > 0 |
+| `s` | switch command, 1 = closed |
+| `pd` | power dissipated in the switch [W] (channel and clamp) |
+| `I(xa:Vs)` | switch current (clamp included), > 0 from IN to OUT |
+
+### 7.5 Equations
+
+**Power path.** The switch is a conductance `1/ROFF + (1/RON − 1/ROFF)·s`
+with `s` = 1 (closed) or 0 (open), in parallel with the clamp
+
+    I_cl = (V − limit(V, −VCLAMP, VCLAMP)) / RCL,      V = V(IN, OUT)
+
+**Sense and timer.** `isf` is |I| (or I) through a first-order filter of time
+constant `TSNS`; `oc = isf > IMAX`. The timer is one state on a normalized
+1 F capacitor:
+
+    d tm/dt = 1            while oc
+    d tm/dt = −tm / TRST   otherwise (restart)
+
+and the latch sets when `tm ≥ TOC`. For a current step from `I0` to `I1` >
+`IMAX` the trip time is therefore
+
+    t_trip = TSNS · ln((I1 − I0) / (I1 − IMAX)) + TOC
+
+(240 ns of sense delay for a step from 0.5 to 1.05 × `IMAX`, 5 ns for 10 ×).
+For a ramp `dI/dt` the filter lags by ~`TSNS`, so the current at the trip is
+`IMAX + dI/dt·(TSNS + TOC)`.
+
+**Retry.** With `TRETRY` > 0 the retry timer runs at 1 V/s while tripped and
+clears the latch at `TRETRY`. Into a persistent fault the switch is on for
+`t_s + TOC` and off for `TRETRY`.
+
+**Inductive turn-off** (clamped, supply `VB`, load `L`, series resistance `R`
+of the loop including `RCL`): with `τ' = L/R` and `a = (VCLAMP − VB)/R`
+
+    i(t) = (I0 + a) · exp(−t/τ') − a,      zero after t0 = τ' · ln(1 + I0/a)
+    E_clamp = ∫ (VCLAMP + RCL·i) · i dt,    = ½ L I0² · VCLAMP/(VCLAMP − VB) for R → 0
+
+Without a clamp, the inductor current charges the capacitance `C` at the
+output: the switch sees up to `VB + I0·sqrt(L/C)`.
+
+### 7.6 Choosing IMAX and TOC
+
+* **IMAX** above the highest normal current with margin for its tolerance
+  (sense error, temperature), and below the lowest fault current you must
+  clear (a short at the far end of the longest wire, at the lowest supply
+  voltage, through the hot wire's resistance).
+* **TOC** longer than every legitimate overcurrent: the inrush of the
+  load's capacitance (about `R·C·ln(I_pk/IMAX)` above `IMAX`, oc04), motor
+  start, lamp cold resistance. And shorter than what the wire, the switch
+  and the supply can withstand at the fault current: the wire's adiabatic
+  limit ([4.5](#45-equations), wh03), the switch's energy
+  (`I²·RON·TOC` and the clamp energy at turn-off), the supply's voltage dip.
+* **Grading.** Upstream switches need a longer `TOC` than downstream ones
+  by more than the downstream clearing time, including the time the bus
+  capacitance takes to recharge after the fault is cleared (it draws a
+  current above the main's `IMAX` too, oc04). A definite-time trip grades
+  by time only, so the main switch also sees the branch's fault current:
+  if its `TOC` is shorter, the main switch opens first and the whole bus is
+  lost (oc04, CASE 1).
+* **Peak current.** In a hard short the current rises at `dI/dt ≈ VB/L_loop`
+  during `TOC`: the switch and the clamp must turn off
+  `IMAX + dI/dt·TOC` (oc03). A short `TOC` keeps the peak low, a long one
+  rides through inrush: this is the trade-off an I²t curve resolves with a
+  current-dependent time (part 1).
+
+### 7.7 Test benches and results
+
+All benches run several `OCSW` instances in one netlist (the
+multi-instance rule of the numerical guidance) and are checked against the
+closed forms of 7.5 in `tools/validate.py`, group `ocsw`
+(<!--v {m('summary','checks_ocsw'):.0f}-->56<!--/v--> checks).
+
+#### oc01: trip delay vs overcurrent and TOC (`oc01_trip_delay.cir`)
+
+Three switches (`IMAX` 10 A with `TOC` 10 µs and 1 ms; 50 A with 20 ms),
+loaded at 0.5 × `IMAX`; at 1 ms the load steps to K × `IMAX`, K = 0.95, 1.05,
+2, 10.
+
+![oc01](docs/img/oc01_trip_delay.png)
+
+* At K = 0.95 nothing trips. Above `IMAX` every trip time matches
+  `TSNS·ln((I1 − I0)/(I1 − IMAX)) + TOC` within one 100 ns time step; at
+  K = 2 the 1 ms switch opens <!--v {(m('oc01_trip_delay','tf_2',2)-1e-3)*1e3:.5f}-->0.99998<!--/v--> ms after the step
+  (closed form 1.00004 ms). The sense delay matters only for very short
+  `TOC` (2 % of 10 µs at K = 1.05).
+* After the trip only the leakage flows (12 V / `ROFF` = 1.2 µA).
+
+#### oc02: timer restart, direction, reset and retry (`oc02_timer_logic.cir`)
+
+Six switches (`IMAX` 10 A, `TOC` 1 ms): three 0.8 ms overloads separated by
+50 µs dips, then a persistent one and an `EN` pulse; a reverse current with
+`DIR` = 1 and 0; `TRETRY` = 5 ms into a short; the stuck-on and stuck-off
+fault hooks.
+
+![oc02](docs/img/oc02_timer_logic.png)
+
+* The timer restarts at every dip and peaks at
+  <!--v {m('oc02_timer_logic','tmax_1')*1e3:.4f}-->0.8000<!--/v--> ms: three overloads of 2.4 ms in total do not trip
+  the switch, one of 2 ms does, at 1 ms. `EN` low clears `FLT` and the
+  switch carries its 5 A again.
+* With `DIR` = 1 a 20 A reverse current flows without a trip; with
+  `DIR` = 0 it trips 1 ms after the step.
+* With `TRETRY` the switch hiccups into the short with a period of
+  <!--v {(m('oc02_timer_logic','tr5_4')-m('oc02_timer_logic','tr1_4'))/4*1e3:.4f}-->5.9999<!--/v--> ms (`TOC` + `TRETRY`): a duty cycle of 1/6 at 121 A.
+* Stuck-on: `FLT` reports the trip, but the 20 A keep flowing; stuck-off:
+  the switch opens at 2 ms without a fault report.
+
+#### oc03: inductive turn-off and the active clamp (`oc03_inductive_clamp.cir`)
+
+48 V supply; a 1 mH / 2.4 Ω load (20 A) switched off by `EN`, and a hard
+short through 10 µH of harness (`IMAX` 100 A, `TOC` 10 µs); `VCLAMP` = 60,
+80, 100 V and no clamp.
+
+![oc03](docs/img/oc03_inductive_clamp.png)
+
+* Clamped, the switch holds `VCLAMP + RCL·i` (<!--v {m('oc03_inductive_clamp','vpk_1',1):.1f}-->82.0<!--/v--> V at 80 V) until
+  the inductor is empty; the demagnetisation time and the clamp energy
+  (<!--v {m('oc03_inductive_clamp','e_1',1):.3f}-->0.257<!--/v--> J at 80 V, against ½ L I0² = 0.199 J stored) match the closed
+  forms within 0.5 % and 1 %. A higher clamp empties the inductor faster
+  and absorbs less: the supply feeds the clamp for a shorter time.
+* The short reaches <!--v {m('oc03_inductive_clamp','ipk_2'):.0f}-->145<!--/v--> A before the switch opens, 10.1 µs
+  (`TOC + TSNS`) after crossing `IMAX` = 100 A: the peak is set by `TOC`
+  and the loop inductance, not by `IMAX`.
+* Without a clamp the inductor current charges the 100 nF at the output: the
+  switch sees <!--v {m('oc03_inductive_clamp','vpk_1',3):.0f}-->2005<!--/v--> V (load) and <!--v {m('oc03_inductive_clamp','vpk_2',3):.0f}-->1497<!--/v--> V (short). A real switch
+  would avalanche or fail; keep the clamp, or model a TVS / freewheel diode.
+
+#### oc04: time grading on a 48 V bus (`oc04_system_selectivity.cir`)
+
+A 48 V battery (`BATTERY`) feeds a main switch (`IMAX` 150 A) and three
+branches (`IMAX` 40 A, `TOC` 2 ms) through 2 m of 4 mm² wire (`WIRE`): a
+20 A load, a 15 A load that is shorted at 20 ms (`FI_SHORT`, 20 mΩ), and a
+1 mF load switched on at 5 ms. CASE 0: main `TOC` 20 ms; CASE 1: 1 ms.
+
+![oc04](docs/img/oc04_system_selectivity.png)
+
+* Inrush: the 1 mF load draws <!--v {m('oc04_system_selectivity','ic_pk'):.0f}-->495<!--/v--> A, but stays above `IMAX` for
+  only <!--v {m('oc04_system_selectivity','tin_c')*1e6:.0f}-->179<!--/v--> µs (≪ 2 ms): no switch trips, and the timer peak equals
+  the time above `IMAX`.
+* Graded (CASE 0): only branch B opens, 2 ms after its overcurrent; the
+  short current is ~<!--v {m('oc04_system_selectivity','ib_sc'):.0f}-->1037<!--/v--> A. The main timer runs for
+  <!--v {m('oc04_system_selectivity','tmm',0)*1e3:.2f}-->2.06<!--/v--> ms (the branch's clearing time plus the bus-capacitor recharge)
+  and restarts; the other loads keep their supply (31 V during the short).
+* Mis-graded (CASE 1): the main switch opens 1 ms after the short, before
+  the branch, whose timer stops when the current is gone: all three loads
+  are lost.
+
+### 7.8 Assumptions, estimates and limitations
+
+* **Defaults [EST].** `RON` = 1 mΩ, `ROFF` = 10 MΩ, `TSNS` = 100 ns,
+  `VCLAMP` = 80 V, `RCL` = 0.1 Ω are typical of a 48 V-class power switch;
+  set them from the datasheet of the device you use (for a 12 V smart
+  switch, a clamp of ~40 V).
+* **Ideal threshold and time.** No tolerance on `IMAX` or `TOC`, no
+  temperature dependence. Corners need a `.step` over them.
+* **Instant switching.** The current falls within one time step unless an
+  inductance forces the clamp to conduct; the turn-on and turn-off
+  transients of a real FET (and their losses, di/dt, EMC) are not modeled.
+* **No thermal model.** The switch dissipation is available (`pd`) but does
+  not limit anything; a switch that holds a short for `TOC` or clamps a large
+  energy must be checked against its SOA separately.
+* **Analyses.** `.tran`; `.ac` uses the DC state (`RON` if `EN` is high).
+
+### 7.9 Numerical notes
+
+* **The trip is resolved to one time step.** The latch sets in the first
+  time step after the timer reaches `TOC` (in oc01, within ±60 ns with a
+  100 ns maximum step). The benches' maximum step sets the resolution.
+* **Why the switch has no turn-on/off time.** A first version ramped the
+  switch conductance over ~1 µs with a state variable. While the state
+  settled (towards 0 when open, 1 when closed) it stayed coupled into the
+  power path through `dI/ds = V(IN, OUT)/RON`, and in netlists with several
+  instances the trapezoidal time step collapsed to ~10 ps (oc01 did not
+  finish in 5 minutes; 6 s under Gear). The switch command is now a boolean of
+  the logic, whose derivative is zero: oc01 runs in seconds with trapezoidal
+  integration, and the library does not change the integration method.
+* **Timer.** One monotonic state on a normalized 1 F capacitor, no `idt()`,
+  no feedback through a deglitch filter; the latch cannot set in the DC
+  operating point (`DCS=0`), so an overcurrent at t = 0 has a consistent DC
+  solution.
+* **Node names.** The internal enable node is `enl`: an internal node `en`
+  would short the `EN` pin (LTspice node names are case-insensitive).
+
+---
+
+## 8. References
 
 * STMicroelectronics, *VNF1048F – High-side switch controller with intelligent
   fuse protection for 12 V, 24 V and 48 V automotive applications*, datasheet

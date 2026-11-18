@@ -1425,6 +1425,101 @@ def ex01():
     finish(fig, ax, "time after the short [us]", "ex01_fiu_short_selectivity.png")
 
 
+def oc01():
+    r = raw("oc01_trip_delay")
+    lg = meas_log(os.path.join(TB, "oc01_trip_delay.log"))
+    ks = [0.95, 1.05, 2, 10]
+    fig, ax = panels(3, "oc01 - OCSW trip delay: load step at 1 ms from 0.5 IMAX to K x IMAX", h=2.3, sharex=False)
+    for k in range(4):
+        t = (r.get("time", k) - 1e-3) * 1e6
+        ax[0].semilogy(t, np.abs(r.get("I(x1:Vs)", k)), color=C[k], label=f"K = {ks[k]}")
+        t2 = (r.get("time", k) - 1e-3) * 1e3
+        ax[1].semilogy(t2, np.abs(r.get("I(x2:Vs)", k)), color=C[k], label=f"K = {ks[k]}")
+    ax[0].set_xlim(-2, 14); ax[0].set_ylabel("|I| [A]")
+    ax[0].set_title("X1: IMAX 10 A, TOC 10 us (after the trip: leakage 1.2 uA)", loc="left")
+    ax[0].set_xlabel("time after the step [us]")
+    ax[1].set_xlim(-0.2, 1.4); ax[1].set_ylabel("|I| [A]")
+    ax[1].set_title("X2: IMAX 10 A, TOC 1 ms", loc="left"); ax[1].set_xlabel("time after the step [ms]")
+    for a in ax[:2]:
+        a.axhline(10, color=INK2, ls="--", lw=0.8); a.set_ylim(3e-7, 300)
+    # trip time vs overcurrent: closed form and simulated
+    for n, imax, toc, c in (("1", 10, 10e-6, 0), ("2", 10, 1e-3, 1), ("3", 50, 20e-3, 2)):
+        kk = np.linspace(1.005, 12, 400)
+        i0 = lg["i0_" + n][1]
+        tt = toc + 1e-7 * np.log((kk * imax - i0) / (kk * imax - imax))
+        ax[2].plot(kk, tt / toc, color=C[c], label=f"closed form, TOC {toc * 1e3:g} ms")
+        sim = [(lg["tf_" + n][k] - 1e-3) / toc for k in (1, 2, 3)]
+        ax[2].plot([lg["i1_" + n][k] / imax for k in (1, 2, 3)], sim, "o", color=C[c], mfc=SURF, mew=1.5,
+                       label=f"simulated, X{n}")
+    ax[2].set_xlabel("I1 / IMAX"); ax[2].set_ylabel("t_trip / TOC")
+    ax[2].set_title("trip time / TOC: the sense filter (TSNS 100 ns) adds TSNS ln((I1-I0)/(I1-IMAX))", loc="left")
+    finish(fig, ax, "I1 / IMAX", "oc01_trip_delay.png")
+
+
+def oc02():
+    r = raw("oc02_timer_logic"); t = r["time"] * 1e3
+    fig, ax = panels(4, "oc02 - OCSW logic: timer restart, direction, EN reset, auto-retry (IMAX 10 A, TOC 1 ms)")
+    plot(ax[0], t, r["I(x1:Vs)"], "I X1", 0); ax[0].set_ylabel("A")
+    ax[0].axhline(10, color=INK2, ls="--", lw=0.8)
+    plot(ax[0], t, r["V(x1:tm)"] * 1e4, "timer X1 [0.1 ms]", 1)
+    plot(ax[0], t, r["V(en1)"], "EN X1 [V]", 2, lw=1)
+    ax[0].axhline(10, color=C[1], ls=":", lw=0.8)
+    ax[0].text(9.2, 10.6, "IMAX 10 A = trip level of the timer (TOC 1 ms)", color=INK2, fontsize=8)
+    ax[0].set_title("X1: three 0.8 ms overloads with 50 us dips do not trip; 2 ms do; EN low resets",
+                    loc="left")
+    plot(ax[1], t, r["I(x2:Vs)"], "X2, DIR = 1", 0); plot(ax[1], t, r["I(x3:Vs)"], "X3, DIR = 0", 1)
+    ax[1].set_ylabel("A"); ax[1].set_title("reverse current 1 .. 3 ms, forward overload from 5 ms", loc="left")
+    plot(ax[2], t, r["I(x4:Vs)"], "I X4", 0); plot(ax[2], t, r["V(flt4)"] * 10, "FLT x 10", 1)
+    ax[2].set_ylabel("A"); ax[2].set_title("X4: TRETRY 5 ms into a 0.1 Ohm short (hiccup)", loc="left")
+    plot(ax[3], t, r["I(x5:Vs)"], "X5 stuck-on: current", 0); plot(ax[3], t, r["V(flt5)"] * 5, "X5 FLT x 5", 1)
+    plot(ax[3], t, r["I(x6:Vs)"], "X6 stuck-off from 2 ms: current", 2)
+    ax[3].set_ylabel("A"); ax[3].set_title("fault hooks", loc="left")
+    finish(fig, ax, "time [ms]", "oc02_timer_logic.png")
+
+
+def oc03():
+    r = raw("oc03_inductive_clamp")
+    lab = ["VCLAMP 60 V", "VCLAMP 80 V", "VCLAMP 100 V", "no clamp"]
+    fig, ax = panels(4, "oc03 - OCSW inductive turn-off: active clamp vs none (48 V)", h=2.1, sharex=False)
+    for k in range(4):
+        t = r.get("time", k)
+        v1 = r.get("V(in)", k) - r.get("V(out1)", k)
+        v2 = r.get("V(in)", k) - r.get("V(out2)", k)
+        ax[0].plot((t - 2e-3) * 1e3, v1, color=C[k], label=lab[k])
+        ax[1].plot((t - 2e-3) * 1e3, r.get("I(L1)", k), color=C[k], label=lab[k])
+        ax[2].plot((t - 1e-3) * 1e6, v2, color=C[k], label=lab[k])
+        ax[3].plot((t - 1e-3) * 1e6, r.get("I(L2)", k), color=C[k], label=lab[k])
+    ax[0].set_ylim(-10, 130); ax[0].set_ylabel("V(IN, OUT) [V]"); ax[0].set_xlim(-0.1, 1)
+    ax[0].set_title("1 mH / 2.4 Ohm load switched off by EN (no clamp: ~2 kV, off scale)", loc="left")
+    ax[1].set_ylabel("I [A]"); ax[1].set_xlim(-0.1, 1); ax[1].set_xlabel("time after EN low [ms]")
+    ax[2].set_ylim(-10, 130); ax[2].set_ylabel("V(IN, OUT) [V]"); ax[2].set_xlim(0, 60)
+    ax[2].set_title("hard short through 10 uH: IMAX 100 A, TOC 10 us", loc="left")
+    ax[3].set_ylabel("I [A]"); ax[3].set_xlim(0, 60); ax[3].axhline(100, color=INK2, ls="--", lw=0.8)
+    ax[1].set_xlabel("time after EN low [ms]")
+    finish(fig, ax, "time after the short [us]", "oc03_inductive_clamp.png")
+
+
+def oc04():
+    r = raw("oc04_system_selectivity")
+    fig, ax = panels(3, "oc04 - time grading on a 48 V bus: main (IMAX 150 A) and branches (IMAX 40 A, TOC 2 ms)",
+                     h=2.3)
+    for k, ttl in enumerate(("graded: main TOC 20 ms", "mis-graded: main TOC 1 ms")):
+        t = r.get("time", k) * 1e3
+        a = ax[k]
+        a.plot(t, r.get("V(la)", k), color=C[0], label="load A [V]")
+        a.plot(t, r.get("V(lc)", k), color=C[2], label="load C [V]")
+        a.plot(t, r.get("V(fltb)", k) * 10, color=C[1], label="FLT B x 10")
+        a.plot(t, r.get("V(fltm)", k) * 10, color=C[7], label="FLT main x 10")
+        a.set_ylabel("V"); a.set_title(ttl + "; short on branch B at 20 ms", loc="left"); a.set_ylim(-2, 55)
+    t = r.get("time", 0) * 1e3
+    ax[2].semilogy(t, np.abs(r.get("I(xm:Vs)", 0)) + 1e-3, color=C[7], label="main")
+    ax[2].semilogy(t, np.abs(r.get("I(xb:Vs)", 0)) + 1e-3, color=C[1], label="branch B")
+    ax[2].semilogy(t, np.abs(r.get("I(xc:Vs)", 0)) + 1e-3, color=C[2], label="branch C (1 mF inrush at 5 ms)")
+    ax[2].axhline(40, color=INK2, ls="--", lw=0.8); ax[2].axhline(150, color=INK2, ls=":", lw=0.8)
+    ax[2].set_ylim(1, 3e3); ax[2].set_ylabel("|I| [A]"); ax[2].set_title("currents, graded case", loc="left")
+    finish(fig, ax, "time [ms]", "oc04_system_selectivity.png")
+
+
 ALL = dict(tb01=tb01, tb02=tb02, tb03=tb03, tb04=tb04, tb05=tb05, tb06=tb06,
            tb07=tb07, tb08=tb08, tb09=tb09, tb10=tb10, tb11=tb11, tb12=tb12,
            tb13=tb13, tb14=tb14, tb15=tb15, tb16=tb16, tb17=tb17, tb18=tb18, tb19=tb19,
@@ -1435,7 +1530,8 @@ ALL = dict(tb01=tb01, tb02=tb02, tb03=tb03, tb04=tb04, tb05=tb05, tb06=tb06,
            dc01=dc01, dc02=dc02, dc03=dc03, dc04=dc04, dc05=dc05, dc06=dc06, dc07=dc07, dc08=dc08,
            wh01=wh01, wh02=wh02, wh03=wh03, wh04=wh04,
            tp01=tp01, tp02=tp02, tp03=tp03, tp04=tp04, tp05=tp05,
-           fi01=fi01, fm01=fm01, ex01=ex01)
+           fi01=fi01, fm01=fm01, ex01=ex01,
+           oc01=oc01, oc02=oc02, oc03=oc03, oc04=oc04)
 
 if __name__ == "__main__":
     sel = sys.argv[1:] or list(ALL)

@@ -10,7 +10,7 @@ and exits non-zero if any check fails.
     python3 tools/validate.py --json docs/results.json     # check stored results (CI)
 
 Groups: efuse (tb01..tb36), battery (bat01..bat07), dcdc (dc01..dc08), harness (wh01..wh04),
-harness (wh01..wh04), pulses (tp01..tp05), fmea (fm01, against docs/fmea/*.csv),
+pulses (tp01..tp05), fmea (fm01, against docs/fmea/*.csv), ocsw (oc01..oc04),
 reference (ref01..ref02, public
 product data), schematics (demo/app .asc), examples (examples/*.asc).
 
@@ -1145,14 +1145,140 @@ def reference():
           "RD210: input 24 .. 54 V")
 
 
+def ocsw():
+    """Overcurrent-switch benches oc01..oc04 (OCSW model equations, closed forms)."""
+    TSNS, RCL, ROFF = 100e-9, 0.1, 10e6
+
+    def t_s(i0, i1, imax):
+        """Delay of the first-order sense filter for a current step i0 -> i1 (> imax)."""
+        return TSNS * math.log((i1 - i0) / (i1 - imax))
+
+    def no_trip(tb, key, k):
+        return 1.0 if failed(tb, key, k) else 0.0
+
+    # ---- oc01 trip delay --------------------------------------------------------
+    t = "oc01_trip_delay"
+    for n, imax, toc, lab in (("1", 10, 10e-6, "10 us"), ("2", 10, 1e-3, "1 ms"), ("3", 50, 20e-3, "20 ms")):
+        err = [abs(m(t, "tf_" + n, k) - (1e-3 + t_s(m(t, "i0_" + n, k), m(t, "i1_" + n, k), imax) + toc))
+               for k in (1, 2, 3)]
+        check(t, f"X{n} (IMAX {imax} A, TOC {lab}): trip time error at K = 1.05, 2, 10, max",
+              vmax(err) * 1e9, 0, 100, "ns", "TSNS ln((I1-I0)/(I1-IMAX)) + TOC, one 100 ns step")
+        check(t, f"X{n}: no trip at K = 0.95", no_trip(t, "tf_" + n, 0), 1, 1, "-", "I1 < IMAX")
+    check(t, "X2 at K = 2: trip delay", (m(t, "tf_2", 2) - 1e-3) * 1e3, 1.0000405 - 1e-4, 1.0000405 + 1e-4, "ms",
+          "TOC + TSNS ln(15/10) = 1.0000405 ms")
+    check(t, "K = 0.95: current flows on (X1..X3)", vmax([abs(m(t, "ie_" + n, 0) / m(t, "i1_" + n, 0) - 1)
+                                                        for n in "123"]) * 100, 0, 0.01, "%", "no trip")
+    ileak = vmax([abs(m(t, "ie_" + n, k) / (12 / ROFF) - 1) for n in "123" for k in (1, 2, 3)])
+    check(t, "after the trip: leakage current, max error (9 cases)", ileak * 100, 0, 0.5, "%",
+          "12 V / ROFF = 1.2 uA")
+    check(t, "on-resistance", m(t, "ron_1") * 1e3, 0.9999, 1.0001, "mOhm", "RON = 1 mOhm")
+
+    # ---- oc02 timer logic -------------------------------------------------------
+    t = "oc02_timer_logic"
+    i0, i1 = m(t, "i0_1"), m(t, "i1_1")
+    ts1 = t_s(i0, i1, 10)
+    check(t, "X1: timer peak over three 0.8 ms overloads with 50 us dips", m(t, "tmax_1") * 1e3,
+          (0.8e-3 - ts1 - 0.25e-6) * 1e3, (0.8e-3 - ts1 + 0.25e-6) * 1e3, "ms",
+          "restarts at every dip: 0.8 ms - t_s, not 2.4 ms")
+    check(t, "X1: first trip only by the persistent overload", (m(t, "tf_1") - 5e-3 - ts1 - 1e-3) * 1e9, -200, 200,
+          "ns", "5 ms + t_s + TOC, one 200 ns step")
+    check(t, "X1: FLT cleared by EN low", m(t, "fl_1"), 0, 0.01, "V", "EN 8.0 .. 8.1 ms")
+    check(t, "X1: switch closed again after EN", m(t, "ie_1"), 0.999 * i0, 1.001 * i0, "A", "base load 5 A")
+    check(t, "X2 (DIR = 1): reverse current", -m(t, "ir_2"), 15, 25, "A", "20 A OUT -> IN, > IMAX")
+    check(t, "X2: no trip in reverse, trip 1 ms after the forward step",
+          (m(t, "tf_2") - 5e-3 - t_s(m(t, "i0_2"), m(t, "i1_2"), 10) - 1e-3) * 1e9, -200, 200, "ns",
+          "5 ms + t_s + TOC")
+    check(t, "X3 (DIR = 0): trip 1 ms after the reverse step",
+          (m(t, "tf_3") - 1e-3 - t_s(i0, -m(t, "ir_3"), 10) - 1e-3) * 1e9, -200, 200, "ns",
+          "|I|: 1 ms + t_s(5 -> 19.8 A) + TOC")
+    i4 = m(t, "i1_4")
+    per = (m(t, "tr5_4") - m(t, "tr1_4")) / 4
+    per0 = 1e-3 + 5e-3 + t_s(0, i4, 10)
+    check(t, "X4 (TRETRY 5 ms): hiccup period, 4 cycles", (per - per0) * 1e9, -150, 150, "ns",
+          f"TOC + TRETRY + t_s(0 -> {i4:.0f} A) = {per0 * 1e3:.6f} ms (two trips, 200 ns steps)")
+    check(t, "X4: off time", (m(t, "tl2_4") - m(t, "tr2_4")) * 1e3, 5 - 4e-4, 5 + 4e-4, "ms", "TRETRY = 5 ms")
+    check(t, "X4: current while off", m(t, "ioff_4") * 1e6, 1.19, 1.21, "uA", "12 V / ROFF")
+    check(t, "X5 stuck-on: FLT reports the trip", (m(t, "tf_5") - 1e-3 - t_s(0, m(t, "i_5"), 10) - 1e-3) * 1e9,
+          -200, 300, "ns", "1 ms + t_s + TOC (load step from 5 A: <= 0.2 us later)")
+    check(t, "X5 stuck-on: current keeps flowing", m(t, "i_5"), 0.999 * m(t, "i1_2"), 1.001 * m(t, "i1_2"), "A",
+          "20 A load, as X2")
+    check(t, "X6 stuck-off: current", m(t, "i_6") * 1e6, 1.19, 1.21, "uA", "switch open from 2 ms: 12 V / ROFF")
+    check(t, "X6 stuck-off: no fault reported", m(t, "f_6"), 0, 0.01, "V", "no overcurrent")
+
+    # ---- oc03 inductive turn-off and clamp --------------------------------------
+    t = "oc03_inductive_clamp"
+
+    def demag(i0, vcl, vb, r, ll):
+        """i(t) = (I0 + a) exp(-t/tau) - a while clamped; returns (t0, clamp energy)."""
+        tau, a = ll / r, (vcl - vb) / r
+        t0 = tau * math.log(1 + i0 / a)
+        aa = i0 + a
+        e1 = 1 - math.exp(-t0 / tau)
+        q = aa * tau * e1 - a * t0                                      # int i dt
+        q2 = aa * aa * tau / 2 * (1 - math.exp(-2 * t0 / tau)) - 2 * aa * a * tau * e1 + a * a * t0  # int i^2 dt
+        return t0, vcl * q + RCL * q2
+
+    for k, vcl in enumerate((60, 80, 100)):
+        i0 = m(t, "i0_1", k)
+        check(t, f"VCLAMP {vcl} V, 1 mH load: voltage across the switch", m(t, "vpk_1", k),
+              0.9995 * (vcl + RCL * i0), 1.0005 * (vcl + RCL * i0), "V", f"VCLAMP + RCL I0 = {vcl + RCL * i0:.2f} V")
+        t0, e = demag(i0, vcl, 48, 2.4 + RCL + 5e-3, 1e-3)
+        check(t, f"VCLAMP {vcl} V: demagnetisation time", (m(t, "tz_1", k) - 2e-3) * 1e3, 0.995 * t0 * 1e3,
+              1.005 * t0 * 1e3, "ms", f"tau' ln(1 + I0/a) = {t0 * 1e3:.4f} ms")
+        check(t, f"VCLAMP {vcl} V: clamp energy", m(t, "e_1", k), 0.99 * e, 1.01 * e, "J",
+              f"int (VCLAMP + RCL i) i dt = {e:.4f} J (1/2 L I0^2 = {0.5e-3 * i0 * i0:.3f} J)")
+        ip = m(t, "ipk_2", k)
+        check(t, f"VCLAMP {vcl} V, short through 10 uH: clamp voltage", m(t, "vpk_2", k),
+              0.995 * (vcl + RCL * ip), 1.005 * (vcl + RCL * ip), "V", "VCLAMP + RCL I_peak")
+        _, e2 = demag(ip, vcl, 48, RCL + 25e-3, 10e-6)
+        check(t, f"VCLAMP {vcl} V, short: clamp energy", m(t, "e_2", k), 0.97 * e2, 1.03 * e2, "J",
+              f"closed form from I_peak: {e2:.4f} J")
+    check(t, "short: trip after the current crosses IMAX", (m(t, "tf_2") - m(t, "ix_2")) * 1e6, 10.07, 10.13, "us",
+          "TOC + TSNS (sense lag on a ramp) = 10.1 us, 20 ns steps")
+    rt = 5e-3 + 1e-3 + 20e-3
+    tau = 10e-6 / rt
+    t100 = -tau * math.log(1 - 100 * rt / 48)
+    ipk = 48 / rt * (1 - math.exp(-(t100 + 10.1e-6) / tau))
+    check(t, "short: peak current", m(t, "ipk_2"), 0.985 * ipk, 1.015 * ipk, "A",
+          f"i(t_IMAX + TOC + TSNS), L/R loop = {ipk:.1f} A (IMAX 100 A)")
+    for key, i_key, ll, lab in (("vpk_1", "i0_1", 1e-3, "1 mH load"), ("vpk_2", "ipk_2", 10e-6, "short")):
+        est = 48 + m(t, i_key, 3) * math.sqrt(ll / 100e-9)
+        check(t, f"no clamp ({lab}): voltage across the switch", m(t, key, 3), 0.9 * est, 1.0 * est, "V",
+              f"VB + I0 sqrt(L/C) = {est:.0f} V (lossless LC)")
+
+    # ---- oc04 system: time grading ----------------------------------------------
+    t = "oc04_system_selectivity"
+    check(t, "inrush of the 1 mF load: peak / IMAX", m(t, "ic_pk") / 40, 5, float("inf"), "-",
+          "far above IMAX")
+    check(t, "inrush: time above IMAX", m(t, "tin_c") * 1e3, 0, 0.2 * 2, "ms", "~ R C ln(I_pk/IMAX) << TOC = 2 ms")
+    check(t, "inrush: timer peak = time above IMAX", m(t, "tmc") / m(t, "tin_c"), 0.99, 1.01, "-",
+          "the timer counts only the time above IMAX")
+    check(t, "inrush: branch C on afterwards", m(t, "ic1"), 9.5, 11, "A", "10 A load")
+    check(t, "graded: branch B trips TOC after its overcurrent", (m(t, "tfb", 0) - m(t, "txb", 0)) * 1e3,
+          2 - 1e-3, 2 + 1e-3, "ms", "TOC_B = 2 ms, 1 us steps")
+    check(t, "graded: main, A and C do not trip", vmax([m(t, k, 0) for k in ("flm", "fla", "flc")]), 0, 0.01, "V",
+          "FLT low")
+    check(t, "graded: main timer peak", m(t, "tmm", 0) * 1e3, 0, 0.5 * 20, "ms",
+          "~TOC_B + bus-cap recharge << TOC_M = 20 ms")
+    check(t, "graded: load A after the fault", m(t, "va1", 0), 0.995 * m(t, "va0", 0), 1.005 * m(t, "va0", 0), "V",
+          "supply kept")
+    check(t, "graded: load C after the fault", m(t, "vc1", 0), 47, 49, "V", "supply kept")
+    check(t, "mis-graded: main trips TOC_M after its overcurrent", (m(t, "tfm", 1) - m(t, "txm", 1)) * 1e3,
+          1 - 1e-3, 1 + 1e-3, "ms", "TOC_M = 1 ms")
+    check(t, "mis-graded: B does not trip", m(t, "flb", 1), 0, 0.01, "V", "its current is gone first")
+    check(t, "mis-graded: B timer peak", m(t, "tmb", 1) * 1e3, 1, 2, "ms", "> TOC_M, < TOC_B")
+    check(t, "mis-graded: bus after the fault", m(t, "vbus1", 1), 0, 0.1, "V", "all loads lost")
+
+
 GROUPS = {"efuse": efuse, "battery": battery, "dcdc": dcdc, "harness": harness, "pulses": pulses, "fmea": fmea_checks, "reference": reference,
+          "ocsw": ocsw,
           "schematics": schematics, "examples": examples}
 
 
 TITLES = {"efuse": "eFuse (VNF1048F, EFUSE48_MOD)", "battery": "Battery and battery pack (BATTERY, BATTERY_BMS)",
           "dcdc": "DC/DC converter (DCDC48_12)", "harness": "Wiring harness (WIRE)",
           "pulses": "Test pulses (ISO 16750-2, ISO 7637-2, LV 148)",
-          "fmea": "FMEA simulation (fault injection)", "reference": "Reference parameter sets (public product data)",
+          "fmea": "FMEA simulation (fault injection)", "ocsw": "Overcurrent switch (OCSW)", "reference": "Reference parameter sets (public product data)",
           "schematics": "Schematics", "examples": "Examples (examples/*.asc)"}
 
 

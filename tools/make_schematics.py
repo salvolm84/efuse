@@ -38,6 +38,7 @@ PINS = {
     "DCDC48_12": [(-128, -32), (128, -32), (0, 96), (-128, 32), (128, 32)],
     "WIRE": [(-80, 0), (80, 0), (0, -48), (0, 48)],
     "FI_SHORT": [(0, -64), (0, 64)], "bi": [(0, 0), (0, 80)],
+    "OCSW": [(-96, -16), (96, -16), (0, 64), (-96, 16), (96, 16)],
     **{n: [(0, -64), (0, 64)] for n in ("TP_STEP", "TP_CRANK", "TP_LOADDUMP", "TP_ISO7637", "TP_RIPPLE")},
 }
 # reference parameter sets: same pins as their base models

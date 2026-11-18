@@ -1,0 +1,61 @@
+* oc03_inductive_clamp.cir
+* ---------------------------------------------------------------------------
+* Where the energy of an inductance goes when the overcurrent switch opens.
+* 48 V supply (5 mOhm), two OCSW in one netlist, VCLAMP stepped:
+*   X1  inductive load L1 = 1 mH, R1 = 2.4 Ohm (20 A, tau 0.42 ms), 100 nF
+*       at OUT; switched off by EN at 2 ms (no overcurrent: IMAX = 50 A)
+*   X2  IMAX = 100 A, TOC = 10 us: hard short at 1 ms through a harness of
+*       10 uH and 20 mOhm (100 nF at OUT); the current ramps at ~4.8 A/us
+*   CASE 0..2: VCLAMP = 60, 80 (default), 100 V;  CASE 3: VCLAMP = 0 (none)
+* Expected (closed forms, README part 7.5):
+*   clamped: V(IN, OUT) = VCLAMP + RCL i while the inductor demagnetises,
+*     di/dt = -(VCLAMP - VB + (R + RCL) i)/L, i.e. with tau' = L/(R + RCL),
+*     a = (VCLAMP - VB)/(R + RCL):  i(t) = (I0 + a) exp(-t/tau') - a,
+*     zero after t0 = tau' ln(1 + I0/a); clamp energy E = int (VCLAMP + RCL i) i dt
+*     (= 1/2 L I0^2 VCLAMP/(VCLAMP - VB) for R = RCL = 0)
+*   X2: trip at t_s + TOC after the filtered current crosses IMAX (lag
+*     ~TSNS on a ramp), peak current I(t_trip) ~ IMAX + dI/dt (TSNS + TOC)
+*   no clamp: the inductor current charges the 100 nF at OUT; peak voltage
+*     across the switch ~ VB + I0 sqrt(L/C) (series LC, lightly damped)
+* ---------------------------------------------------------------------------
+.include ../models/OCSW_beh.lib
+.param CASE=0
+.param VCL={table(CASE, 0,60, 1,80, 2,100, 3,0)}
+
+Vb vb 0 48
+Rb vb in 5m
+
+* --- X1: inductive load switched off by EN
+X1 in out1 0 en1 flt1 OCSW IMAX=50 TOC=1m VCLAMP={VCL}
+L1 out1 0 1m Rser=2.4
+C1 out1 0 100n Rser=10m
+Ven1 en1 0 PWL(0 3.3 2m 3.3 2.000001m 0)
+
+* --- X2: hard short through 10 uH / 20 mOhm
+X2 in out2 0 en flt2 OCSW IMAX=100 TOC=10u VCLAMP={VCL}
+C2 out2 0 100n Rser=10m
+L2 out2 sh 10u Rser=20m
+S2 sh 0 gs 0 SSH
+Vgs gs 0 PWL(0 0 1m 0 1.000001m 1)
+.model SSH SW(Ron=1u Roff=1G Vt=0.5 Vh=-0.2)
+Ven en 0 3.3
+
+.save I(x1:Vs) I(x2:Vs) I(L1) I(L2) V(in) V(out1) V(out2) V(flt1) V(flt2)
++ V(x1:pd) V(x2:pd) V(x2:isf)
+.meas tran i0_1  find I(L1) at 1.99m
+.meas tran vb_1  find V(in) at 1.99m
+.meas tran vpk_1 max V(in,out1) from 2m to 6m
+.meas tran vmd_1 find V(in,out1) at 2.05m
+.meas tran imd_1 find I(L1) at 2.05m
+.meas tran tz_1  find time when I(L1)=0 fall=1
+.meas tran e_1   integ V(x1:pd) from 2m to 6m
+.meas tran tf_2  find time when V(flt2)=1.65 rise=1
+.meas tran ipk_2 max I(L2) from 1m to 1.2m
+.meas tran ix_2  find time when I(L2)=100 rise=1
+.meas tran vpk_2 max V(in,out2) from 1m to 1.2m
+.meas tran tz_2  find time when I(L2)=0 fall=1
+.meas tran e_2   integ V(x2:pd) from 1m to 1.2m
+.meas tran vb_2  find V(in) at 0.99m
+.step param CASE list 0 1 2 3
+.tran 0 6m 0 20n
+.end

@@ -17,6 +17,7 @@ of the network and of its main devices:
 | System FMEA and fault simulation | G4 |
 | Batteries: source impedance, cold crank, pack disconnect (load dump), pack pre-charge, models from datasheets | A4, A5, D5, H5, J6 |
 | Wiring harness: wire sizing, R(T), short-time heating, eFuse-to-wire coordination | W1–W3 |
+| Overcurrent switches: definite-time trip, grading, inductive turn-off | O1–O3 |
 | DC/DC converter: the converter as a load, input-filter stability, pre-biased start, 12 V-side protection, models from datasheets | C4–C7, H6, J4, J7 |
 
 Pick the questions that match the role: a PDU designer should cover B–H in
@@ -50,7 +51,8 @@ battery or converter questions plus the system ones (A, F).
   described in the README; tb15–tb36 were written for this guide; tp01–tp05
   (supply test pulses) are described in
   [README part 5](../README.md#5-automotive-test-pulses-iso-16750-2-iso-7637-2-lv-148), wh01–wh04 (wire) in
-  [README part 4](../README.md#4-wiring-harness-model); bat01–bat07
+  [README part 4](../README.md#4-wiring-harness-model), oc01–oc04 (overcurrent switch) in
+  [README part 7](../README.md#7-overcurrent-switch-ocsw); bat01–bat07
   (12 V battery, 48 V pack with BMS) are described in
   [README section 2](../README.md#2-automotive-battery-model), dc01–dc08 (700 W 48/12 V DC/DC) in
   [README section 3](../README.md#3-dcdc-converter-model-48-v-to-12-v-700-w), and ref01–ref02 (reference
@@ -66,7 +68,7 @@ Suggested format, 90–120 min:
 | Part | Content | Time |
 |---|---|---|
 | 1 | Background and a project the candidate owned (they drive it, you drill) | 15 min |
-| 2 | Technical questions, sections A–H and W (pick per level and role, see the topic table) | 45–60 min |
+| 2 | Technical questions, sections A–H, W and O (pick per level and role, see the topic table) | 45–60 min |
 | 3 | Design exercise (section I) | 20–30 min |
 | 4 | Debug scenarios (section J) | 10–15 min |
 
@@ -119,6 +121,9 @@ A scoring sheet is at the end.
 | W1 | wh02 | wire temperature at constant current: rating, 2 × rating (R(T) feedback), time constants, ambient |
 | W2 | wh03 | adiabatic short-circuit heating vs IEC 60949 |
 | W3 | wh04 | eFuse I²t (tNOM 15 s vs 511 s) vs a preloaded 1.5 mm² wire at 60 °C |
+| O1 | oc01, oc02, oc04 | definite-time trip: delay vs overcurrent, timer restart, inrush that does not trip |
+| O2 | oc04 | time grading of a main and branch switches on a 48 V bus; mis-grading loses the bus |
+| O3 | oc03 | peak current of a delayed trip; active clamp voltage and energy vs no clamp |
 | I | tb33 | the design exercise, simulated |
 | J1 | tb34 | cold start-up: which protection fired |
 | J2 | tb25 | controller over-stress while the FET survives |
@@ -2123,6 +2128,138 @@ with 15 A, overloads x = 1.09…1.6, tNOM 15 s vs 511 s.
 
 ---
 
+## O. Overcurrent switches and protection grading
+
+### O1. A switch opens when its current stays above IMAX for a time TOC. How do you choose IMAX and TOC, and how does that differ from an I²t curve? (L1–L2)
+
+**Expected answer**
+* **IMAX** above the highest normal current plus its tolerances (sense
+  error, temperature, supply range), below the lowest fault current to be
+  cleared (far-end short on the longest, hottest wire at the lowest supply
+  voltage).
+* **TOC** longer than every legitimate overcurrent: capacitor inrush
+  (≈ R·C·ln(I_pk/IMAX) above IMAX), motor start, cold lamps; shorter than
+  what the wire, the switch and the supply withstand at the fault current
+  (wire adiabatic limit, switch energy I²·R·TOC, the bus dip seen by the
+  other loads).
+* The timer restarts when the current drops below IMAX: a chain of short
+  overloads never trips, however long the total.
+* **Definite time vs I²t.** A definite-time trip opens after the same TOC at
+  2 × and at 10 × IMAX: it cannot follow the wire's heating, which is fast at
+  high current and slow near the rating. An I²t curve (the eFuse's fuse
+  emulation) trips a large current fast and a small one slowly, and
+  remembers heat between pulses. Many smart switches combine both: a fast
+  definite-time short-circuit trip on top of a thermal or I²t layer.
+
+**Follow-ups**
+* "The 1 mF load draws 500 A at switch-on. Does a 40 A / 2 ms switch trip?"
+  No: the inrush is above 40 A for only ~180 µs; the peak does not matter to
+  a definite-time trip, only its duration.
+* "The load runs a PWM motor at 30 A average with 45 A peaks of 1 ms." With
+  IMAX 40 A and TOC 2 ms it never trips, even though the RMS current may
+  overheat a thin wire: the I²t layer or the wire sizing has to cover that.
+
+**Red flags:** sets IMAX to the wire rating and TOC "as short as possible";
+expects the timer to accumulate; does not think about inrush.
+
+**Simulation:** [`oc01`](../testbenches/oc01_trip_delay.cir) (trip time vs
+overcurrent), [`oc02`](../testbenches/oc02_timer_logic.cir) (timer restart,
+retry) and the inrush part of [`oc04`](../testbenches/oc04_system_selectivity.cir).
+
+![oc02](../docs/img/oc02_timer_logic.png)
+
+* Three 0.8 ms overloads with 50 µs dips: the timer peaks at
+  <!--v {m('oc02_timer_logic','tmax_1')*1e3:.3f}-->0.800<!--/v--> ms and the 1 ms switch does not trip; one 2 ms overload trips it at 1 ms.
+* The 1 mF load draws <!--v {m('oc04_system_selectivity','ic_pk'):.0f}-->495<!--/v--> A but is above 40 A for only
+  <!--v {m('oc04_system_selectivity','tin_c')*1e6:.0f}-->179<!--/v--> µs.
+* *Ask:* "What would an I²t channel with INOM 40 A do with the same inrush,
+  and with the three 0.8 ms overloads?"
+
+### O2. Two levels of overcurrent switches on a 48 V bus: how do you make them selective, and what happens if you get it wrong? (L2–L3)
+
+**Expected answer**
+* With definite-time trips, selectivity is **time grading**: the upstream
+  TOC must exceed the downstream clearing time with margin (tolerances of
+  both timers, the sense delay, the time the bus capacitance needs to
+  recharge after the fault is cleared, which draws a large current through
+  the upstream switch too).
+* The upstream switch sees the downstream fault current (and every other
+  load's current): current grading alone does not work for a hard short.
+* If the upstream switch is faster, it clears the fault by opening the
+  whole bus; the faulty branch never trips (its timer stops when the current
+  is gone), so diagnostics also point to the wrong place.
+* During the fault every load on the bus sees the voltage dip (battery and
+  harness resistance): the clearing time is also how long the other ECUs
+  must ride through it.
+
+**Follow-ups**
+* "How long do the healthy loads see the dip?" The branch TOC plus the sense
+  delay (2 ms in oc04), at about 31 V on a 48 V bus: compare it with the
+  loads' minimum operating voltage and hold-up time, which TOC must fit.
+* "Where would you place the grading margin?" Upstream TOC several times the
+  downstream one, checked with both at their tolerance limits.
+
+**Red flags:** grades by current only; does not consider that the upstream
+switch carries the fault current; ignores the voltage dip on the other loads.
+
+**Simulation:** [`oc04`](../testbenches/oc04_system_selectivity.cir), a 48 V
+battery, a main switch (150 A) and three 40 A / 2 ms branches through 2 m of
+4 mm² wire; a 20 mΩ short on branch B; main TOC 20 ms (graded) vs 1 ms.
+
+![oc04](../docs/img/oc04_system_selectivity.png)
+
+* Graded: branch B opens 2 ms after the short (~<!--v {m('oc04_system_selectivity','ib_sc'):.0f}-->1037<!--/v--> A); the main
+  timer reaches <!--v {m('oc04_system_selectivity','tmm',0)*1e3:.2f}-->2.06<!--/v--> ms of its 20 ms and restarts; the other loads
+  recover to 48 V.
+* Mis-graded: the main switch opens 1 ms after the short and the whole bus
+  is lost; branch B never trips.
+* *Ask:* "Why does the main timer run longer than the branch's clearing
+  time?" (the bus capacitor recharges after the branch opens).
+
+### O3. A 100 A / 10 µs overcurrent switch at the start of a harness: a short at the far end. What current does it turn off, and where does the energy go? (L2)
+
+**Expected answer**
+* During the delay the current rises at ≈ VB/L_loop (48 V / 10 µH ≈
+  5 A/µs) until the switch opens: the peak is IMAX + dI/dt·(TOC + sense
+  delay), here ~145 A, not 100 A.
+* At turn-off the loop inductance keeps the current flowing; the voltage
+  across the switch rises until something conducts: the switch's **active
+  clamp** (or an avalanche, a TVS, a freewheel diode). The inductor
+  demagnetises against VCLAMP − VB, so the clamp absorbs more than the
+  ½·L·I² stored: E ≈ ½·L·I²·VCLAMP/(VCLAMP − VB).
+* A higher clamp voltage demagnetises faster and dissipates less, but needs a
+  higher-voltage switch and stresses the components at OUT; a clamp below the
+  supply would conduct continuously.
+* Without a clamp the voltage is set only by the capacitance at the output:
+  kV in a few µs.
+
+**Follow-ups**
+* "Why not make TOC zero?" A shorter delay lowers the peak but trips on
+  inrush; that is what an I²t layer or a current-dependent delay solves.
+* "Which clamp energy do you use for the switch's rating?" The worst case:
+  the highest peak current (longest TOC with tolerance, lowest loop
+  inductance, highest supply voltage), checked against the switch's single-pulse
+  avalanche or clamp rating at the hot junction temperature.
+
+**Red flags:** assumes the switch interrupts IMAX; forgets the energy of the
+harness inductance; sets the clamp below the maximum supply voltage.
+
+**Simulation:** [`oc03`](../testbenches/oc03_inductive_clamp.cir), 48 V,
+VCLAMP 60 / 80 / 100 V and no clamp: a 1 mH load switched off by EN, and a
+hard short through 10 µH.
+
+![oc03](../docs/img/oc03_inductive_clamp.png)
+
+* The short reaches <!--v {m('oc03_inductive_clamp','ipk_2'):.0f}-->145<!--/v--> A before the switch opens; with an
+  80 V clamp the switch then absorbs <!--v {m('oc03_inductive_clamp','e_2',1)*1e3:.0f}-->216<!--/v--> mJ.
+* Without a clamp the switch sees <!--v {m('oc03_inductive_clamp','vpk_2',3):.0f}-->1497<!--/v--> V (short) and
+  <!--v {m('oc03_inductive_clamp','vpk_1',3):.0f}-->2005<!--/v--> V (1 mH load).
+* *Ask:* "The 1 mH load stores 0.2 J; why does the 80 V clamp absorb
+  <!--v {m('oc03_inductive_clamp','e_1',1):.2f}-->0.26<!--/v--> J?" (the supply keeps feeding the load through the clamp while
+  the current decays).
+
+---
+
 ## I. Design exercise (whiteboard, 20–30 min)
 
 **Task to give the candidate:**
@@ -2517,6 +2654,7 @@ numbers, 3 = can lead and teach it).
 | Functional safety and firmware interaction | G | | |
 | Validation strategy, measurement, supply test pulses, models from datasheets | H | | |
 | Wiring harness and wire protection | W | | |
+| Overcurrent switches and grading | O | | |
 | Design exercise | I | | |
 | Debug reasoning | J | | |
 

@@ -1,5 +1,5 @@
 """Generate the LTspice symbols (.asy) for the behavioral models (eFuse, battery, DC/DC, wire,
-test pulses, fault injection)
+test pulses, fault injection, overcurrent switch)
 and the reference parameter sets.
 Writes identical copies to symbols/ (canonical), schematics/ and examples/ (so
 the demo and example schematics find them next to the .asc files)."""
@@ -129,6 +129,16 @@ fi_short = asy("FI_SHORT",
                ["LINE Normal -16 -32 8 -4", "LINE Normal 8 -4 -8 4", "LINE Normal -8 4 16 32",
                 "TEXT 0 40 Center 1 FIU short"])
 
+# overcurrent switch (models/OCSW_beh.lib)
+ocsw_pins = [("IN", -96, -16, "LEFT"), ("OUT", 96, -16, "RIGHT"), ("GND", 0, 64, "BOTTOM"),
+             ("EN", -96, 16, "LEFT"), ("FLT", 96, 16, "RIGHT")]
+ocsw = asy("OCSW",
+           "Overcurrent switch: opens when |I| > IMAX for TOC, latched (EN low resets) or auto-retry; "
+           "RON, active clamp, FLT output. Needs .include OCSW_beh.lib",
+           (-80, -48, 80, 48), ocsw_pins, "IMAX=10 TOC=1m RON=1m TRETRY=0 VCLAMP=80",
+           ["LINE Normal -48 -16 -16 -16", "LINE Normal -16 -16 16 -32", "LINE Normal 24 -16 48 -16",
+            "TEXT 0 16 Center 1 OC SWITCH"])
+
 for d in ("symbols", "schematics", "examples"):
     os.makedirs(os.path.join(ROOT, d), exist_ok=True)
     write_if_changed(os.path.join(ROOT, d, "VNF1048F.asy"), vnf)
@@ -144,4 +154,5 @@ for d in ("symbols", "schematics", "examples"):
     write_if_changed(os.path.join(ROOT, d, "BAT48_A123_8AH.asy"), a123)
     write_if_changed(os.path.join(ROOT, d, "DCDC_TOSHIBA_RD210.asy"), rd210)
     write_if_changed(os.path.join(ROOT, d, "FI_SHORT.asy"), fi_short)
+    write_if_changed(os.path.join(ROOT, d, "OCSW.asy"), ocsw)
 print("symbols written")

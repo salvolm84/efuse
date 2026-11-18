@@ -1,0 +1,78 @@
+* oc04_system_selectivity.cir
+* ---------------------------------------------------------------------------
+* System: time grading of overcurrent switches on a 48 V bus. A 48 V battery
+* (BATTERY, 10 Ah class, R0 15 mOhm) feeds a main switch XM (IMAX = 150 A)
+* and a 470 uF bus; three branch switches (IMAX = 40 A, TOC = 2 ms) feed
+* their loads through 2 m of 4 mm2 wire (WIRE):
+*   A  20 A resistive
+*   B  15 A resistive; a 20 mOhm short at the load end at 20 ms (FI_SHORT)
+*   C  1 mF (ESR 30 mOhm) || 10 A, switched on by EN at 5 ms (inrush)
+*   CASE 0: main TOC = 20 ms (graded: 10 x the branch time)
+*   CASE 1: main TOC = 1 ms  (mis-graded: faster than the branch)
+* Expected:
+*   inrush of C: peak current >> IMAX, but above IMAX for only
+*     ~ tau ln(I_pk/IMAX) (tau = R C ~ 60 us) << TOC: no trip anywhere
+*   CASE 0: only B trips, TOC_B + sense delay after the short (the short
+*     current ~ 48 V / 50 mOhm ~ 1 kA is far above IMAX); the main timer
+*     runs for that time (~2 ms < 20 ms) and restarts; A and C keep their
+*     supply (load voltage back at ~47 V)
+*   CASE 1: the main switch trips 1 ms after the short, before B; B's timer
+*     stops when the current is gone, B never trips; the whole bus is lost
+* Max step 1 us (trip instants resolved to 1 us).
+* ---------------------------------------------------------------------------
+.include ../models/OCSW_beh.lib
+.include ../models/BATTERY_beh.lib
+.include ../models/HARNESS_beh.lib
+.include ../models/FAULTS_beh.lib
+.param CASE=0
+.param TM={if(CASE<0.5, 20m, 1m)}
+
+Xbat bat 0 soc BATTERY VNOM=48 SOC0=0.8
+XM bat bus 0 en fltm OCSW IMAX=150 TOC={TM}
+Cbus bus 0 470u Rser=20m
+
+XA bus a1 0 en flta OCSW IMAX=40 TOC=2m
+XWA a1 la ta 0 WIRE LEN=2 CSA=4
+Rla la 0 2.35
+
+XB bus b1 0 en fltb OCSW IMAX=40 TOC=2m
+XWB b1 lb tb 0 WIRE LEN=2 CSA=4
+Rlb lb 0 3.15
+XFB lb 0 FI_SHORT ID=1 FID=1 RF=20m TF=20m
+
+XC bus c1 0 enc fltc OCSW IMAX=40 TOC=2m
+XWC c1 lc tc 0 WIRE LEN=2 CSA=4
+Rlc lc 0 4.7
+Clc lc 0 1m Rser=30m
+
+Ven en 0 3.3
+Venc enc 0 PWL(0 0 5m 0 5.000001m 3.3)
+
+.save V(bat) V(bus) V(la) V(lb) V(lc) I(xm:Vs) I(xa:Vs) I(xb:Vs) I(xc:Vs)
++ V(fltm) V(flta) V(fltb) V(fltc) V(xm:tm) V(xb:tm) V(xc:tm) V(xc:isf) V(xm:isf) V(xb:isf)
+.meas tran va0   avg V(la) from 3m to 4.9m
+.meas tran ia0   avg I(xa:Vs) from 3m to 4.9m
+.meas tran ic_pk max I(xc:Vs) from 5m to 6m
+.meas tran im_pk max I(xm:Vs) from 5m to 6m
+.meas tran tin_c trig V(xc:isf)=40 rise=1 targ V(xc:isf)=40 fall=1
+.meas tran tin_m trig V(xm:isf)=150 rise=1 targ V(xm:isf)=150 fall=1
+.meas tran tmc   max V(xc:tm) from 5m to 19m
+.meas tran ic1   avg I(xc:Vs) from 15m to 19m
+.meas tran ib_sc find I(xb:Vs) at 20.5m
+.meas tran im_sc find I(xm:Vs) at 20.5m
+.meas tran txb   find time when V(xb:isf)=40 rise=1
+.meas tran txm   find time when V(xm:isf)=150 rise=2
+.meas tran tfb   find time when V(fltb)=1.65 rise=1
+.meas tran tfm   find time when V(fltm)=1.65 rise=1
+.meas tran fla   max V(flta) from 0 to 40m
+.meas tran flc   max V(fltc) from 0 to 40m
+.meas tran flm   max V(fltm) from 0 to 40m
+.meas tran flb   max V(fltb) from 0 to 40m
+.meas tran tmm   max V(xm:tm) from 19m to 40m
+.meas tran tmb   max V(xb:tm) from 19m to 40m
+.meas tran va1   avg V(la) from 35m to 40m
+.meas tran vc1   avg V(lc) from 35m to 40m
+.meas tran vbus1 avg V(bus) from 35m to 40m
+.step param CASE list 0 1
+.tran 0 40m 0 1u
+.end

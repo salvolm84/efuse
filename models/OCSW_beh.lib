@@ -1,0 +1,218 @@
+* ============================================================================
+*  OCSW_beh.lib  --  Behavioral LTspice model of a generic overcurrent switch
+*                    (an ideal-ish power switch with a definite-time
+*                    overcurrent trip: the hard-short part of an eFuse,
+*                    without its I2t curve)
+*
+*  Status    : generic, vendor-independent model for power-distribution and
+*              protection-coordination studies. The switch opens when its
+*              current stays above IMAX for at least TOC seconds; it stays
+*              open (latched) until EN is taken low, or retries after TRETRY.
+*              The defaults are engineering estimates flagged "[EST]" (see
+*              README.md, part 7). Use the eFuse model (VNF1048F_beh.lib)
+*              when the I2t curve, the gate drive or the FET matter.
+*  Simulator : LTspice (validated with LTspice 26.0.2; uses B-sources with
+*              if() and boolean operators; no idt(), no table(), no
+*              min()/max() in any feedback path)
+*
+*  Contents
+*    OCSW        overcurrent switch (power path IN -> OUT, logic EN / FLT
+*                referred to GND)                                      5 pins
+*    OC_LATCH / OC_FIX  helper primitives (SR latch, fault-hook level)
+*
+*  What is modeled (and why it matters at system level)
+*    * on-resistance RON and off-state leakage ROFF (drop, loss, leakage)
+*    * current sense with a first-order filter TSNS (the detection delay of a
+*      real comparator: what a fast short-circuit ramp overshoots by)
+*    * definite-time overcurrent trip: a timer that runs while the sensed
+*      current is above IMAX and restarts from zero when it drops below, so
+*      only an overcurrent that lasts TOC without interruption trips
+*      (inrush shorter than TOC passes; time grading between levels)
+*    * latch-off with FLT output; reset by EN low, or auto-retry (hiccup)
+*      after TRETRY
+*    * active clamp VCLAMP across the switch (inductive turn-off: where the
+*      energy of the harness and load inductance goes)
+*    * one or both current directions (DIR) for the trip; the switch itself
+*      conducts and blocks in both directions
+*    * built-in fault hook for FMEA (stuck-on / stuck-off), inactive by
+*      default
+*  Not modeled on purpose: an I2t / thermal trip curve (use EFUSE48_MOD),
+*  the switching transient (the switch changes state in one time step;
+*  with inductance in the loop the clamp sets the current fall), current
+*  limiting (the switch is either on or tripping), the FET's thermal
+*  network and SOA, body diode, under-voltage lockout, gate drive and
+*  charge pump, supply current of the controller, temperature dependence
+*  of RON and IMAX.
+*
+*  Node voltages used as signals (probe with V(<inst>:<node>)), all referred
+*  to the GND pin:
+*      isf   filtered sensed current [A] (|I| for DIR = 0, I for DIR = 1)
+*      oc    overcurrent comparator, 1 = isf > IMAX
+*      tm    overcurrent timer [s] (1 V = 1 s): rises at 1 V/s while oc,
+*            restarts from 0 when oc drops; trip at tm = TOC
+*      lat   trip latch, 1 = tripped (= FLT / VLOG)
+*      tr    retry timer [s] (1 V = 1 s), runs while latched if TRETRY > 0
+*      s     switch command, 1 = closed, 0 = open
+*      pd    power dissipated in the switch [W] (channel + clamp)
+*  I(<inst>:Vs) is the switch current (> 0 from IN to OUT), clamp included.
+* ============================================================================
+
+
+* ----------------------------------------------------------------------------
+*  OCSW  -- overcurrent switch
+*
+*  Pins: IN, OUT  power path (current > 0 from IN to OUT)
+*        GND      reference of the logic and of the internal signals
+*                 (no current flows into GND from the power path)
+*        EN       enable input, high (> VLOG/2) = on; internal 100 kOhm
+*                 pull-up to VLOG, so an unconnected EN means "always on".
+*                 Taking EN low opens the switch and clears a trip.
+*        FLT      fault output, VLOG through 100 Ohm when tripped, else 0 V
+*
+*  IN --[Vs]--+--[ g(s) = 1/ROFF + (1/RON - 1/ROFF) s ]--+-- OUT
+*             +--[ active clamp: (|V| - VCLAMP)/RCL ]-----+
+*
+*  Parameters:
+*    IMAX    10      overcurrent threshold [A]
+*    TOC     1m      overcurrent time [s]: the switch opens when the current
+*                    stays above IMAX for TOC without interruption
+*                    (TOC = 0: as fast as the sense filter, see TSNS)
+*    RON     1m      on-resistance [Ohm] [EST]
+*    ROFF    10Meg   off-state resistance (leakage) [Ohm] [EST]
+*    TSNS    100n    time constant of the current-sense filter [s] [EST]
+*    TRST    0       restart time constant of the overcurrent timer [s]
+*                    when the current drops below IMAX; 0 = TOC/100,
+*                    at most 1 us
+*    DIR     0       0: trip on |I| (both directions); 1: trip on I > IMAX
+*                    only (IN -> OUT; a reverse current never trips)
+*    TRETRY  0       0: latch until EN goes low; > 0: off time [s] after a
+*                    trip, then the switch closes again (hiccup)
+*    VCLAMP  80      active clamp voltage across the switch [V] (both
+*                    polarities) [EST]; 0 = no clamp. Must be above the
+*                    highest supply-to-load voltage in normal operation.
+*    RCL     0.1     dynamic resistance of the clamp [Ohm] [EST]
+*    VLOG    3.3     logic level of EN (threshold VLOG/2) and FLT [V]
+*    FI_ID, FI_ID2, FID, FI_MODE, FI_MODE2, FI_T, FI_TTR
+*                    built-in fault hook (FMEA simulation, README part 6):
+*                    active when the scenario number FID equals FI_ID (mode
+*                    FI_MODE) or FI_ID2 (mode FI_MODE2), from FI_T in FI_TTR:
+*                      mode 1  stuck-on: the switch stays closed (RON)
+*                              whatever the control does; FLT still reports
+*                              the trip
+*                      mode 2  stuck-off: the switch opens (ROFF)
+*
+*  Trip time for a current step from I0 to I1 (> IMAX) at t = 0:
+*    t_trip = TSNS ln((I1 - I0)/(I1 - IMAX)) + TOC
+*  (the switch then opens within one time step). For a current ramp dI/dt the sensed
+*  current lags by ~TSNS, so the current at the trip is
+*    I_trip ~ IMAX + dI/dt (TSNS + TOC)
+*  and the peak current of a hard short is set by TOC and the loop
+*  inductance, not by IMAX.
+*
+*  Analyses: .tran; .ac (the switch state is frozen at its DC value: RON
+*  if EN is high, ROFF if low). In the DC operating point the switch is
+*  closed if EN is high and the timers are 0; an overcurrent present at
+*  t = 0 starts the timer at t = 0 (the latch cannot set in the DC solve).
+* ----------------------------------------------------------------------------
+.subckt OCSW IN OUT GND EN FLT
++ IMAX=10 TOC=1m RON=1m ROFF=10Meg TSNS=100n TRST=0 DIR=0
++ TRETRY=0 VCLAMP=80 RCL=0.1 VLOG=3.3
++ FI_ID=0 FI_ID2=0 FID=0 FI_MODE=1 FI_MODE2=1 FI_T=10m FI_TTR=1u
+
+.param TOCE  = {max(TOC, 1n)}
+.param TRSTE = {if(TRST>0, TRST, min(1u, TOCE/100))}
+.param GON   = {1/RON}
+.param GOFF  = {1/ROFF}
+.param DIRF  = {if(DIR>0.5, 1, 0)}
+.param RTA   = {if(TRETRY>0, 1, 0)}
+.param TRE   = {if(TRETRY>0, TRETRY, 1e9)}
+.param CLA   = {if(VCLAMP>0, 1, 0)}
+.param VCLE  = {if(VCLAMP>0, VCLAMP, 1e6)}
+*  fault hook: FIA1 = stuck-on active, FIA2 = stuck-off active
+.param FIA  = {(FI_ID>0 & abs(FID-FI_ID)<0.5) | (FI_ID2>0 & abs(FID-FI_ID2)<0.5)}
+.param FIM  = {if(FI_ID>0 & abs(FID-FI_ID)<0.5, FI_MODE, if(FI_ID2>0 & abs(FID-FI_ID2)<0.5, FI_MODE2, 0))}
+.param FIA1 = {FIA*(FIM==1)}
+.param FIA2 = {FIA*(FIM==2)}
+
+* ---------------- power path -------------------------------------------------
+*  Vs senses the total current. The channel conductance is 1/RON or 1/ROFF
+*  by the switch command s; the fault hook moves the effective state to 1
+*  (stuck-on) or 0 (stuck-off). The hook factors are constant parameters,
+*  so an inactive hook has exactly zero derivatives (README part 6).
+Vs  IN n1 0
+Bsw n1 OUT I=V(n1,OUT)*({GOFF} + {GON-GOFF}*(V(s,GND)
++  + {FIA1}*V(fix,GND)*(1-V(s,GND)) - {FIA2}*V(fix,GND)*V(s,GND)))
+*  active clamp: conducts (|V| - VCLAMP)/RCL above VCLAMP, in both
+*  polarities; exactly zero (and zero derivatives) when VCLAMP = 0
+Bcl n1 OUT I={CLA/RCL}*(V(n1,OUT) - limit(V(n1,OUT), -{VCLE}, {VCLE}))
+
+* ---------------- enable and fault output ------------------------------------
+Bvl vl GND V={VLOG}
+Rpu vl EN 100k
+Ben enl GND V=V(EN,GND)>{VLOG/2}
+Bfo fo GND V={VLOG}*V(lat,GND)
+Rfo fo FLT 100
+
+* ---------------- current sense and overcurrent timer -------------------------
+*  isf: sensed current through a first-order filter (TSNS)
+Bis is GND V={DIRF}*I(Vs) + {1-DIRF}*abs(I(Vs))
+Rsf is isf 1k
+Csf isf GND {TSNS/1k}
+Boc oc GND V=V(isf,GND)>{IMAX}
+*  tm: one monotonic timer state [s] on a normalized 1 F capacitor (no
+*  idt(), no feedback through a deglitch filter): rises at exactly 1 V/s
+*  while oc, restarts with TRST when oc drops; 0 in the DC operating point
+Ctm tm GND 1 Rpar=1T
+Btm GND tm I=if(time<=0, -V(tm,GND)*1k,
++  if(V(oc,GND)>0.5, 1, -V(tm,GND)/{TRSTE}))
+Bts ts GND V=V(tm,GND)>={TOCE}
+
+* ---------------- trip latch, reset and retry ---------------------------------
+*  reset: EN low, or the retry timer has run TRETRY while latched
+Ctr tr GND 1 Rpar=1T
+Btr GND tr I=if(time<=0, -V(tr,GND)*1k,
++  if(V(lat,GND)>0.5, {RTA}, -V(tr,GND)/{TRSTE}))
+Brs rst GND V=(V(enl,GND)<0.5) | (V(tr,GND)>={TRE})
+Xl ts rst lat GND OC_LATCH DCS=0
+
+* ---------------- switch state ------------------------------------------------
+*  s = 1 (closed) or 0 (open), a boolean of the logic: the switch changes
+*  state within one time step. Deliberately no state variable: a dynamic
+*  switch state (a ramp or lag of TSW ~ 1 us) stays coupled into the power
+*  path through dI/ds = V(IN,OUT)/RON while it settles, and collapsed the
+*  trapezoidal time step to ~10 ps in multi-instance netlists (README 7.9).
+*  A boolean has zero derivative.
+Bs s GND V=(V(enl,GND)>0.5) & (V(lat,GND)<0.5)
+
+* ---------------- dissipation -------------------------------------------------
+Bpd pd GND V=V(IN,OUT)*I(Vs)
+
+* ---------------- built-in fault hook -----------------------------------------
+Xfi fix GND OC_FIX ID={FI_ID} ID2={FI_ID2} FID={FID} TF={FI_T} TTR={FI_TTR}
+.ends OCSW
+
+
+* ----------------------------------------------------------------------------
+*  Helper primitives (logic levels 0/1 V referred to local GND)
+* ----------------------------------------------------------------------------
+*  OC_FIX -- fault level of the built-in fault hook: 0 V, or 0 .. 1 V from
+*  TF (in TTR) when the scenario number FID equals ID or ID2 (as FI_X of
+*  models/FAULTS_beh.lib, which this library does not need). No breakpoint
+*  source inside a device model (README, numerical guidance).
+.subckt OC_FIX X GND ID=0 ID2=0 FID=0 TF=10m TTR=1u
+.param ACT = {(ID>0 & abs(FID-ID)<0.5) | (ID2>0 & abs(FID-ID2)<0.5)}
+Bx X GND V={ACT}*limit((time-{TF})/{TTR}, 0, 1)
+Rx X GND 1G
+.ends OC_FIX
+
+*  Set-dominant SR latch (as EF_LATCH). Regenerative hold, Q snaps to 0 or 1
+*  in ~10 ns; forced to reset in the DC operating point unless S is active.
+*  DCS=0: S cannot set it in the DC operating point either (the trip removes
+*  its own cause, so a fault at t = 0 would leave no consistent DC solution;
+*  it latches at the first time step instead).
+.subckt OC_LATCH S R Q GND DCS=1
+Bl GND Q I=if(V(S,GND)>0.5 & (time>0 | {DCS}>0.5), 1-V(Q,GND),
++  if(V(R,GND)>0.5 | time<=0, -V(Q,GND), if(V(Q,GND)>0.5, 1-V(Q,GND), -V(Q,GND))))
+Cl Q GND 10n
+Rl Q GND 1T
+.ends OC_LATCH
