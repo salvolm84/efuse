@@ -552,6 +552,7 @@ efuse/
     ├── plot_results.py           regenerates docs/img/*.png
     ├── validate.py               checks the results and their integrity, regenerates docs/VALIDATION.md
     ├── lint_models.py            static checks: subckt/symbol pins, instance nodes and parameters, includes
+    ├── check_layout.py           overlapping text and labels in the symbols and schematics (--png renders them)
     ├── fmea.py, fmea_report.py   FMEA tables -> checks and docs/fmea/<bench>.md
     ├── sync_docs.py              keeps the simulated numbers quoted in the docs up to date
     ├── make_symbols.py           regenerates the .asy symbols
@@ -571,6 +572,7 @@ python3 tools/sync_docs.py                                     # updates the num
 python3 tools/plot_results.py                                  # -> docs/img/*.png
 python3 tools/fmea_report.py                                   # -> docs/fmea/<bench>.md
 python3 tools/lint_models.py                                   # static checks, no simulation
+python3 tools/check_layout.py                                  # no overlapping text in symbols and schematics
 ```
 
 * **Checks.** `validate.py` runs <!--v {m('summary','checks_total'):.0f}-->525<!--/v--> checks against datasheets, model equations,
@@ -753,7 +755,8 @@ Follow the pattern of the battery and DC/DC models:
    with `DCS=0`.
 2. **Symbol**: add it to `tools/make_symbols.py` and its pin coordinates to
    `PINS` in `tools/make_schematics.py`; run both. `tools/lint_models.py` checks
-   that the pins match the subckt.
+   that the pins match the subckt, `tools/check_layout.py` that no text of the
+   symbol or of a schematic using it overlaps another text, a pin or a wire.
 3. **Test benches** `testbenches/<dev>NN_*.cir`: a header with the scenario and
    the expected behaviour, `.meas` for every number you will quote (internal
    nodes must be in `.save`), at least one multi-instance bench.
@@ -774,6 +777,18 @@ Follow the pattern of the battery and DC/DC models:
 ## Changelog
 
 Changes that alter simulation results are marked **(results)**.
+
+* **2026-11-18, symbol and schematic layout.** No more overlapping text in
+  the symbols, demo schematics and `ex01`: attribute windows moved off the
+  pins (below-left of the bottom pin, or beside two-pin sources), top and
+  bottom pin names inside the box, redundant pin names hidden (P/N, A/B, the
+  wire's and the NTC's), the DC/DC and NTC artwork no longer crosses their
+  text; in the schematics every net label sits on a wire stub or a rail
+  segment, part labels beside the body, source values spaced by their width,
+  directives in non-overlapping columns. New `tools/check_layout.py`
+  estimates every text box as LTspice places it and reports overlaps (CI runs
+  it). Same circuits (netlists compared with LTspice: only auto-generated
+  node names differ); the schematic benches were re-run.
 
 * **2026-11-17, new device: overcurrent switch.** `models/OCSW_beh.lib`
   (`OCSW`): a switch that opens when its current stays above `IMAX` for

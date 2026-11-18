@@ -10,15 +10,23 @@ from make_schematics import write_if_changed
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def asy(name, desc, box, pins, spiceline, texts=()):
+def asy(name, desc, box, pins, spiceline, texts=(), win="below", pin_names=True):
+    """win: where the attribute windows go, clear of the pins and of the wires
+    that leave them: "below" = under the box, right-aligned left of the bottom
+    centre pin (and of the ground symbol on it); "right" = beside the box, for
+    sources with pins at the top and bottom only."""
     x0, y0, x1, y1 = box
     L = ["Version 4", "SymbolType CELL",
          f"RECTANGLE Normal {x0} {y0} {x1} {y1}"]
     for t in texts:
         L.append(t)
-    L += [f"WINDOW 0 {x0} {y0 - 8} Left 2", f"WINDOW 3 {x0} {y1 + 8} Left 2",
-          f"WINDOW 39 {x0} {y1 + 40} Left 1",
-          f"SYMATTR Value {name}", "SYMATTR Prefix X",
+    if win == "right":
+        L += [f"WINDOW 0 {x1 + 12} -24 Left 2", f"WINDOW 3 {x1 + 12} 4 Left 2",
+              f"WINDOW 39 {x1 + 12} 28 Left 1"]
+    else:
+        L += [f"WINDOW 0 -28 {y1 + 20} Right 2", f"WINDOW 3 -28 {y1 + 48} Right 2",
+              f"WINDOW 39 -28 {y1 + 72} Right 1"]
+    L += [f"SYMATTR Value {name}", "SYMATTR Prefix X",
           f"SYMATTR SpiceLine {spiceline}",
           f"SYMATTR Description {desc}"]
     for k, (pn, x, y, side) in enumerate(pins, 1):
@@ -31,7 +39,11 @@ def asy(name, desc, box, pins, spiceline, texts=()):
             L.append(f"LINE Normal {x} {y} {x} {y - 16}")
         else:
             L.append(f"LINE Normal {x} {y} {x} {y + 16}")
-        L += [f"PIN {x} {y} {side} {20 if side in ('LEFT', 'RIGHT') else 12}", f"PINATTR PinName {pn}", f"PINATTR SpiceOrder {k}"]
+        # pin names inside the box: 20 from a side pin, 24 from a top/bottom
+        # pin (16 of stub + 8), so the name never crosses the box edge
+        off = 20 if side in ("LEFT", "RIGHT") else 24
+        L += [f"PIN {x} {y} {side if pin_names else 'NONE'} {off if pin_names else 0}",
+              f"PINATTR PinName {pn}", f"PINATTR SpiceOrder {k}"]
     return "\n".join(L) + "\n"
 
 
@@ -62,7 +74,8 @@ mod = asy("EFUSE48_MOD",
 
 ntc_pins = [("A", -64, 0, "LEFT"), ("B", 64, 0, "RIGHT"), ("T", 0, -48, "TOP"), ("GND", 0, 48, "BOTTOM")]
 ntc = asy("NTC10K_ST", "10k NTC thermistor (fit to VNF1048F NTC thresholds); T = temperature node [degC]",
-          (-48, -32, 48, 32), ntc_pins, "", ["TEXT 0 0 Center 1 NTC 10k", "LINE Normal -40 24 40 -24"])
+          (-48, -32, 48, 32), ntc_pins, "", ["TEXT -20 -12 Center 1 NTC", "TEXT 22 12 Center 1 10k", "LINE Normal -40 24 40 -24",
+                                             "TEXT 8 -40 Left 1 T"], pin_names=False)
 ntc = ntc.replace("SYMATTR SpiceLine \n", "")
 
 bat_pins = [("P", 0, -80, "TOP"), ("N", 0, 80, "BOTTOM"), ("SOC", 80, 0, "RIGHT")]
@@ -70,7 +83,8 @@ bat = asy("BATTERY",
           "Behavioral automotive battery (12/24/48 V class): OCV(SOC), R0 + 2 RC + L, charge counting. Needs .include BATTERY_beh.lib",
           (-64, -64, 64, 64), bat_pins, "VNOM=12 SOC0=0.8 TBAT=25",
           ["LINE Normal -32 -24 32 -24", "LINE Normal -16 -8 16 -8", "LINE Normal -32 8 32 8",
-           "LINE Normal -16 24 16 24", "TEXT 40 -40 Left 1 +", "TEXT 0 44 Center 1 BATTERY"])
+           "LINE Normal -16 24 16 24", "TEXT 40 -40 Left 1 +", "TEXT 0 44 Center 1 BATTERY",
+           "TEXT 56 0 Right 1 SOC"], pin_names=False)
 
 bms_pins = [("P", 0, -96, "TOP"), ("N", 0, 96, "BOTTOM"), ("SOC", 112, -32, "RIGHT"),
             ("EN", -112, 0, "LEFT"), ("FLT", 112, 32, "RIGHT")]
@@ -78,34 +92,36 @@ bms = asy("BATTERY_BMS",
           "Battery pack with BMS: BATTERY + disconnect switch, OV/UV/OC/SC protection, pre-charge. Needs .include BATTERY_beh.lib",
           (-96, -80, 96, 80), bms_pins, "VNOM=48 SOC0=0.8 TBAT=25 T_PRE=0",
           ["LINE Normal -32 -40 32 -40", "LINE Normal -16 -24 16 -24", "LINE Normal -32 -8 32 -8",
-           "LINE Normal -16 8 16 8", "TEXT 0 36 Center 2 Battery + BMS"])
+           "LINE Normal -16 8 16 8", "TEXT -8 44 Center 1 Battery + BMS"])
 
 dc_pins = [("VIN", -128, -32, "LEFT"), ("VOUT", 128, -32, "RIGHT"), ("GND", 0, 96, "BOTTOM"),
            ("EN", -128, 32, "LEFT"), ("PG", 128, 32, "RIGHT")]
 dcdc = asy("DCDC48_12",
            "700 W 48/12 V buck converter, averaged behavioral model (regulation, current limit, hiccup, UVLO/OVP, losses). Needs .include DCDC48_12_beh.lib",
            (-112, -80, 112, 80), dc_pins, "VSET=14 PRATED=700 DCRUN=0",
-           ["TEXT 0 -24 Center 2 48V -> 12V", "TEXT 0 8 Center 1 DC/DC 700 W", "LINE Normal -64 40 64 -40"])
+           ["TEXT 0 -40 Center 2 48V -> 12V", "TEXT 0 -12 Center 1 DC/DC 700 W", "LINE Normal -40 56 40 16"])
 
 wire_pins = [("A", -80, 0, "LEFT"), ("B", 80, 0, "RIGHT"), ("T", 0, -48, "TOP"), ("GND", 0, 48, "BOTTOM")]
 wire = asy("WIRE",
            "Wiring-harness wire segment: R(T) + contact R + loop L, conductor temperature T [degC] ref. to GND. Needs .include HARNESS_beh.lib",
            (-64, -32, 64, 32), wire_pins, "LEN=1 CSA=2.5 TAMB=25",
-           ["LINE Normal -48 0 48 0", "TEXT 0 -16 Center 1 WIRE", "TEXT 24 -40 Left 1 T", "TEXT 0 16 Center 1 R(T), L"])
+           ["LINE Normal -48 0 48 0", "TEXT 0 -16 Center 1 WIRE", "TEXT 8 -40 Left 1 T", "TEXT 0 16 Center 1 R(T), L"],
+           pin_names=False)
 
 # reference parameter sets (models/REFERENCE_SETS_beh.lib): base-model pins
 REF_INC = "Needs .include BATTERY_beh.lib, DCDC48_12_beh.lib (as used) and REFERENCE_SETS_beh.lib"
 varta = asy("BAT12_VARTA_E39", "12 V 70 Ah AGM, Varta Silver Dynamic AGM E39 (fitted to public data). " + REF_INC,
             (-64, -64, 64, 64), bat_pins, "SOC0=0.8 TBAT=25",
             ["LINE Normal -32 -24 32 -24", "LINE Normal -16 -8 16 -8", "LINE Normal -32 8 32 8",
-             "LINE Normal -16 24 16 24", "TEXT 40 -40 Left 1 +", "TEXT 0 44 Center 1 VARTA E39"])
+             "LINE Normal -16 24 16 24", "TEXT 40 -40 Left 1 +", "TEXT 0 44 Center 1 VARTA E39",
+             "TEXT 56 0 Right 1 SOC"], pin_names=False)
 a123 = asy("BAT48_A123_8AH", "48 V 8 Ah LiFePO4 pack with BMS, A123 (SAE 2018-01-0433, fitted). " + REF_INC,
            (-96, -80, 96, 80), bms_pins, "SOC0=0.5 TBAT=25 T_PRE=0",
            ["LINE Normal -32 -40 32 -40", "LINE Normal -16 -24 16 -24", "LINE Normal -32 -8 32 -8",
-            "LINE Normal -16 8 16 8", "TEXT 0 36 Center 2 A123 48V 8Ah"])
+            "LINE Normal -16 8 16 8", "TEXT -8 44 Center 1 A123 48V 8Ah"])
 rd210 = asy("DCDC_TOSHIBA_RD210", "3 kW 48/12 V converter, Toshiba RD210 reference design (fitted). " + REF_INC,
             (-112, -80, 112, 80), dc_pins, "VSET=12 DCRUN=0",
-            ["TEXT 0 -24 Center 2 48V -> 12V", "TEXT 0 8 Center 1 RD210 3 kW", "LINE Normal -64 40 64 -40"])
+            ["TEXT 0 -40 Center 2 48V -> 12V", "TEXT 0 -12 Center 1 RD210 3 kW", "LINE Normal -40 56 40 16"])
 
 # test-pulse sources (models/PULSES_beh.lib): two pins, P (+) at the top
 tp_pins = [("P", 0, -64, "TOP"), ("N", 0, 64, "BOTTOM")]
@@ -117,7 +133,8 @@ TP = {"TP_STEP": ("level change UB -> U1 -> UB (jump start, over-voltage, drop, 
       "TP_RIPPLE": ("ISO 16750-2 superimposed AC, log sweep", "UB=15.5 UPP=1 FMIN=50 FMAX=25k TSW=60", "RIPPLE")}
 tp_syms = {n: asy(n, f"Test-pulse source: {d}; Value may be set to a preset of PULSES_beh.lib with the same pins. "
                   "Needs .include PULSES_beh.lib", (-48, -48, 48, 48), tp_pins, line,
-                  ["CIRCLE Normal -32 -32 32 32", f"TEXT 0 0 Center 1 {lab}", "TEXT 8 -40 Left 1 +"])
+                  ["CIRCLE Normal -32 -32 32 32", f"TEXT 0 0 Center 1 {lab}", "TEXT 8 -40 Left 1 +"],
+                  win="right", pin_names=False)
            for n, (d, line, lab) in TP.items()}
 
 # fault injection (models/FAULTS_beh.lib): a short / leakage between A and B
@@ -127,7 +144,7 @@ fi_short = asy("FI_SHORT",
                "Needs .include FAULTS_beh.lib",
                (-48, -48, 48, 48), fi_pins, "ID=1 FID=1 RF=10m TF=1m TTR=1u",
                ["LINE Normal -16 -32 8 -4", "LINE Normal 8 -4 -8 4", "LINE Normal -8 4 16 32",
-                "TEXT 0 40 Center 1 FIU short"])
+                "TEXT 0 40 Center 1 FIU short"], win="right", pin_names=False)
 
 # overcurrent switch (models/OCSW_beh.lib)
 ocsw_pins = [("IN", -96, -16, "LEFT"), ("OUT", 96, -16, "RIGHT"), ("GND", 0, 64, "BOTTOM"),

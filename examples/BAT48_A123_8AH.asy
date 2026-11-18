@@ -5,20 +5,20 @@ LINE Normal -32 -40 32 -40
 LINE Normal -16 -24 16 -24
 LINE Normal -32 -8 32 -8
 LINE Normal -16 8 16 8
-TEXT 0 36 Center 2 A123 48V 8Ah
-WINDOW 0 -96 -88 Left 2
-WINDOW 3 -96 88 Left 2
-WINDOW 39 -96 120 Left 1
+TEXT -8 44 Center 1 A123 48V 8Ah
+WINDOW 0 -28 100 Right 2
+WINDOW 3 -28 128 Right 2
+WINDOW 39 -28 152 Right 1
 SYMATTR Value BAT48_A123_8AH
 SYMATTR Prefix X
 SYMATTR SpiceLine SOC0=0.5 TBAT=25 T_PRE=0
 SYMATTR Description 48 V 8 Ah LiFePO4 pack with BMS, A123 (SAE 2018-01-0433, fitted). Needs .include BATTERY_beh.lib, DCDC48_12_beh.lib (as used) and REFERENCE_SETS_beh.lib
 LINE Normal 0 -96 0 -80
-PIN 0 -96 TOP 12
+PIN 0 -96 TOP 24
 PINATTR PinName P
 PINATTR SpiceOrder 1
 LINE Normal 0 96 0 80
-PIN 0 96 BOTTOM 12
+PIN 0 96 BOTTOM 24
 PINATTR PinName N
 PINATTR SpiceOrder 2
 LINE Normal 112 -32 96 -32

@@ -22,6 +22,8 @@ jobs:
         run: pip install -r requirements.txt
       - name: Static checks of the models, symbols and benches
         run: python3 tools/lint_models.py
+      - name: No overlapping text in the symbols and schematics
+        run: python3 tools/check_layout.py
       - name: Generated symbols, schematics and examples are up to date
         run: |
           python3 tools/make_symbols.py
